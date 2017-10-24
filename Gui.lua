@@ -243,7 +243,7 @@
 
 
 -- Modules
-local moduleFolder = ('.'..(...)) :gsub('%.init$', '')
+local moduleFolder = ('.'..(...)) :gsub('%.%w+$', '')
 local class      = require((moduleFolder..'.class'):sub(2))
 local InputField = require((moduleFolder..'.InputField'):sub(2))
 
