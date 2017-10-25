@@ -12,6 +12,7 @@
 --=  TODO:
 --=  - Make scrollbar handles draggable.
 --=  - Make pageup/pagedown/home/end work in scrollables.
+--=  - Don't draw things that are offscreen.
 --=  - Percentage sizes for elements.
 --=  - Remove class module dependance?
 --=
@@ -337,7 +338,7 @@ local reverseArray
 local round
 local setMouseFocus, setKeyboardFocus
 local setScissor
-local themeCallBack, themeGet, themeRender, themeRenderArea, themeGetSize
+local themeCallBack, themeGet, themeRender, themeRenderArea, themeRenderOnScreen, themeGetSize
 local trigger
 local updateHoveredElement, validateNavigationTarget
 local updateLayout, updateLayoutIfNeeded, scheduleLayoutUpdateIfDisplayed
@@ -955,14 +956,19 @@ end
 
 -- themeRenderArea( element, what, areaX, areaY, areaWidth, areaHeight, extraArgument... )
 function themeRenderArea(el, what, areaX, areaY, areaW, areaH, ...)
+	local x = round(el._layoutX+el._layoutOffsetX+areaX)
+	local y = round(el._layoutY+el._layoutOffsetY+areaY)
+	return themeRenderOnScreen(el, what, x, y, areaW, areaH, ...)
+end
+
+-- themeRenderOnScreen( element, what, x, y, w, h, extraArgument... )
+function themeRenderOnScreen(el, what, x, y, w, h, ...)
 	local gui = el._gui
 
 	LG.push('all')
-	LG.translate(
-		round(el._layoutX+el._layoutOffsetX+areaX),
-		round(el._layoutY+el._layoutOffsetY+areaY))
+	LG.translate(x, y)
 
-	themeCallBack(gui, 'draw', what, el, areaW, areaH, ...)
+	themeCallBack(gui, 'draw', what, el, w, h, ...)
 	if gui._elementScissorIsSet then
 		setScissor(gui, nil)
 		gui._elementScissorIsSet = false
@@ -2484,31 +2490,29 @@ end
 
 -- _drawTooltip( )
 function Cs.element:_drawTooltip()
+
 	local gui = self._gui
+
 	local text = self._tooltip
 	if (text == '' or gui._tooltipTime < gui.TOOLTIP_DELAY) then
 		return
 	end
-	local padding = 3
-	local root, font = gui._root, gui._font
-	local w, h = getTextDimensions(font, text)
-	w, h = w+2*padding, h+2*padding
+
+	local root = gui._root
+
+	local font = gui._font
+	local textW, textH = getTextDimensions(font, text)
+
+	local w, h = themeGetSize(self, 'tooltip', textW, textH) -- @Speed: Get tooltip size when tooltip text changes.
+
 	local x = math.max(math.min(self._layoutX, root._width-w), 0)
 	local y = self._layoutY+self._layoutHeight
 	if y+h > root._height then
 		y = math.max(y-h-self._layoutHeight, 0)
 	end
 
-	-- Background
-	LG.setColor(255, 255, 255)
-	LG.rectangle('fill', x+1, y+1, w-2, h-2)
-	LG.setColor(0, 0, 0)
-	LG.rectangle('line', x+0.5, y+0.5, w-1, h-1)
-
-	-- Text
 	LG.setFont(font)
-	LG.setColor(0, 0, 0)
-	LG.print(text, x+padding, y+padding)
+	themeRenderOnScreen(self, 'tooltip', x, y, w, h, text, textW, textH, gui._tooltipTime-gui.TOOLTIP_DELAY)
 
 end
 
@@ -5680,6 +5684,9 @@ local INPUT_PADDING = 4
 local SCROLLBAR_WIDTH = 6
 local SCROLLBAR_MIN_LENGTH = 10
 
+local TOOLTIP_PADDING = 3
+local TOOLTIP_FADE_IN_TIME = 0.15
+
 defaultTheme = {
 
 	inputIndentation = INPUT_PADDING, -- Affects mouse interactions and input field scrolling.
@@ -5743,6 +5750,12 @@ defaultTheme = {
 		-- size.input( inputElement, _, valueHeight )
 		['input'] = function(input, _, valueHeight)
 			return 0, valueHeight+2*INPUT_PADDING -- Only the returned height is used.
+		end,
+
+		-- Tooltip.
+		-- size.tooltip( element, textWidth, textHeight )
+		['tooltip'] = function(el, textW, textH)
+			return textW+2*TOOLTIP_PADDING, textH+2*TOOLTIP_PADDING
 		end,
 
 	},
@@ -6025,6 +6038,24 @@ defaultTheme = {
 
 			LG.setColor(255, 255, 0, 255)
 			Gui.draw9PartScaled(x, y, w, h, NAV, unpack(NAV_QUADS))
+
+		end,
+
+		-- Tooltip.
+		-- draw.tooltip( element, width, height, text, textWidth, textHeight, timeVisible )
+		['tooltip'] = function(el, w, h, text, textW, textH, time)
+			local opacity = math.min(time/TOOLTIP_FADE_IN_TIME, 1)
+
+			-- Background
+			LG.setColor(255, 255, 255, 255*opacity)
+			LG.rectangle('fill', 1, 1, w-2, h-2)
+			LG.setLineWidth(1)
+			LG.setColor(0, 0, 0)
+			LG.rectangle('line', 0.5, 0.5, w-1, h-1)
+
+			-- Text
+			LG.setColor(0, 0, 0, 255*opacity)
+			LG.print(text, TOOLTIP_PADDING, TOOLTIP_PADDING)
 
 		end,
 
