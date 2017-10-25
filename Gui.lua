@@ -1094,7 +1094,7 @@ end
 function getContainerLayoutSizeValues(bar)
 	local staticW, dynamicW, highestW, highestDynamicW, expandablesX = 0, 0, 0, 0, 0
 	local staticH, dynamicH, highestH, highestDynamicH, expandablesY = 0, 0, 0, 0, 0
-	local currentMx, currentMy, sumMx, sumMy, first = 0, 0, 0, 0, true
+	local currentSx, currentSy, sumSx, sumSy, first = 0, 0, 0, 0, true
 	for _, child in ipairs(bar) do
 		if not (child._hidden or child._floating) then
 
@@ -1116,20 +1116,20 @@ function getContainerLayoutSizeValues(bar)
 				expandablesY = expandablesY+1
 			end
 
-			-- Margin
+			-- Spacing
 			if not first then
-				currentMx = math.max(currentMx, (child._marginLeft or child._marginHorizontal or child._margin))
-				currentMy = math.max(currentMy, (child._marginTop or child._marginVertical or child._margin))
+				currentSx = math.max(currentSx, (child._spacingLeft or child._spacingHorizontal or child._spacing))
+				currentSy = math.max(currentSy, (child._spacingTop or child._spacingVertical or child._spacing))
 			end
-			sumMx, sumMy = sumMx+currentMx, sumMy+currentMy
-			currentMx = (child._marginRight or child._marginHorizontal or child._margin)
-			currentMy = (child._marginBottom or child._marginVertical or child._margin)
+			sumSx, sumSy = sumSx+currentSx, sumSy+currentSy
+			currentSx = (child._spacingRight or child._spacingHorizontal or child._spacing)
+			currentSy = (child._spacingBottom or child._spacingVertical or child._spacing)
 			first = false
 
 		end
 	end
-	return staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentMx, sumMx,
-	       staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentMy, sumMy
+	return staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentSx, sumSx,
+	       staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy
 end
 
 
@@ -2303,7 +2303,7 @@ Cs.element = class('GuiElement', {
 	_callbacks = nil,
 	_gui = nil,
 	_layoutExpandablesX = 0, _layoutExpandablesY = 0,
-	_layoutInnerMarginsX = 0, _layoutInnerMarginsY = 0,
+	_layoutInnerSpacingsX = 0, _layoutInnerSpacingsY = 0,
 	_layoutInnerStaticWidth = 0, _layoutInnerStaticHeight = 0,
 	_layoutInnerWidth = 0, _layoutInnerHeight = 0,
 	_layoutOffsetX = 0, _layoutOffsetY = 0, -- sum of parent's scrolling
@@ -2319,10 +2319,10 @@ Cs.element = class('GuiElement', {
 	_floating = false, -- disables natural positioning in certain parents (e.g. bars)
 	_hidden = false,
 	_id = '',
-	_margin = 0, _marginVertical = nil, _marginHorizontal = nil,
-	_marginTop = nil, _marginRight = nil, _marginBottom = nil, _marginLeft = nil,
 	_originX = 0.0, _originY = 0.0, -- where in the parent to base x and y off
 	_sounds = nil,
+	_spacing = 0, _spacingVertical = nil, _spacingHorizontal = nil,
+	_spacingTop = nil, _spacingRight = nil, _spacingBottom = nil, _spacingLeft = nil,
 	_tags = nil,
 	_tooltip = '', _unprocessedTooltip = '',
 	_width = nil, _height = nil,
@@ -2365,10 +2365,10 @@ function Cs.element:init(gui, data, parent)
 	retrieve(self, data, '_floating')
 	retrieve(self, data, '_hidden')
 	retrieve(self, data, '_id')
-	retrieve(self, data, '_margin', '_marginVertical', '_marginHorizontal')
-	retrieve(self, data, '_marginTop', '_marginRight', '_marginBottom', '_marginLeft')
 	retrieve(self, data, '_originX', '_originY')
 	-- retrieve(self, data, '_sounds')
+	retrieve(self, data, '_spacing', '_spacingVertical', '_spacingHorizontal')
+	retrieve(self, data, '_spacingTop', '_spacingRight', '_spacingBottom', '_spacingLeft')
 	-- retrieve(self, data, '_tags')
 	-- retrieve(self, data, '_tooltip')
 	retrieve(self, data, '_width', '_height')
@@ -4267,17 +4267,17 @@ function Cs.hbar:_updateLayoutSize()
 
 	updateContainerChildLayoutSizes(self)
 
-	local staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentMx, sumMx,
-	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentMy, sumMy
+	local staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentSx, sumSx,
+	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy
 	      = getContainerLayoutSizeValues(self)
 
-	local innerW = (self._homogeneous and highestDynamicW*expandablesX or dynamicW)+staticW+sumMx
+	local innerW = (self._homogeneous and highestDynamicW*expandablesX or dynamicW)+staticW+sumSx
 
 	self._layoutInnerWidth  = (self._width  and self._width -2*self._padding or innerW)
 	self._layoutInnerHeight = (self._height and self._height-2*self._padding or highestH)
 
 	self._layoutInnerStaticWidth, self._layoutInnerStaticHeight = staticW, 0
-	self._layoutInnerMarginsX,    self._layoutInnerMarginsY     = sumMx, 0
+	self._layoutInnerSpacingsX,   self._layoutInnerSpacingsY    = sumSx, 0
 	self._layoutExpandablesX,     self._layoutExpandablesY      = expandablesX, expandablesY
 
 	updateContainerLayoutSize(self)
@@ -4293,7 +4293,7 @@ function Cs.hbar:_expandLayout(expandW, expandH)
 	-- Calculate amount of space for children to expand into (total or extra, whether homogeneous or not)
 	local totalSpaceX = 0
 	if expandW then
-		totalSpaceX = self._layoutInnerWidth-self._layoutInnerMarginsX
+		totalSpaceX = self._layoutInnerWidth-self._layoutInnerSpacingsX
 		if self._homogeneous then
 			totalSpaceX = totalSpaceX-self._layoutInnerStaticWidth
 		else
@@ -4334,13 +4334,13 @@ function Cs.hbar:_updateLayoutPosition()
 				updateFloatingElementPosition(child)
 			else
 				if not first then
-					m = math.max(m, child._marginLeft or child._marginHorizontal or child._margin)
+					m = math.max(m, child._spacingLeft or child._spacingHorizontal or child._spacing)
 					x = x+m
 				end
 				child._layoutX, child._layoutY = x, y
 				child:_updateLayoutPosition()
 				x = x+child._layoutWidth
-				m = (child._marginRight or child._marginHorizontal or child._margin)
+				m = (child._spacingRight or child._spacingHorizontal or child._spacing)
 				first = false
 			end
 		end
@@ -4369,17 +4369,17 @@ function Cs.vbar:_updateLayoutSize()
 
 	updateContainerChildLayoutSizes(self)
 
-	local staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentMx, sumMx,
-	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentMy, sumMy
+	local staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentSx, sumSx,
+	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy
 	      = getContainerLayoutSizeValues(self)
 
-	local innerH = (self._homogeneous and highestDynamicH*expandablesY or dynamicH)+staticH+sumMy
+	local innerH = (self._homogeneous and highestDynamicH*expandablesY or dynamicH)+staticH+sumSy
 
 	self._layoutInnerWidth  = (self._width  and self._width -2*self._padding or highestW)
 	self._layoutInnerHeight = (self._height and self._height-2*self._padding or innerH)
 
 	self._layoutInnerStaticWidth, self._layoutInnerStaticHeight = 0, staticH
-	self._layoutInnerMarginsX,    self._layoutInnerMarginsY     = 0, sumMy
+	self._layoutInnerSpacingsX,   self._layoutInnerSpacingsY    = 0, sumSy
 	self._layoutExpandablesX,     self._layoutExpandablesY      = expandablesX, expandablesY
 
 	updateContainerLayoutSize(self)
@@ -4395,7 +4395,7 @@ function Cs.vbar:_expandLayout(expandW, expandH)
 	-- Calculate amount of space for children to expand into (total or extra, whether homogeneous or not)
 	local totalSpaceY = 0
 	if expandH then
-		totalSpaceY = self._layoutInnerHeight-self._layoutInnerMarginsY
+		totalSpaceY = self._layoutInnerHeight-self._layoutInnerSpacingsY
 		if self._homogeneous then
 			totalSpaceY = totalSpaceY-self._layoutInnerStaticHeight
 		else
@@ -4436,13 +4436,13 @@ function Cs.vbar:_updateLayoutPosition()
 				updateFloatingElementPosition(child)
 			else
 				if not first then
-					m = math.max(m, child._marginTop or child._marginVertical or child._margin)
+					m = math.max(m, child._spacingTop or child._spacingVertical or child._spacing)
 					y = y+m
 				end
 				child._layoutX, child._layoutY = x, y
 				child:_updateLayoutPosition()
 				y = y+child._layoutHeight
-				m = (child._marginBottom or child._marginVertical or child._margin)
+				m = (child._spacingBottom or child._spacingVertical or child._spacing)
 				first = false
 			end
 		end
