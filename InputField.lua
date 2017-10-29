@@ -516,6 +516,7 @@ end
 
 -- left, right = getSelectionOffset( )
 function InputField:getSelectionOffset()
+	-- @Incomplete: Handle kerning on the right end of the selection.
 	local font, visibleText = self._font, self:getVisibleText()
 	local preText1 = visibleText:sub(1, utf8.offset(visibleText, self._selectionStart+1)-1)
 	local preText2 = visibleText:sub(1, utf8.offset(visibleText, self._selectionEnd+1)-1)
