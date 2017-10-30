@@ -12,7 +12,7 @@
 --=  TODO:
 --=  - Make scrollbar handles draggable.
 --=  - Make pageup/pagedown/home/end work in scrollables.
---=  - Don't draw things that are offscreen.
+--=  - Don't draw things that are outside the visible area in scrollables.
 --=  - Percentage sizes for elements.
 --=  - Remove class module dependance?
 --=
@@ -960,7 +960,12 @@ end
 
 -- themeRenderOnScreen( element, what, x, y, w, h, extraArgument... )
 function themeRenderOnScreen(el, what, x, y, w, h, ...)
+
 	local gui = el._gui
+
+	if (x+w < 0 or y+h < 0) then return end
+	local rootW, rootH = gui._root:getDimensions()
+	if (x >= rootW or y >= rootH) then return end
 
 	LG.push('all')
 	LG.translate(x, y)
