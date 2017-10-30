@@ -107,6 +107,8 @@ return {
 	scrollbarWidth     = SCROLLBAR_WIDTH, -- @Incomplete: Get scrollbar width as 'size' instead of like this.
 	scrollbarMinLength = SCROLLBAR_MIN_LENGTH,
 
+	textIndentation    = TEXT_PADDING, -- Affects how multiline texts wraps in text elements.
+
 
 
 	-- Special Callbacks
@@ -136,8 +138,8 @@ return {
 
 		-- Text element
 		-- size.text( textElement, textWidth, textHeight )
-		['text'] = function(textEl, textW, textH)
-			return textW+2*TEXT_PADDING, textH+2*TEXT_PADDING
+		['text'] = function(textEl, textIndent, textW, textH)
+			return textW+2*textIndent, textH+2*TEXT_PADDING
 		end,
 
 		-- Button element
@@ -241,12 +243,12 @@ return {
 		end,
 
 		-- Text element
-		-- draw.text( textElement, elementWidth, elementHeight, text, textWidth, textHeight, hasWrapLimit )
-		['text'] = function(textEl, w, h, text, textW, textH, hasWrapLimit)
+		-- draw.text( textElement, elementWidth, elementHeight, textIndentation, textWidth, textHeight )
+		['text'] = function(textEl, w, h, textIndent, textW, textH)
 
-			local textAreaX = TEXT_PADDING
+			local textAreaX = textIndent
 			local textAreaY = math.floor((h-textH)/2)
-			local textAreaW = w-2*TEXT_PADDING
+			local textAreaW = w-2*textIndent
 
 			textEl:setScissor(0, 0, w, h) -- Make sure text doesn't render outside the element.
 
@@ -480,7 +482,7 @@ return {
 
 			-- Text
 			local x, y = TOOLTIP_PADDING, TOOLTIP_PADDING
-			el:useFont()
+			el:useTooltipFont()
 			LG.setColor(0, 0, 0, 255*opacity)
 			el:drawTooltip(x, y)
 

@@ -10,7 +10,6 @@
 --=  - refreezed.love.InputField
 --=
 --=  TODO:
---=  - Add automatic text wrapping (GuiText.wrapText).
 --=  - Make scrollbar handles draggable.
 --=  - Make pageup/pagedown/home/end work in scrollables.
 --=  - Don't draw things that are offscreen.
@@ -88,7 +87,7 @@
 	find, findAll, findActive, findToggled, match, matchAll
 	getDefaultSound, setDefaultSound
 	getElementAt
-	getFont, setFont, getBoldFont, setBoldFont, getSmallFont, setSmallFont
+	getFont, setFont, getBoldFont, setBoldFont, getSmallFont, setSmallFont, getTooltipFont, setTooltipFont
 	getHoveredElement
 	getNavigationTarget, navigateTo, navigateToNext, navigateToPrevious, navigateToFirst, navigate, canNavigateTo
 	getRoot
@@ -132,6 +131,7 @@
 	- getRoot
 	- getSound, getResultingSound, setSound
 	- getTooltip, setTooltip, drawTooltip
+	- getTooltipFont, useTooltipFont
 	- hasTag, addTag, removeTag, removeAllTags, setTag
 	- isAt
 	- isDisplayed, getClosestHiddenElement, getFarthestHiddenElement
@@ -166,6 +166,7 @@
 	- getChildAreaDimensions, getChildAreaWidth, getChildAreaHeight
 	- getChildWithData
 	- getElementAt
+	- getInnerSpace, getInnerSpaceX, getInnerSpaceY
 	- getMaxWidth, setMaxWidth, getMaxHeight, setMaxHeight
 	- getPadding, setPadding
 	- getScroll, getScrollX, getScrollY, setScroll, setScrollX, setScrollY, scroll, updateScroll
@@ -267,7 +268,7 @@ local Gui = class('Gui', {
 
 	_defaultSounds = {},
 	_elementScissorIsSet = false,
-	_font = nil, _fontBold = nil, _fontSmall = nil,
+	_font = nil, _fontBold = nil, _fontSmall = nil, _fontTooltip = nil,
 	_hoveredElement = nil,
 	_ignoreKeyboardInputThisFrame = false,
 	_keyboardFocus = nil,
@@ -351,7 +352,7 @@ local xywh
 local updateContainerChildLayoutSizes
 local getContainerLayoutSizeValues
 local updateContainerLayoutSize
-local expandElement
+local expandContainer
 local updateFloatingElementPosition
 
 --==============================================================
@@ -452,8 +453,14 @@ end
 function drawLayoutBackground(el)
 	local bg = el._background
 	if bg then
-		themeRender(el, 'background', bg)
+		if el._gui.debug then
+			LG.setColor(70, 70, 70, 220)
+			LG.rectangle('fill', xywh(el))
+		else
+			themeRender(el, 'background', bg)
+		end
 	end
+
 end
 
 
@@ -487,13 +494,9 @@ end
 
 -- width, height = getTextDimensions( font, text [, wrapLimit=none ] )
 function getTextDimensions(font, text, wrapLimit)
-	if not wrapLimit then
-		return font:getWidth(text), font:getHeight()
-	else
-		local w, lines = font:getWrap(text, wrapLimit)
-		local h = font:getHeight()
-		return w, h + math.floor(h*font:getLineHeight()) * (math.max(#lines, 1)-1)
-	end
+	local w, lines = font:getWrap(text, (wrapLimit or math.huge))
+	local h = font:getHeight()
+	return w, h + math.floor(h*font:getLineHeight()) * (math.max(#lines, 1)-1)
 end
 
 
@@ -1152,46 +1155,41 @@ end
 function updateContainerLayoutSize(self)
 
 	local maxW, maxH = self._maxWidth, self._maxHeight
-	local padding = self._padding
-
-	local sbW = themeGet(self._gui, 'scrollbarWidth')
 
 	local w = self._width
 	if not w then
-		w = math.max(self._layoutInnerWidth+2*padding+(maxH and sbW or 0), self._minWidth)
+		w = math.max(self._layoutInnerWidth+self:getInnerSpaceX(), self._minWidth)
 		if maxW then  w = math.min(w, maxW)  end
 	end
 	self._layoutWidth = w
+	-- self._layoutInnerWidth = w-self:getInnerSpaceX() -- Wrong! (But why?)
 
 	local h = self._height
 	if not h then
-		h = math.max(self._layoutInnerHeight+2*padding+(maxW and sbW or 0), self._minHeight)
+		h = math.max(self._layoutInnerHeight+self:getInnerSpaceY(), self._minHeight)
 		if maxH then  h = math.min(h, maxH)  end
 	end
 	self._layoutHeight = h
+	-- self._layoutInnerHeight = w-self:getInnerSpaceY() -- Wrong! (But why?)
 
 end
 
 
 
--- expandElement( element [, expandWidth, expandHeight ] )
-function expandElement(self, expandW, expandH)
-	local isContainer = self:is(Cs.container)
+-- expandContainer( container [, expandWidth, expandHeight ] )
+function expandContainer(self, expandW, expandH)
 
 	local maxW, maxH = self._maxWidth, self._maxHeight
-	local padding = (isContainer and self._padding or 0)
 	local parent = self._parent
-
-	local sbW = (isContainer and themeGet(self._gui, 'scrollbarWidth') or 0)
 
 	if (expandW or self._expandX) and (not self._width) then
 		self._layoutWidth = math.min((expandW or parent._layoutInnerWidth), (maxW or math.huge))
-		self._layoutInnerWidth = self._layoutWidth-2*padding-(maxH and sbW or 0)
+		self._layoutInnerWidth = self._layoutWidth-self:getInnerSpaceX()
 	end
 
 	if (expandH or self._expandY) and (not self._height) then
 		self._layoutHeight = math.min((expandH or parent._layoutInnerHeight), (maxH or math.huge))
-		self._layoutInnerHeight = self._layoutHeight-2*padding-(maxW and sbW or 0)
+		self._layoutInnerHeight = self._layoutHeight-self:getInnerSpaceY()
 	end
 
 end
@@ -1443,8 +1441,10 @@ function Gui:draw()
 		root:_draw()
 
 		-- Navigation target
-		local nav = self._navigationTarget
-		if nav then  themeRender(nav, 'navigation', self._timeSinceNavigation)  end
+		if not self.debug then
+			local nav = self._navigationTarget
+			if nav then  themeRender(nav, 'navigation', self._timeSinceNavigation)  end
+		end
 
 		-- Tooltip
 		local el = self._hoveredElement
@@ -1790,6 +1790,16 @@ function Gui:setSmallFont(font)
 	if self._fontSmall == font then return end
 	self._fontSmall = font
 	self._layoutNeedsUpdate = true
+end
+
+-- font = getTooltipFont( )
+function Gui:getTooltipFont()
+	return self._fontTooltip
+end
+
+-- setTooltipFont( font )
+function Gui:setTooltipFont(font)
+	self._fontTooltip = font
 end
 
 
@@ -2488,41 +2498,67 @@ end
 -- _draw( )
 function Cs.element:_draw()
 	local x, y, w, h = xywh(self)
-	trigger(self, 'beforedraw', x, y, w, h)
+
+	if not self._gui.debug then  trigger(self, 'beforedraw', x, y, w, h)  end
+
 	drawLayoutBackground(self)
-	trigger(self, 'afterdraw', x, y, w, h)
+
+	if not self._gui.debug then  trigger(self, 'afterdraw', x, y, w, h)  end
+
 end
 
 -- _drawDebug( red, green, blue [, backgroundOpacity=1 ] )
 function Cs.element:_drawDebug(r, g, b, bgOpacity)
 	local gui = self._gui
-	if not gui.debug then
-		return
-	end
-	local w, h = self._layoutWidth, self._layoutHeight
-	local x1, y1 = self._layoutX, self._layoutY
-	local x2, y2 = x1+w, y1+h
-	local padding = (self:is(Cs.container) and self._padding or 0)
+	if not gui.debug then return end
+
+	local isContainer = self:is(Cs.container)
+
+	local x, y, w, h = xywh(self)
+	local innerW, innerH = self._layoutInnerWidth, self._layoutInnerHeight
+	local padding = (isContainer and self._padding or 0)
 	local lw = math.max(padding, 1)
 
+	local sbW = themeGet(gui, 'scrollbarWidth')
+
+	if self:isKeyboardFocus() then
+		r, g, b = 255, 255, 0
+	elseif self:isNavigationTarget() then
+		r, g, b = 255, 255, 255
+	end
+
+	LG.push('all')
+
+	LG.translate(x, y)
+
 	-- Background and center line
-	LG.setColor(r, g, b, 80*(bgOpacity or 1))
-	LG.rectangle('fill', x1, y1, w, h)
-	LG.line(x1+padding, y1+padding, x1+w/2, y1+h/2)
+	LG.setColor(r, g, b, 60*(bgOpacity or 1))
+	LG.rectangle('fill', 0, 0, w, h)
+	LG.line(padding, padding, w/2, h/2)
 
 	-- Border
 	LG.setLineWidth(lw)
 	LG.setColor(r, g, b, 100)
-	LG.rectangle('line', x1+lw/2, y1+lw/2, w-lw, h-lw)
+	LG.rectangle('line', lw/2, lw/2, w-lw, h-lw)
+	if isContainer then
+		if self:hasScrollbarOnRight()  then  LG.rectangle('fill', w-lw-sbW, lw, sbW, h-2*lw)  end
+		if self:hasScrollbarOnBottom() then  LG.rectangle('fill', lw, h-lw-sbW, w-w*lw, sbW)  end
+	end
 	LG.setLineWidth(1)
 	LG.setColor(r, g, b, 150)
-	LG.rectangle('line', x1+0.5, y1+0.5, w-1, h-1)
+	LG.rectangle('line', 0.5, 0.5, w-1, h-1)
 
-	-- Class/ID
+	-- Info
 	r, g, b = lerp(r, 255, 0.5), lerp(g, 255, 0.5), lerp(b, 255, 0.5)
 	LG.setFont(gui._font or DEFAULT_FONT)
 	LG.setColor(r, g, b, 200)
-	LG.print(self:getDepth()..':'..self._id, x1, y1)
+	if self._id:find'^__%d+$' then
+		LG.print(F'%d.%d'   (self:getDepth(), (self:getIndex() or 0)          ), 2, 1)
+	else
+		LG.print(F'%d.%d:%s'(self:getDepth(), (self:getIndex() or 0), self._id), 2, 1)
+	end
+
+	LG.pop()
 
 end
 
@@ -3132,6 +3168,19 @@ end
 
 
 
+-- font = getTooltipFont( )
+function Cs.element:getTooltipFont()
+	return (self._gui._fontTooltip or DEFAULT_FONT)
+end
+
+-- Tell LÖVE to use the tooltip font.
+-- useTooltipFont( )
+function Cs.element:useTooltipFont()
+	LG.setFont(self:getTooltipFont())
+end
+
+
+
 -- state = hasTag( tag )
 function Cs.element:hasTag(tag)
 	return (self._tags[tag] ~= nil)
@@ -3497,6 +3546,7 @@ function Cs.element:showMenu(items, highlightI, offsetX, offsetY, cb)
 	menu:on('closed', function(button, event)
 		local _cb = cb
 		cb = nil
+		menu:remove()
 		if _cb then _cb(0, '') end
 	end)
 	menu:on('mousepressed', function(button, event, x, y, buttonN)
@@ -3627,7 +3677,8 @@ function Cs.container:_draw()
 	local sbW = themeGet(gui, 'scrollbarWidth')
 	local sbMinW = themeGet(gui, 'scrollbarMinLength')
 
-	trigger(self, 'beforedraw', x, y, w, h)
+	if not self._gui.debug then  trigger(self, 'beforedraw', x, y, w, h)  end
+
 	drawLayoutBackground(self)
 	self:_drawDebug(0, 0, 255)
 
@@ -3637,31 +3688,35 @@ function Cs.container:_draw()
 	end
 	if maxW or maxH then  setScissor(gui, nil)  end
 
-	trigger(self, 'afterdraw', x, y, w, h)
+	if not self._gui.debug then
 
-	-- Draw scrollbars.
-	if maxW then
-		local insideW = (childAreaW-2*self._padding)
-		local innerW = self._layoutInnerWidth
-		local handleLen = math.max(round(childAreaW*insideW/innerW), sbMinW)
-		local handleX, handleY = x, y+h-sbW
-		if innerW > insideW then
-			handleX = round(x - (childAreaW-handleLen) * self._scrollX/(innerW-insideW) )
+		-- Draw scrollbars.
+		if maxW then
+			local insideW = (childAreaW-2*self._padding)
+			local innerW = self._layoutInnerWidth
+			local handleLen = math.max(round(childAreaW*insideW/innerW), sbMinW)
+			local handleX, handleY = x, y+h-sbW
+			if innerW > insideW then
+				handleX = round(x - (childAreaW-handleLen) * self._scrollX/(innerW-insideW) )
+			end
+			themeRenderArea(self, 'scrollbar', 0, h-sbW, childAreaW, sbW, 'x', handleX-x, handleLen)
 		end
-		themeRenderArea(self, 'scrollbar', 0, h-sbW, childAreaW, sbW, 'x', handleX-x, handleLen)
-	end
-	if maxH then
-		local insideH = (childAreaH-2*self._padding)
-		local innerH = self._layoutInnerHeight
-		local handleLen = math.max(round(childAreaH*insideH/innerH), sbMinW)
-		local handleX, handleY = x+w-sbW, y
-		if innerH > insideH then
-			handleY = round(y - (childAreaH-handleLen) * self._scrollY/(innerH-insideH) )
+		if maxH then
+			local insideH = (childAreaH-2*self._padding)
+			local innerH = self._layoutInnerHeight
+			local handleLen = math.max(round(childAreaH*insideH/innerH), sbMinW)
+			local handleX, handleY = x+w-sbW, y
+			if innerH > insideH then
+				handleY = round(y - (childAreaH-handleLen) * self._scrollY/(innerH-insideH) )
+			end
+			themeRenderArea(self, 'scrollbar', w-sbW, 0, sbW, childAreaH, 'y', handleY-y, handleLen)
 		end
-		themeRenderArea(self, 'scrollbar', w-sbW, 0, sbW, childAreaH, 'y', handleY-y, handleLen)
-	end
-	if (maxW and maxH) then
-		themeRenderArea(self, 'scrollbardeadzone', w-sbW, h-sbW, sbW, sbW)
+		if (maxW and maxH) then
+			themeRenderArea(self, 'scrollbardeadzone', w-sbW, h-sbW, sbW, sbW)
+		end
+
+		trigger(self, 'afterdraw', x, y, w, h)
+
 	end
 
 end
@@ -3753,6 +3808,36 @@ function Cs.container:matchAll(selector, includeSelf)
 	end
 
 	return elements
+end
+
+
+
+-- spaceX, spaceY = getInnerSpace( )
+function Cs.container:getInnerSpace()
+	local spaceX = 2*self._padding
+	local spaceY = spaceX
+	local sbW = themeGet(self._gui, 'scrollbarWidth')
+	if self:hasScrollbarOnRight()  then spaceX = spaceX+sbW end
+	if self:hasScrollbarOnBottom() then spaceY = spaceY+sbW end
+	return spaceX, spaceY
+end
+
+-- spaceX = getInnerSpaceX( )
+function Cs.container:getInnerSpaceX()
+	local spaceX = 2*self._padding
+	if self:hasScrollbarOnRight() then
+		spaceX = spaceX+themeGet(self._gui, 'scrollbarWidth')
+	end
+	return spaceX
+end
+
+-- spaceY = getInnerSpaceY( )
+function Cs.container:getInnerSpaceY()
+	local spaceY = 2*self._padding
+	if self:hasScrollbarOnBottom() then
+		spaceY = spaceY+themeGet(self._gui, 'scrollbarWidth')
+	end
+	return spaceY
 end
 
 
@@ -4014,14 +4099,16 @@ end
 
 -- width = getChildAreaWidth( )
 function Cs.container:getChildAreaWidth()
-	local sbW = themeGet(self._gui, 'scrollbarWidth')
-	return (self._maxHeight and self._layoutWidth -sbW or self._layoutWidth)
+	return
+		self:hasScrollbarOnRight() and self._layoutWidth-themeGet(self._gui, 'scrollbarWidth')
+		or self._layoutWidth
 end
 
 -- height = getChildAreaHeight( )
 function Cs.container:getChildAreaHeight()
-	local sbW = themeGet(self._gui, 'scrollbarWidth')
-	return (self._maxWidth and self._layoutHeight-sbW or self._layoutHeight)
+	return
+		self:hasScrollbarOnBottom() and self._layoutHeight-themeGet(self._gui, 'scrollbarWidth')
+		or self._layoutHeight
 end
 
 
@@ -4285,19 +4372,15 @@ end
 -- REPLACE  _updateLayoutSize( )
 function Cs.container:_updateLayoutSize()
 
-	local minW, minH = self._minWidth, self._minHeight
 	local maxW, maxH = self._maxWidth, self._maxHeight
-	local padding = self._padding
 	local parent = self._parent
-
-	local sbW = themeGet(self._gui, 'scrollbarWidth')
 
 	local w = self._width
 	if not w then
 		if self._expandX then
 			w = parent._layoutInnerWidth
 		else
-			w = math.max(2*padding+(maxH and sbW or 0), self._minWidth)
+			w = math.max(self:getInnerSpaceX(), self._minWidth)
 		end
 		if maxW then  w = math.min(w, maxW)  end
 	end
@@ -4308,14 +4391,14 @@ function Cs.container:_updateLayoutSize()
 		if self._expandY then
 			h = parent._layoutInnerHeight
 		else
-			h = math.max(2*padding+(maxW and sbW or 0), self._minHeight)
+			h = math.max(self:getInnerSpaceY(), self._minHeight)
 		end
 		if maxH then  h = math.min(h, maxH)  end
 	end
 	self._layoutHeight = h
 
-	self._layoutInnerWidth  = self._layoutWidth -2*padding-(maxH and sbW or 0)
-	self._layoutInnerHeight = self._layoutHeight-2*padding-(maxW and sbW or 0)
+	self._layoutInnerWidth  = self._layoutWidth -self:getInnerSpaceX()
+	self._layoutInnerHeight = self._layoutHeight-self:getInnerSpaceY()
 
 	updateContainerChildLayoutSizes(self)
 
@@ -4324,25 +4407,16 @@ end
 -- REPLACE  _expandLayout( [ expandWidth, expandHeight ] )
 function Cs.container:_expandLayout(expandW, expandH)
 
-	local maxW, maxH = self._maxWidth, self._maxHeight
-	local padding = self._padding
+	-- Expand self
+	expandContainer(self, expandW, expandH)
 
-	local sbW = themeGet(self._gui, 'scrollbarWidth')
-
-	if (expandW and not self._width) then
-		self._layoutWidth = math.min(math.max(expandW, self._minWidth), (maxW or math.huge))
-		self._layoutInnerWidth = self._layoutWidth-2*padding-(maxH and sbW or 0)
-	end
-
-	if (expandH and not self._height) then
-		self._layoutHeight = math.min(math.max(expandH, self._minHeight), (maxH or math.huge))
-		self._layoutInnerHeight = self._layoutHeight-2*padding-(maxW and sbW or 0)
-	end
-
+	-- Expand children
 	for _, child in ipairs(self) do
-		child:_expandLayout(
-			(expandW and self._layoutInnerWidth or nil),
-			(expandH and self._layoutInnerHeight or nil))
+		if not child._hidden then
+			child:_expandLayout(
+				(expandW and self._layoutInnerWidth  or nil),
+				(expandH and self._layoutInnerHeight or nil))
+		end
 	end
 
 end
@@ -4403,22 +4477,17 @@ function Cs.hbar:_updateLayoutSize()
 
 	updateContainerChildLayoutSizes(self)
 
-	local maxW, maxH = self._maxHeight, self._maxHeight
-	local padding = self._padding
-
-	local sbW = themeGet(self._gui, 'scrollbarWidth')
-
 	local staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentSx, sumSx,
 	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy
 	      = getContainerLayoutSizeValues(self)
 
 	local innerW = (self._homogeneous and highestDynamicW*expandablesX or dynamicW)+staticW+sumSx
 
-	innerW   = math.max(innerW,   self._minWidth -2*padding-(maxH and sbW or 0))
-	highestH = math.max(highestH, self._minHeight-2*padding-(maxW and sbW or 0))
+	innerW   = math.max(innerW,   self._minWidth -self:getInnerSpaceX())
+	highestH = math.max(highestH, self._minHeight-self:getInnerSpaceY())
 
-	self._layoutInnerWidth  = (self._width  and self._width -2*padding-(maxH and sbW or 0) or innerW)
-	self._layoutInnerHeight = (self._height and self._height-2*padding-(maxW and sbW or 0) or highestH)
+	self._layoutInnerWidth  = (self._width  and self._width -self:getInnerSpaceX() or innerW)
+	self._layoutInnerHeight = (self._height and self._height-self:getInnerSpaceY() or highestH)
 
 	self._layoutInnerStaticWidth, self._layoutInnerStaticHeight = staticW, 0
 	self._layoutInnerSpacingsX,   self._layoutInnerSpacingsY    = sumSx, 0
@@ -4432,7 +4501,7 @@ end
 function Cs.hbar:_expandLayout(expandW, expandH)
 
 	-- Expand self
-	expandElement(self, expandW, expandH)
+	expandContainer(self, expandW, expandH)
 
 	-- Calculate amount of space for children to expand into (total or extra, whether homogeneous or not)
 	local totalSpaceX = 0
@@ -4513,22 +4582,17 @@ function Cs.vbar:_updateLayoutSize()
 
 	updateContainerChildLayoutSizes(self)
 
-	local maxW, maxH = self._maxHeight, self._maxHeight
-	local padding = self._padding
-
-	local sbW = themeGet(self._gui, 'scrollbarWidth')
-
 	local staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentSx, sumSx,
 	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy
 	      = getContainerLayoutSizeValues(self)
 
 	local innerH = (self._homogeneous and highestDynamicH*expandablesY or dynamicH)+staticH+sumSy
 
-	highestW = math.max(highestW, self._minWidth -2*padding-(maxH and sbW or 0))
-	innerH   = math.max(innerH,   self._minHeight-2*padding-(maxW and sbW or 0))
+	highestW = math.max(highestW, self._minWidth -self:getInnerSpaceX())
+	innerH   = math.max(innerH,   self._minHeight-self:getInnerSpaceY())
 
-	self._layoutInnerWidth  = (self._width  and self._width -2*padding-(maxH and sbW or 0) or highestW)
-	self._layoutInnerHeight = (self._height and self._height-2*padding-(maxW and sbW or 0) or innerH)
+	self._layoutInnerWidth  = (self._width  and self._width -self:getInnerSpaceX() or highestW)
+	self._layoutInnerHeight = (self._height and self._height-self:getInnerSpaceY() or innerH)
 
 	self._layoutInnerStaticWidth, self._layoutInnerStaticHeight = 0, staticH
 	self._layoutInnerSpacingsX,   self._layoutInnerSpacingsY    = 0, sumSy
@@ -4542,7 +4606,7 @@ end
 function Cs.vbar:_expandLayout(expandW, expandH)
 
 	-- Expand self
-	expandElement(self, expandW, expandH)
+	expandContainer(self, expandW, expandH)
 
 	-- Calculate amount of space for children to expand into (total or extra, whether homogeneous or not)
 	local totalSpaceY = 0
@@ -4628,17 +4692,17 @@ function Cs.root:_draw()
 	if self._hidden then  return  end
 
 	local x, y, w, h = xywh(self)
-	trigger(self, 'beforedraw', x, y, w, h)
+
+	if not self._gui.debug then  trigger(self, 'beforedraw', x, y, w, h)  end
 
 	drawLayoutBackground(self)
-
 	self:_drawDebug(0, 0, 255, 0)
 
 	for _, child in ipairs(self) do
 		child:_draw()
 	end
 
-	trigger(self, 'afterdraw', x, y, w, h)
+	if not self._gui.debug then  trigger(self, 'afterdraw', x, y, w, h)  end
 
 end
 
@@ -4670,7 +4734,9 @@ end
 -- expandWidth and expandHeight are ignored as the root always has a fixed non-expanding size.
 function Cs.root:_expandLayout(expandW, expandH)
 	for _, child in ipairs(self) do
-		child:_expandLayout(nil, nil)
+		if not child._hidden then
+			child:_expandLayout(nil, nil)
+		end
 	end
 end
 
@@ -4900,6 +4966,7 @@ function Cs.canvas:_draw()
 	if gui.debug then  return self:_drawDebug(255, 0, 0)  end
 
 	local x, y, w, h = xywh(self)
+
 	trigger(self, 'beforedraw', x, y, w, h)
 
 	drawLayoutBackground(self)
@@ -5001,6 +5068,7 @@ function Cs.image:_draw()
 	if self._gui.debug then  return self:_drawDebug(255, 0, 0)  end
 
 	local x, y, w, h = xywh(self)
+
 	trigger(self, 'beforedraw', x, y, w, h)
 
 	drawLayoutBackground(self)
@@ -5044,7 +5112,7 @@ end
 
 Cs.text = Cs.leaf:extend('GuiText', {
 
-	_textWrapLimit = nil,
+	_wrapText = false, _textWrapLimit = nil,
 
 })
 registerEvents(Cs.text, {
@@ -5053,7 +5121,7 @@ registerEvents(Cs.text, {
 function Cs.text:init(gui, data, parent)
 	Cs.text.super.init(self, gui, data, parent)
 
-	retrieve(self, data, '_textWrapLimit')
+	retrieve(self, data, '_wrapText','_textWrapLimit')
 
 end
 
@@ -5065,12 +5133,13 @@ function Cs.text:_draw()
 	if self._gui.debug then  return self:_drawDebug(255, 0, 0)  end
 
 	local x, y, w, h = xywh(self)
+
 	trigger(self, 'beforedraw', x, y, w, h)
 
 	drawLayoutBackground(self)
 
-	local hasWrapLimit = (self._textWrapLimit ~= nil)
-	themeRender(self, 'text', self._text, self._textWidth, self._textHeight, hasWrapLimit)
+	local textIndent = themeGet(self._gui, 'textIndentation')
+	themeRender(self, 'text', textIndent, self._textWidth, self._textHeight)
 
 	trigger(self, 'afterdraw', x, y, w, h)
 
@@ -5081,12 +5150,36 @@ end
 -- REPLACE  _updateLayoutSize( )
 function Cs.text:_updateLayoutSize()
 
-	local textW, textH = getTextDimensions(self:getFont(), self._text, self._textWrapLimit)
+	local wrapLimit = self._textWrapLimit
+	if (not wrapLimit and self._wrapText) then
+
+		local innerSpaceSum = 0
+
+		for _, parent in self:parents() do
+
+			innerSpaceSum = innerSpaceSum+parent:getInnerSpaceX()
+
+			-- At most this will be the root, as the root always has a defined size.
+			if parent._width then
+				wrapLimit = parent._width-innerSpaceSum-2*themeGet(self._gui, 'textIndentation')
+				if wrapLimit <= 0 then
+					-- Maybe the root's size is 0x0?
+					wrapLimit = nil
+				end
+				break
+			end
+
+		end
+
+	end
+
+	local textW, textH = getTextDimensions(self:getFont(), self._text, wrapLimit)
 	self._textWidth, self._textHeight = textW, textH
 
 	local w, h = nil, nil
 	if not (self._width and self._height) then
-		w, h = themeGetSize(self, 'text', textW, textH)
+		local textIndent = themeGet(self._gui, 'textIndentation')
+		w, h = themeGetSize(self, 'text', textIndent, textW, textH)
 	end
 
 	w = (self._width  or math.max(w, self._minWidth))
@@ -5101,7 +5194,7 @@ end
 
 -- REPLACE  drawText( x, y )
 function Cs.text:drawText(x, y)
-	if self._textWrapLimit then
+	if (self._wrapText or self._textWrapLimit) then
 		LG.printf(self._text, x, y, self._textWidth, self._align)
 	else
 		LG.print(self._text, x, y)
@@ -5231,9 +5324,10 @@ end
 -- REPLACE  _draw( )
 function Cs.button:_draw()
 	if self._hidden then  return  end
-	if self._gui.debug then  return self:_drawDebug(255, 0, 0)  end
+	if self._gui.debug then  return self:_drawDebug(0, 180, 0)  end
 
 	local x, y, w, h = xywh(self)
+
 	trigger(self, 'beforedraw', x, y, w, h)
 
 	drawLayoutBackground(self)
@@ -5520,14 +5614,15 @@ end
 -- REPLACE  _draw( )
 function Cs.input:_draw()
 	if self._hidden then  return  end
-	if self._gui.debug then  return self:_drawDebug(255, 0, 0)  end
+	if self._gui.debug then  return self:_drawDebug(0, 180, 0)  end
+
+	local inputIndent = themeGet(self._gui, 'inputIndentation')
 
 	local x, y, w, h = xywh(self)
+
 	trigger(self, 'beforedraw', x, y, w, h)
 
 	drawLayoutBackground(self)
-
-	local inputIndent = themeGet(self._gui, 'inputIndentation')
 	themeRender(self, 'input', inputIndent, self:getFont():getHeight())
 
 	trigger(self, 'afterdraw', x, y, w, h)
@@ -5719,16 +5814,16 @@ end
 -- REPLACE  _updateLayoutSize( )
 function Cs.input:_updateLayoutSize()
 
+	local inputIndent = themeGet(self._gui, 'inputIndentation')
+
 	local w, h = nil, nil
 	if not self._height then
 		-- We only care about the height returned from themeGetSize() as the width is always defined/fixed for inputs.
-		w, h = themeGetSize(self, 'input', 0, self:getFont():getHeight())
+		w, h = themeGetSize(self, 'input', inputIndent, self:getFont():getHeight())
 	end
 
 	w = (self._width  or 0)
 	h = (self._height or math.max(h, self._minHeight))
-
-	local inputIndent = themeGet(self._gui, 'inputIndentation')
 
 	self._layoutWidth,      self._layoutHeight      = w,               h
 	self._layoutInnerWidth, self._layoutInnerHeight = w-2*inputIndent, h
