@@ -442,12 +442,23 @@ return {
 		-- draw.scrollbardeadzone( element, deadzoneWidth, deadzoneHeight )
 		['scrollbar'] = function(el, w, h, dir, pos, len)
 
-			LG.setColor(255, 255, 255, 70)
+			local isScrolling     = el[dir == 'x' and 'isScrollingX'              or 'isScrollingY'             ](el)
+			local isBarHovered    = el[dir == 'x' and 'isScrollbarXHovered'       or 'isScrollbarYHovered'      ](el)
+			local isHandleHovered = el[dir == 'x' and 'isScrollbarXHandleHovered' or 'isScrollbarYHandleHovered'](el)
+
+			-- Background
+			LG.setColor(255, 255, 255, ((isBarHovered or isScrolling) and 15 or 0))
+			LG.rectangle('fill', 0, 0, w, h)
+
+			-- Scrollbar handle
+			local handleX, handleY, handleW, handleH
 			if dir == 'x' then
-				Gui.draw9PartScaled(pos+1, 1, len-2, h-2, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
+				handleX, handleY, handleW, handleH = pos+1, 1, len-2, h-2
 			elseif dir == 'y' then
-				Gui.draw9PartScaled(1, pos+1, w-2, len-2, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
+				handleX, handleY, handleW, handleH = 1, pos+1, w-2, len-2
 			end
+			LG.setColor(255, 255, 255, ((isScrolling and 30) or (isHandleHovered and 70) or (50)))
+			Gui.draw9PartScaled(handleX, handleY, handleW, handleH, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
 
 		end,
 		['scrollbardeadzone'] = function(el, w, h)

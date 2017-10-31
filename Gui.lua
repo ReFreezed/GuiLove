@@ -10,7 +10,6 @@
 --=  - refreezed.love.InputField
 --=
 --=  TODO:
---=  - Make scrollbar handles draggable.
 --=  - Make pageup/pagedown/home/end work in scrollables.
 --=  - Don't draw things that are outside the visible area in scrollables.
 --=  - Percentage sizes for elements.
@@ -128,6 +127,7 @@
 	- getParent, getParents, hasParent, hasParentWithId, parents, parentsr, lineageUp
 	- getPathDescription
 	- getPosition, setPosition, getX, setX, getY, setY
+	- getPositionOnScreen, getXOnScreen, getYOnScreen
 	- getRoot
 	- getSound, getResultingSound, setSound
 	- getTooltip, setTooltip, drawTooltip
@@ -139,6 +139,8 @@
 	- isHovered
 	- isMouseFocus, isKeyboardFocus
 	- isNavigationTarget
+	- isScrollbarXHovered, isScrollbarYHovered, isScrollbarXHandleHovered, isScrollbarYHandleHovered
+	- isScrollingX, isScrollingY
 	- isSolid
 	- isType
 	- refresh
@@ -170,6 +172,7 @@
 	- getMaxWidth, setMaxWidth, getMaxHeight, setMaxHeight
 	- getPadding, setPadding
 	- getScroll, getScrollX, getScrollY, setScroll, setScrollX, setScrollY, scroll, updateScroll
+	- getScrollHandleX, getScrollHandleY
 	- getScrollLimit, getScrollLimitX, getScrollLimitY
 	- getVisibleChild, getVisibleChildNumber, getVisibleChildCount, setVisibleChild
 	- hasScrollbars, hasScrollbarOnRight, hasScrollbarOnBottom
@@ -278,7 +281,6 @@ local Gui = class('Gui', {
 	_mouseFocus = nil, _mouseFocusSet = nil,
 	_mouseIsGrabbed = false,
 	_mouseIsOverInput = false,
-	_mouseOffsetX = 0, _mouseOffsetY = 0, -- (Not used at the moment.)
 	_mouseX = nil, _mouseY = nil,
 	_navigationTarget = nil, _timeSinceNavigation = 0.0,
 	_root = nil,
@@ -893,7 +895,6 @@ function setMouseFocus(gui, el, buttonN)
 	else
 		gui._mouseFocus = nil
 		gui._mouseFocusSet = {}
-		gui._mouseOffsetX, gui._mouseOffsetY = 0, 0
 		LM.setGrabbed(gui._mouseIsGrabbed)
 	end
 end
@@ -953,8 +954,8 @@ end
 
 -- themeRenderArea( element, what, areaX, areaY, areaWidth, areaHeight, extraArgument... )
 function themeRenderArea(el, what, areaX, areaY, areaW, areaH, ...)
-	local x = round(el._layoutX+el._layoutOffsetX+areaX)
-	local y = round(el._layoutY+el._layoutOffsetY+areaY)
+	local x = round(el:getXOnScreen()+areaX)
+	local y = round(el:getYOnScreen()+areaY)
 	return themeRenderOnScreen(el, what, x, y, areaW, areaH, ...)
 end
 
@@ -1011,6 +1012,7 @@ function updateHoveredElement(gui)
 	local oldEl = gui._hoveredElement
 	gui._hoveredElement = el
 	if not (el and el._tooltip ~= '' and oldEl and oldEl._tooltip ~= '' and gui._tooltipTime >= gui.TOOLTIP_DELAY) then
+		-- @Incomplete: Don't reset tooltip time instantly - add a delay.
 		gui._tooltipTime = 0
 	end
 end
@@ -1088,11 +1090,7 @@ end
 
 -- x, y, width, height = xywh( element )
 function xywh(el)
-	return
-		el._layoutX+el._layoutOffsetX,
-		el._layoutY+el._layoutOffsetY,
-		el._layoutWidth,
-		el._layoutHeight
+	return el:getXOnScreen(), el:getYOnScreen(), el._layoutWidth, el._layoutHeight
 end
 
 
@@ -1531,37 +1529,43 @@ function Gui:mousepressed(x, y, buttonN)
 	self._mouseX, self._mouseY = x, y
 
 	if self._mouseFocusSet[buttonN] then
-		return true -- Should be an error, but it's not really an issue.
+		-- The mouse button got pressed twice or more with no release inbetween.
+		-- Should be an error, but it's not really an issue.
+		return true
 	end
 
 	local focus = self._mouseFocus
-	if focus then
-		self._mouseFocusSet[buttonN] = true
-	end
+	if focus then  self._mouseFocusSet[buttonN] = true  end
 
 	updateLayoutIfNeeded(self) -- Updates hovered element.
 
 	local el = (focus or self._hoveredElement)
-	if el then
-		if trigger(
-			el, 'mousepressed',
-			x-el._layoutX-el._layoutOffsetX,
-			y-el._layoutY-el._layoutOffsetY,
-			buttonN)
-		then
-			return true -- Suppress default behavior.
+	while el do
+
+		-- Trigger any custom mousepressed event handler.
+		-- Returning true from the handler suppresses the default built-in behavior.
+		local screenX, screenY = el:getPositionOnScreen()
+		if trigger(el, 'mousepressed', x-screenX, y-screenY, buttonN) then
+			return true
 		end
+
+		-- Trigger the internal mousepressed event handler.
 		local handled, grabFocus = el:_mousepressed(x, y, buttonN)
-		handled = (handled or el._captureInput or el._captureGuiInput or el:isSolid())
 		if handled then
-			if (grabFocus and not next(self._mouseFocusSet)) then
+			if grabFocus and not next(self._mouseFocusSet) then
 				setMouseFocus(self, el, buttonN)
 			end
 			return true
 		end
+
+		if focus or el._captureInput or el._captureGuiInput or el:isSolid() then
+			return true
+		end
+
+		el = el._parent
 	end
 
-	return (focus ~= nil)
+	return false
 end
 
 -- handled = mousemoved( x, y )
@@ -1580,10 +1584,7 @@ function Gui:mousemoved(x, y)
 	local el = (x and focus or self._hoveredElement)
 	if el then
 		el:_mousemoved(x, y)
-		trigger(
-			el, 'mousemoved',
-			x-el._layoutX-el._layoutOffsetX,
-			y-el._layoutY-el._layoutOffsetY)
+		trigger(el, 'mousemoved', x-el:getXOnScreen(), y-el:getYOnScreen())
 	end
 
 	return true
@@ -1612,11 +1613,7 @@ function Gui:mousereleased(x, y, buttonN)
 	end
 
 	if el then
-		trigger(
-			el, 'mousereleased',
-			x-el._layoutX-el._layoutOffsetX,
-			y-el._layoutY-el._layoutOffsetY,
-			buttonN)
+		trigger(el, 'mousereleased', x-el:getXOnScreen(), y-el:getYOnScreen(), buttonN)
 	end
 
 	return true
@@ -1948,7 +1945,7 @@ do
 		local closestEl, closestDistSquared, closestAngDiff = nav, math.huge, math.huge
 		for el in root:traverseVisible() do
 			if (el ~= nav and el:is(Cs.widget)) then
-				local x, y = el._layoutX+el._layoutOffsetX, el._layoutY+el._layoutOffsetY
+				local x, y = el:getPositionOnScreen()
 				x = math.min(math.max(navX, x+0.01), x+el._layoutWidth-0.01)
 				y = math.min(math.max(navY, y+0.01), y+el._layoutHeight-0.01)
 				local dx, dy = x-navX, y-navY
@@ -2897,7 +2894,7 @@ end
 Cs.element:defget'_minWidth'
 
 -- getMinHeight
-Cs.element:defget'_minWidth'
+Cs.element:defget'_minHeight'
 
 
 
@@ -3095,16 +3092,35 @@ end
 
 
 
+-- x, y = getPositionOnScreen( )
+function Cs.element:getPositionOnScreen()
+	updateLayoutIfNeeded(self._gui)
+	return self._layoutX+self._layoutOffsetX, self._layoutY+self._layoutOffsetY
+end
+
+-- x = getXOnScreen( )
+function Cs.element:getXOnScreen()
+	updateLayoutIfNeeded(self._gui)
+	return self._layoutX+self._layoutOffsetX
+end
+
+-- y = getYOnScreen( )
+function Cs.element:getYOnScreen()
+	updateLayoutIfNeeded(self._gui)
+	return self._layoutY+self._layoutOffsetY
+end
+
+
+
 -- root = getRoot( )
-function Cs.element:getRoot()
-	local el = self
+-- Note: Returns the root the element knows of, which itself may have been removed
+--   from the GUI. So this function differs slightly from gui:getRoot().
+function Cs.element.getRoot(el)
 	repeat
-		if el.class == Cs.root then
-			return el
-		end
+		if el.class == Cs.root then  return el  end
 		el = el._parent
 	until not el
-	return nil -- we've probably been removed
+	return nil -- We've been removed from the root.
 end
 
 
@@ -3385,6 +3401,82 @@ end
 
 
 
+-- state = isScrollbarXHovered( )
+function Cs.element:isScrollbarXHovered()
+	local gui = self._gui
+	local x, y = gui._mouseX, gui._mouseY
+	if not x then return false end
+
+	local x1, y1 = self:getPositionOnScreen()
+	local x2, y2 = x1+self:getChildAreaWidth(), y1+self._layoutHeight
+	y1 = y2-themeGet(self._gui, 'scrollbarWidth')
+
+	return (x >= x1 and x < x2 and y >= y1 and y < y2)
+end
+
+-- state = isScrollbarYHovered( )
+function Cs.element:isScrollbarYHovered()
+	local gui = self._gui
+	local x, y = gui._mouseX, gui._mouseY
+	if not x then return false end
+
+	local x1, y1 = self:getPositionOnScreen()
+	local x2, y2 = x1+self._layoutWidth, y1+self:getChildAreaHeight()
+	x1 = x2-themeGet(self._gui, 'scrollbarWidth')
+
+	return (x >= x1 and x < x2 and y >= y1 and y < y2)
+end
+
+-- state = isScrollbarXHandleHovered( )
+function Cs.element:isScrollbarXHandleHovered()
+	local gui = self._gui
+	local x, y = gui._mouseX, gui._mouseY
+	if not x then return false end
+
+	local handlePos, handleLen = self:getScrollHandleX()
+	local x1, y1 = self:getPositionOnScreen()
+
+	x1 = x1+handlePos
+	local x2 = x1+handleLen
+
+	local y2 = y1+self._layoutHeight
+	y1 = y2-themeGet(self._gui, 'scrollbarWidth')
+
+	return (x >= x1 and x < x2 and y >= y1 and y < y2)
+end
+
+-- state = isScrollbarYHandleHovered( )
+function Cs.element:isScrollbarYHandleHovered()
+	local gui = self._gui
+	local x, y = gui._mouseX, gui._mouseY
+	if not x then return false end
+
+	local handlePos, handleLen = self:getScrollHandleY()
+	local x1, y1 = self:getPositionOnScreen()
+
+	local x2 = x1+self._layoutWidth
+	x1 = x2-themeGet(self._gui, 'scrollbarWidth')
+
+	y1 = y1+handlePos
+	local y2 = y1+handleLen
+
+	return (x >= x1 and x < x2 and y >= y1 and y < y2)
+end
+
+
+
+-- state = isScrollingX( )
+function Cs.element:isScrollingX()
+	return (self._mouseScrollDirection == 'x')
+end
+
+-- state = isScrollingY( )
+function Cs.element:isScrollingY()
+	return (self._mouseScrollDirection == 'y')
+end
+
+
+
 -- state = isSolid( )
 function Cs.element:isSolid()
 	return false
@@ -3438,7 +3530,7 @@ function Cs.element.scrollIntoView(el)
 
 	updateLayoutIfNeeded(gui)
 
-	local x1, y1 = el._layoutX+el._layoutOffsetX, el._layoutY+el._layoutOffsetY
+	local x1, y1 = el:getPositionOnScreen()
 	local x2, y2 = x1+el._layoutWidth, y1+el._layoutHeight
 
 	local sbW = themeGet(gui, 'scrollbarWidth')
@@ -3451,30 +3543,30 @@ function Cs.element.scrollIntoView(el)
 			local scrollX, scrollY = parent._scrollX, parent._scrollY
 
 			if maxW then
-				local distOutside = (parent._layoutX+parent._layoutOffsetX)-x1
+				local distOutside = parent:getXOnScreen()-x1
 				if distOutside >= 0 then
 					scrollX = scrollX+distOutside
 				else
-					distOutside = x2-(parent._layoutX+parent._layoutOffsetX+maxW-(maxH and sbW or 0))
+					distOutside = x2-(parent:getXOnScreen()+maxW-(maxH and sbW or 0))
 					if distOutside > 0 then
 						scrollX = scrollX-distOutside
 					end
 				end
-				x1 = el._layoutX+el._layoutOffsetX
+				x1 = el:getXOnScreen()
 				x2 = x1+el._layoutWidth
 			end
 
 			if maxH then
-				local distOutside = (parent._layoutY+parent._layoutOffsetY)-y1
+				local distOutside = parent:getYOnScreen()-y1
 				if distOutside >= 0 then
 					scrollY = scrollY+distOutside
 				else
-					distOutside = y2-(parent._layoutY+parent._layoutOffsetY+maxH-(maxW and sbW or 0))
+					distOutside = y2-(parent:getYOnScreen()+maxH-(maxW and sbW or 0))
 					if distOutside > 0 then
 						scrollY = scrollY-distOutside
 					end
 				end
-				y1 = el._layoutY+el._layoutOffsetY
+				y1 = el:getYOnScreen()
 				y2 = y1+el._layoutHeight
 			end
 
@@ -3490,19 +3582,14 @@ end
 
 
 
--- Helper function for theme drawing functions.
+-- Helper function for themes' drawing functions.
 -- setScissor( relativeX, relativeY, width, height )
 function Cs.element:setScissor(x, y, w, h)
 	local gui = self._gui
 
-	if gui._elementScissorIsSet then
-		setScissor(gui, nil)
-	end
+	if gui._elementScissorIsSet then setScissor(gui, nil) end
 
-	x = x+self._layoutX+self._layoutOffsetX
-	y = y+self._layoutY+self._layoutOffsetY
-
-	setScissor(gui, x, y, w, h)
+	setScissor(gui, self:getXOnScreen()+x, self:getYOnScreen()+y, w, h)
 	gui._elementScissorIsSet = true
 
 end
@@ -3581,8 +3668,8 @@ function Cs.element:showMenu(items, highlightI, offsetX, offsetY, cb)
 	-- Set position.
 	menu:_updateLayoutSize() -- Expanding and positioning of the whole menu isn't necessary right here.
 	buttons:setPosition(
-		self._layoutX+self._layoutOffsetX+offsetX,
-		math.max(math.min(self._layoutY+self._layoutOffsetY+offsetY, root._height-buttons._layoutHeight), 0)
+		self:getXOnScreen()+offsetX,
+		math.max(math.min(self:getYOnScreen()+offsetY, root._height-buttons._layoutHeight), 0)
 	)
 
 	return menu
@@ -3631,6 +3718,7 @@ Cs.container = Cs.element:extend('GuiContainer', {
 
 	SCROLL_SPEED_X = 15, SCROLL_SPEED_Y = 20,
 
+	_mouseScrollDirection = nil, _mouseScrollOffset = 0,
 	_scrollX = 0, _scrollY = 0,
 
 	_expandX = false, _expandY = false,
@@ -3695,28 +3783,19 @@ function Cs.container:_draw()
 
 	if not self._gui.debug then
 
-		-- Draw scrollbars.
+		-- Horizontal scrollbar.
 		if maxW then
-			local insideW = (childAreaW-2*self._padding)
-			local innerW = self._layoutInnerWidth
-			local handleLen = math.max(round(childAreaW*insideW/innerW), sbMinW)
-			local handleX, handleY = x, y+h-sbW
-			if innerW > insideW then
-				handleX = round(x - (childAreaW-handleLen) * self._scrollX/(innerW-insideW) )
-			end
-			themeRenderArea(self, 'scrollbar', 0, h-sbW, childAreaW, sbW, 'x', handleX-x, handleLen)
+			local handlePos, handleLen = self:getScrollHandleX()
+			themeRenderArea(self, 'scrollbar', 0, h-sbW, childAreaW, sbW, 'x', round(handlePos), handleLen)
 		end
+
+		-- Vertical scrollbar.
 		if maxH then
-			local insideH = (childAreaH-2*self._padding)
-			local innerH = self._layoutInnerHeight
-			local handleLen = math.max(round(childAreaH*insideH/innerH), sbMinW)
-			local handleX, handleY = x+w-sbW, y
-			if innerH > insideH then
-				handleY = round(y - (childAreaH-handleLen) * self._scrollY/(innerH-insideH) )
-			end
-			themeRenderArea(self, 'scrollbar', w-sbW, 0, sbW, childAreaH, 'y', handleY-y, handleLen)
+			local handlePos, handleLen = self:getScrollHandleY()
+			themeRenderArea(self, 'scrollbar', w-sbW, 0, sbW, childAreaH, 'y', round(handlePos), handleLen)
 		end
-		if (maxW and maxH) then
+
+		if maxW and maxH then
 			themeRenderArea(self, 'scrollbardeadzone', w-sbW, h-sbW, sbW, sbW)
 		end
 
@@ -3940,7 +4019,7 @@ function Cs.container:setScrollX(scrollX)
 end
 
 -- scrollChanged = setScrollY( y )
-function Cs.container:setScrollX(scrollY)
+function Cs.container:setScrollY(scrollY)
 	return self:setScroll(self._scrollX, scrollY)
 end
 
@@ -3953,6 +4032,39 @@ end
 -- @Incomplete: Update scroll automatically when elements change size etc.
 function Cs.container:updateScroll()
 	return self:scroll(0, 0)
+end
+
+
+
+do
+	local function getScrollHandle(self, childAreaSize, innerSize, scroll)
+		local insideSize = (childAreaSize-2*self._padding)
+
+		local handleLen = math.max(
+			round(childAreaSize*insideSize/innerSize),
+			themeGet(self._gui, 'scrollbarMinLength'))
+
+		local handlePos, handleMaxPos = 0, 0
+		if innerSize > insideSize then
+			handleMaxPos = childAreaSize-handleLen
+			handlePos = -scroll*handleMaxPos/(innerSize-insideSize)
+		end
+
+		return handlePos, handleLen, handleMaxPos
+	end
+
+	-- position, length, maxPosition = getScrollHandleX( )
+	-- Units are in pixels.
+	function Cs.container:getScrollHandleX()
+		return getScrollHandle(self, self:getChildAreaWidth(), self._layoutInnerWidth, self._scrollX)
+	end
+
+	-- position, length, maxPosition = getScrollHandleY( )
+	-- Units are in pixels.
+	function Cs.container:getScrollHandleY()
+		return getScrollHandle(self, self:getChildAreaHeight(), self._layoutInnerHeight, self._scrollY)
+	end
+
 end
 
 
@@ -4204,6 +4316,99 @@ end
 
 
 
+-- REPLACE  handled, grabFocus = _mousepressed( x, y, button )
+function Cs.container:_mousepressed(x, y, buttonN)
+
+	if buttonN == 1 then
+
+		local x0, y0 = self:getPositionOnScreen()
+		local childAreaW, childAreaH = self:getChildAreaDimensions()
+
+		local sbW = themeGet(self._gui, 'scrollbarWidth')
+
+		-- Horizontal scrolling.
+		----------------------------------------------------------------
+
+		local x2, y2 = x0+childAreaW, y0+self._layoutHeight
+		local x1, y1 = x0, y2-sbW
+		if x >= x1 and x < x2 and y >= y1 and y < y2 then
+			local handlePos, handleLen, handleMaxPos = self:getScrollHandleX()
+
+			self._mouseScrollDirection = 'x'
+
+			-- Drag handle.
+			if (x >= x1+handlePos and x < x1+handlePos+handleLen) then
+				self._mouseScrollOffset = x-x1-handlePos
+
+			-- Jump and drag.
+			else
+				self._mouseScrollOffset = handleLen/2
+				self:_mousemoved(x, y)
+			end
+
+			return true, true
+		end
+
+		-- Vertical scrolling.
+		----------------------------------------------------------------
+
+		local x2, y2 = x0+self._layoutWidth, y0+childAreaH
+		local x1, y1 = x2-sbW, y0
+		if x >= x1 and x < x2 and y >= y1 and y < y2 then
+			local handlePos, handleLen, handleMaxPos = self:getScrollHandleY()
+
+			self._mouseScrollDirection = 'y'
+
+			-- Drag handle.
+			if (y >= y1+handlePos and y < y1+handlePos+handleLen) then
+				self._mouseScrollOffset = y-y1-handlePos
+
+			-- Jump and drag.
+			else
+				self._mouseScrollOffset = handleLen/2
+				self:_mousemoved(x, y)
+			end
+
+			return true, true
+		end
+
+		----------------------------------------------------------------
+
+	end
+
+	return false, false
+end
+
+-- REPLACE  _mousemoved( x, y )
+function Cs.container:_mousemoved(x, y)
+
+	-- Horizontal scrolling.
+	if self._mouseScrollDirection == 'x' then
+		local handleMaxPos = select(3, self:getScrollHandleX())
+		self:setScrollX(
+			(x-self:getXOnScreen()-self._mouseScrollOffset)
+			*self:getScrollLimitX()/handleMaxPos
+		)
+
+	-- Vertical scrolling.
+	elseif self._mouseScrollDirection == 'y' then
+		local handleMaxPos = select(3, self:getScrollHandleY())
+		self:setScrollY(
+			(y-self:getYOnScreen()-self._mouseScrollOffset)
+			*self:getScrollLimitY()/handleMaxPos
+		)
+
+	end
+end
+
+-- REPLACE  _mousereleased( x, y, button )
+function Cs.container:_mousereleased(x, y, buttonN)
+	if buttonN == 1 then
+		self._mouseScrollDirection = nil
+		self._mouseScrollOffset = 0
+	end
+end
+
 -- REPLACE  handled = _wheelmoved( deltaX, deltaY )
 function Cs.container:_wheelmoved(dx, dy)
 	if (dx ~= 0 and self._maxWidth) or (dy ~= 0 and self._maxHeight) then
@@ -4333,43 +4538,62 @@ do
 		for i = #el, 1, -1 do
 			local child = el[i]
 			if not child._hidden then
+
 				if child:is(Cs.container) then
 					traverseVisibleChildren(child)
 				end
+
 				coroutine.yield(child)
+
 			end
 		end
 	end
-	local function constrainedTraverseVisibleChildren(el, x, y)
+
+	local function traverseVisibleChildrenUnderCoords(el, x, y, sbW)
 		for i = #el, 1, -1 do
 			local child = el[i]
 			if not child._hidden then
+
 				local isContainer = child:is(Cs.container)
-				local skip = false
+				local includeSelf, includeChildren = true, isContainer
+
 				if isContainer then
-					local childX = child._layoutX+child._layoutOffsetX
-					local childY = child._layoutY+child._layoutOffsetY
-					if (child._maxWidth) and (x < childX or x >= childX+child._layoutWidth) then
-						skip = true
-					elseif (child._maxHeight) and (y < childY or y >= childY+child._layoutHeight) then
-						skip = true
+
+					local x1, y1 = child:getPositionOnScreen()
+					local x2, y2 = x1+child._layoutWidth, y1+child._layoutHeight
+
+					local maxW = child._maxWidth
+					local maxH = child._maxHeight
+
+					if (maxW) and (x < x1 or x >= x2-(maxH and sbW or 0)) then
+						includeChildren = false
+						includeSelf = (x < x2)
+					elseif (maxH) and (y < y1 or y >= y2-(maxW and sbW or 0)) then
+						includeChildren = false
+						includeSelf = (y < y2)
 					end
+
 				end
-				if not skip then
-					if isContainer then
-						constrainedTraverseVisibleChildren(child, x, y)
+
+				if includeSelf then
+					if includeChildren then
+						traverseVisibleChildrenUnderCoords(child, x, y, sbW)
 					end
 					coroutine.yield(child)
 				end
+
 			end
 		end
 	end
+
 	function Cs.container:traverseVisible(x, y)
 		if x and y then
-			return newIteratorCoroutine(constrainedTraverseVisibleChildren, self, x, y)
+			local sbW = themeGet(self._gui, 'scrollbarWidth')
+			return newIteratorCoroutine(traverseVisibleChildrenUnderCoords, self, x, y, sbW)
 		end
 		return newIteratorCoroutine(traverseVisibleChildren, self)
 	end
+
 end
 
 
