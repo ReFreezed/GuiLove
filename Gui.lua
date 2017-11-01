@@ -130,6 +130,7 @@
 	- getPositionOnScreen, getXOnScreen, getYOnScreen
 	- getRoot
 	- getSound, getResultingSound, setSound
+	- getTimeSinceBecomingVisible
 	- getTooltip, setTooltip, drawTooltip
 	- getTooltipFont, useTooltipFont
 	- hasTag, addTag, removeTag, removeAllTags, setTag
@@ -2375,6 +2376,7 @@ Cs.element = class('GuiElement', {
 	_layoutWidth = 0, _layoutHeight = 0,
 	_layoutX = 0, _layoutY = 0,
 	_parent = nil,
+	_timeBecomingVisible = 0.00,
 
 	_anchorX = 0.0, _anchorY = 0.0, -- where in self to base off x and y
 	_background = nil,
@@ -2440,6 +2442,8 @@ function Cs.element:init(gui, data, parent)
 	-- retrieve(self, data, '_tooltip')
 	retrieve(self, data, '_width', '_height')
 	retrieve(self, data, '_x', '_y')
+
+	self._timeBecomingVisible = gui._time
 
 	-- Set data table
 	assert(data.data == nil or type(data.data) == 'table')
@@ -2617,7 +2621,7 @@ end
 
 -- state = exists( )
 function Cs.element:exists()
-	return (self._gui ~= nil)
+	return (self._parent ~= nil or self == self._gui._root)
 end
 
 
@@ -3167,6 +3171,13 @@ end
 
 
 
+-- duration = getTimeSinceBecomingVisible( )
+function Cs.element:getTimeSinceBecomingVisible()
+	return self._gui._time-self._timeBecomingVisible
+end
+
+
+
 -- getTooltip
 Cs.element:defget'_tooltip'
 
@@ -3283,16 +3294,11 @@ end
 
 
 -- state = isDisplayed( )
--- Returns true if the element exists, and it and it's parents are visible
-function Cs.element:isDisplayed()
-	local el = self
-	if not el:exists() then
-		return false
-	end
+-- Returns true if the element and it's parents are visible (and the element exists).
+function Cs.element.isDisplayed(el)
+	if not el:exists() then return false end
 	repeat
-		if el._hidden then
-			return false
-		end
+		if el._hidden then return false end
 		el = el._parent
 	until not el
 	return true
@@ -3335,25 +3341,43 @@ function Cs.element:isVisible()
 end
 
 -- stateChanged = setHidden( state )
-function Cs.element:setHidden(state)
-	if self._hidden == state then
-		return false
+function Cs.element:setHidden(hidden)
+	assertarg(1, hidden, 'boolean')
+	if self._hidden == hidden then return false end
+
+	local wasDisplayed = self:isDisplayed()
+	self._hidden = hidden
+	local isDisplayed = self:isDisplayed()
+
+	local gui = self._gui
+
+	if (wasDisplayed or isDisplayed) then
+
+		if wasDisplayed then validateNavigationTarget(gui) end
+
+		gui._layoutNeedsUpdate = true
+
+		if isDisplayed then
+			local time = gui._time
+
+			self._timeBecomingVisible = time
+
+			if self:is(Cs.container) then
+				for el in self:traverseVisible() do
+					el._timeBecomingVisible = time
+				end
+			end
+
+		end
 	end
-	self._hidden = state
 
-	if state == true then
-		validateNavigationTarget(self._gui)
-	end
-
-	scheduleLayoutUpdateIfDisplayed(self._parent or self)
-
-	trigger(self, (state and 'hide' or 'show'))
+	trigger(self, (hidden and 'hide' or 'show'))
 	return true
 end
 
 -- stateChanged = setVisible( state )
-function Cs.element:setVisible(state)
-	return self:setHidden(not state)
+function Cs.element:setVisible(hidden)
+	return self:setHidden(not hidden)
 end
 
 -- stateChanged = show( )
@@ -4300,6 +4324,7 @@ function Cs.container:removeAt(i)
 		child:empty()
 	end
 
+	-- Note: The child still keeps the reference to the GUI.
 	child._parent = nil
 	table.remove(self, i)
 
