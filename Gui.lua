@@ -176,6 +176,7 @@
 	- getScrollHandleX, getScrollHandleY
 	- getScrollLimit, getScrollLimitX, getScrollLimitY
 	- getVisibleChild, getVisibleChildNumber, getVisibleChildCount, setVisibleChild
+	- getVisualScroll, getVisualScrollX, getVisualScrollY
 	- hasScrollbars, hasScrollbarOnRight, hasScrollbarOnBottom
 	- indexOf
 	- insert, removeAt, empty
@@ -345,6 +346,7 @@ local reverseArray
 local round
 local setMouseFocus, setKeyboardFocus
 local setScissor
+local setVisualScroll
 local themeCallBack, themeGet, themeRender, themeRenderArea, themeRenderOnScreen, themeGetSize
 local trigger
 local updateHoveredElement, validateNavigationTarget
@@ -924,6 +926,37 @@ function setScissor(gui, x, y, w, h)
 
 	LG.push('all')
 	LG.intersectScissor(x, y, w, h)
+
+end
+
+
+
+-- setVisualScroll( container, scrollX, scrollY )
+function setVisualScroll(container, scrollX, scrollY)
+
+	local dx = scrollX-container._visualScrollX
+	local dy = scrollY-container._visualScrollY
+
+	local didScroll = false
+
+	if dx ~= 0 then
+		container._visualScrollX = container._visualScrollX+dx
+		didScroll = true
+	end
+
+	if dy ~= 0 then
+		container._visualScrollY = container._visualScrollY+dy
+		didScroll = true
+	end
+
+	if not didScroll then return end
+
+	for el in container:traverse() do
+		el._layoutOffsetX = el._layoutOffsetX+dx
+		el._layoutOffsetY = el._layoutOffsetY+dy
+	end
+
+	updateHoveredElement(container._gui)
 
 end
 
@@ -2369,10 +2402,11 @@ Cs.element = class('GuiElement', {
 	_callbacks = nil,
 	_gui = nil,
 	_layoutExpandablesX = 0, _layoutExpandablesY = 0,
+	_layoutImmediateOffsetX = 0, _layoutImmediateOffsetY = 0, -- Sum of parents' scrolling, excluding smooth scrolling.
 	_layoutInnerSpacingsX = 0, _layoutInnerSpacingsY = 0,
 	_layoutInnerStaticWidth = 0, _layoutInnerStaticHeight = 0,
 	_layoutInnerWidth = 0, _layoutInnerHeight = 0,
-	_layoutOffsetX = 0, _layoutOffsetY = 0, -- sum of parent's scrolling
+	_layoutOffsetX = 0.0, _layoutOffsetY = 0.0, -- Sum of parents' scrolling.
 	_layoutWidth = 0, _layoutHeight = 0,
 	_layoutX = 0, _layoutY = 0,
 	_parent = nil,
@@ -2482,8 +2516,10 @@ function Cs.element:init(gui, data, parent)
 
 	-- Set initial offset
 	if parent then
-		self._layoutOffsetX = parent._layoutOffsetX+parent._scrollX
-		self._layoutOffsetY = parent._layoutOffsetY+parent._scrollY
+		self._layoutImmediateOffsetX = parent._layoutImmediateOffsetX+parent._scrollX
+		self._layoutImmediateOffsetY = parent._layoutImmediateOffsetY+parent._scrollY
+		self._layoutOffsetX = parent._layoutOffsetX+parent._visualScrollX
+		self._layoutOffsetY = parent._layoutOffsetY+parent._visualScrollY
 	end
 
 	if data.debug then
@@ -3096,22 +3132,34 @@ end
 
 
 
--- x, y = getPositionOnScreen( )
-function Cs.element:getPositionOnScreen()
+-- x, y = getPositionOnScreen( [ ignoreSmoothScrolling=false ] )
+function Cs.element:getPositionOnScreen(ignoreSmoothScrolling)
 	updateLayoutIfNeeded(self._gui)
-	return self._layoutX+self._layoutOffsetX, self._layoutY+self._layoutOffsetY
+	if ignoreSmoothScrolling then
+		return self._layoutX+self._layoutImmediateOffsetX, self._layoutY+self._layoutImmediateOffsetY
+	else
+		return self._layoutX+self._layoutOffsetX, self._layoutY+self._layoutOffsetY
+	end
 end
 
--- x = getXOnScreen( )
-function Cs.element:getXOnScreen()
+-- x = getXOnScreen( [ ignoreSmoothScrolling=false ] )
+function Cs.element:getXOnScreen(ignoreSmoothScrolling)
 	updateLayoutIfNeeded(self._gui)
-	return self._layoutX+self._layoutOffsetX
+	if ignoreSmoothScrolling then
+		return self._layoutX+self._layoutImmediateOffsetX
+	else
+		return self._layoutX+self._layoutOffsetX
+	end
 end
 
--- y = getYOnScreen( )
-function Cs.element:getYOnScreen()
+-- y = getYOnScreen( [ ignoreSmoothScrolling=false ] )
+function Cs.element:getYOnScreen(ignoreSmoothScrolling)
 	updateLayoutIfNeeded(self._gui)
-	return self._layoutY+self._layoutOffsetY
+	if ignoreSmoothScrolling then
+		return self._layoutY+self._layoutImmediateOffsetY
+	else
+		return self._layoutY+self._layoutOffsetY
+	end
 end
 
 
@@ -3554,7 +3602,7 @@ function Cs.element.scrollIntoView(el)
 
 	updateLayoutIfNeeded(gui)
 
-	local x1, y1 = el:getPositionOnScreen()
+	local x1, y1 = el:getPositionOnScreen(true)
 	local x2, y2 = x1+el._layoutWidth, y1+el._layoutHeight
 
 	local sbW = themeGet(gui, 'scrollbarWidth')
@@ -3567,30 +3615,30 @@ function Cs.element.scrollIntoView(el)
 			local scrollX, scrollY = parent._scrollX, parent._scrollY
 
 			if maxW then
-				local distOutside = parent:getXOnScreen()-x1
+				local distOutside = parent:getXOnScreen(true)-x1
 				if distOutside >= 0 then
 					scrollX = scrollX+distOutside
 				else
-					distOutside = x2-(parent:getXOnScreen()+maxW-(maxH and sbW or 0))
+					distOutside = x2-(parent:getXOnScreen(true)+maxW-(maxH and sbW or 0))
 					if distOutside > 0 then
 						scrollX = scrollX-distOutside
 					end
 				end
-				x1 = el:getXOnScreen()
+				x1 = el:getXOnScreen(true)
 				x2 = x1+el._layoutWidth
 			end
 
 			if maxH then
-				local distOutside = parent:getYOnScreen()-y1
+				local distOutside = parent:getYOnScreen(true)-y1
 				if distOutside >= 0 then
 					scrollY = scrollY+distOutside
 				else
-					distOutside = y2-(parent:getYOnScreen()+maxH-(maxW and sbW or 0))
+					distOutside = y2-(parent:getYOnScreen(true)+maxH-(maxW and sbW or 0))
 					if distOutside > 0 then
 						scrollY = scrollY-distOutside
 					end
 				end
-				y1 = el:getYOnScreen()
+				y1 = el:getYOnScreen(true)
 				y2 = y1+el._layoutHeight
 			end
 
@@ -3740,10 +3788,12 @@ end
 
 Cs.container = Cs.element:extend('GuiContainer', {
 
+	SCROLL_SMOOTHNESS = 0.65,
 	SCROLL_SPEED_X = 15, SCROLL_SPEED_Y = 20,
 
 	_mouseScrollDirection = nil, _mouseScrollOffset = 0,
-	_scrollX = 0, _scrollY = 0,
+	_scrollX = 0.0, _scrollY = 0.0,
+	_visualScrollX = 0.0, _visualScrollY = 0.0,
 
 	_expandX = false, _expandY = false,
 	_maxWidth = nil, _maxHeight = nil,
@@ -3774,9 +3824,45 @@ end
 -- OVERRIDE  _update( deltaTime )
 function Cs.container:_update(dt)
 	Cs.container.super._update(self, dt)
+
 	for _, child in ipairs(self) do
 		child:_update(dt)
 	end
+
+	local scrollX = self._scrollX
+	local scrollY = self._scrollY
+
+	local visualScrollX = self._visualScrollX
+	local visualScrollY = self._visualScrollY
+
+	local didScroll = false
+
+	if visualScrollX ~= scrollX then
+
+		visualScrollX = scrollX+self.SCROLL_SMOOTHNESS*(visualScrollX-scrollX)
+		if math.abs(visualScrollX-scrollX) < 0.5 then
+			visualScrollX = scrollX
+		end
+
+		didScroll = true
+
+	end
+
+	if visualScrollY ~= scrollY then
+
+		visualScrollY = scrollY+self.SCROLL_SMOOTHNESS*(visualScrollY-scrollY)
+		if math.abs(visualScrollY-scrollY) < 0.5 then
+			visualScrollY = scrollY
+		end
+
+		didScroll = true
+
+	end
+
+	if didScroll then
+		setVisualScroll(self, visualScrollX, visualScrollY)
+	end
+
 end
 
 
@@ -4005,8 +4091,8 @@ Cs.container:defget'_scrollX'
 -- getScrollY
 Cs.container:defget'_scrollY'
 
--- scrollChanged = setScroll( x, y )
-function Cs.container:setScroll(scrollX, scrollY)
+-- scrollChanged = setScroll( x, y [, immediate=false ] )
+function Cs.container:setScroll(scrollX, scrollY, immediate)
 	assertarg(1, scrollX, 'number')
 	assertarg(2, scrollY, 'number')
 
@@ -4017,17 +4103,16 @@ function Cs.container:setScroll(scrollX, scrollY)
 	scrollX = math.min(math.max(scrollX, limitX), 0)
 	scrollY = math.min(math.max(scrollY, limitY), 0)
 	local dx, dy = scrollX-self._scrollX, scrollY-self._scrollY
-	if (dx == 0 and dy == 0) then
-		return false
-	end
+	if dx == 0 and dy == 0 then return false end
 
 	self._scrollX, self._scrollY = scrollX, scrollY
 
-	-- Offset all elements below self
 	for el in self:traverse() do
-		el._layoutOffsetX = el._layoutOffsetX+dx
-		el._layoutOffsetY = el._layoutOffsetY+dy
+		el._layoutImmediateOffsetX = el._layoutImmediateOffsetX+dx
+		el._layoutImmediateOffsetY = el._layoutImmediateOffsetY+dy
 	end
+
+	if immediate then setVisualScroll(self, scrollX, scrollY) end
 
 	if self:isDisplayed() then
 		playSound(self, 'scroll') -- @Robustness: May have to add more limitations to whether "scroll" sound plays or not.
@@ -4037,25 +4122,25 @@ function Cs.container:setScroll(scrollX, scrollY)
 	return true
 end
 
--- scrollChanged = setScrollX( x )
-function Cs.container:setScrollX(scrollX)
-	return self:setScroll(scrollX, self._scrollY)
+-- scrollChanged = setScrollX( x [, immediate=false ] )
+function Cs.container:setScrollX(scrollX, immediate)
+	return self:setScroll(scrollX, self._scrollY, immediate)
 end
 
--- scrollChanged = setScrollY( y )
-function Cs.container:setScrollY(scrollY)
-	return self:setScroll(self._scrollX, scrollY)
+-- scrollChanged = setScrollY( y [, immediate=false ] )
+function Cs.container:setScrollY(scrollY, immediate)
+	return self:setScroll(self._scrollX, scrollY, immediate)
 end
 
--- scrollChanged = scroll( deltaX, deltaY )
-function Cs.container:scroll(dx, dy)
-	return self:setScroll(self._scrollX+dx, self._scrollY+dy)
+-- scrollChanged = scroll( deltaX, deltaY [, immediate=false ] )
+function Cs.container:scroll(dx, dy, immediate)
+	return self:setScroll(self._scrollX+dx, self._scrollY+dy, immediate)
 end
 
--- scrollChanged = updateScroll( )
+-- scrollChanged = updateScroll( [, immediate=false ] )
 -- @Incomplete: Update scroll automatically when elements change size etc.
-function Cs.container:updateScroll()
-	return self:scroll(0, 0)
+function Cs.container:updateScroll(immediate)
+	return self:scroll(0, 0, immediate)
 end
 
 
@@ -4167,6 +4252,19 @@ function Cs.container:setVisibleChild(id)
 	end
 	return visibleChild -- if multiple children matched then the last match is returned
 end
+
+
+
+-- x, y = getVisualScroll( )
+function Cs.container:getVisualScroll()
+	return self._visualScrollX, self._visualScrollY
+end
+
+-- getVisualScrollX
+Cs.container:defget'_visualScrollX'
+
+-- getVisualScrollY
+Cs.container:defget'_visualScrollY'
 
 
 
@@ -4412,7 +4510,7 @@ function Cs.container:_mousemoved(x, y)
 		local handleMaxPos = select(3, self:getScrollHandleX())
 		self:setScrollX(
 			(x-self:getXOnScreen()-self._mouseScrollOffset)
-			*self:getScrollLimitX()/handleMaxPos
+			*self:getScrollLimitX()/handleMaxPos, true
 		)
 
 	-- Vertical scrolling.
@@ -4420,7 +4518,7 @@ function Cs.container:_mousemoved(x, y)
 		local handleMaxPos = select(3, self:getScrollHandleY())
 		self:setScrollY(
 			(y-self:getYOnScreen()-self._mouseScrollOffset)
-			*self:getScrollLimitY()/handleMaxPos
+			*self:getScrollLimitY()/handleMaxPos, true
 		)
 
 	end
