@@ -96,6 +96,7 @@
 	getTarget, getTargetCallback, setTargetCallback
 	getTextPreprocessor, setTextPreprocessor, reprocessTexts
 	getTheme, setTheme
+	getTime
 	isBusy, isMouseBusy
 	isIgnoringKeyboardInput
 	isMouseGrabbed, setMouseIsGrabbed
@@ -117,6 +118,7 @@
 	- getData, setData, swapData
 	- getDimensions, setDimensions, getWidth, setWidth, getHeight, setHeight
 	- getGui
+	- getGuiTime
 	- getId, hasId
 	- getIndex, getDepth
 	- getLayout
@@ -154,6 +156,7 @@
 	- Event: beforedraw, afterdraw
 	- Event: close, closed
 	- Event: focused, blurred
+	- Event: init
 	- Event: keypressed
 	- Event: layout
 	- Event: mousepressed, mousemoved, mousereleased
@@ -243,7 +246,7 @@
 	- drawImage
 	- getImageBackgroundColor, setImageBackgroundColor, hasImageBackgroundColor, useImageBackgroundColor
 	- getImageColor, setImageColor, hasImageColor, useImageColor
-	- getImageDimensions
+	- getImageDimensions, setImageSize, maximizeImageSize
 	- getImageScale, getImageScaleX, getImageScaleY, setImageScale, setImageScaleX, setImageScaleY
 	- setSprite, hasSprite
 
@@ -525,18 +528,32 @@ end
 
 
 
+-- sprite = newSprite( image [, quad ] )
 -- sprite = newSprite( image, frames )
 -- frames = { frame... }
 -- frame = { duration=duration, quad=quad }
-function newSprite(image, frames)
+function newSprite(image, framesOrQuad)
+	assertarg(1, image, 'userdata')
+	assertarg(2, framesOrQuad, 'userdata','table','nil')
 
-	if not frames then
+	local frames
+
+	if not framesOrQuad then
 		local iw, ih = image:getDimensions()
 		frames = {{duration=math.huge, quad=LG.newQuad(0, 0, iw, ih, iw, ih)}}
 
-	elseif not frames[1] then
-		errorf(2, 'The frames table is empty. We need at least one frame!')
+	elseif type(framesOrQuad) == 'userdata' then
+		frames = {{duration=math.huge, quad=framesOrQuad}}
 
+	else
+		frames = framesOrQuad
+		if not frames[1] then
+			error('The frames table is empty. We need at least one frame!', 2)
+		end
+		for i, frame in ipairs(frames) do
+			if not frame.duration then errorf(2, 'Frame %d is missing a duration.', i) end
+			if not frame.quad     then errorf(2, 'Frame %d is missing a quad.',     i) end
+		end
 	end
 
 	local duration = 0
@@ -544,14 +561,15 @@ function newSprite(image, frames)
 		duration = duration+frame.duration
 	end
 
+	local _, _, iw, ih = frames[1].quad:getViewport()
 	local sprite = {
 
 		image = image,
 
 		frames = frames,
 
-		width = image:getWidth(),
-		height = image:getHeight(),
+		width = iw,
+		height = ih,
 
 		length = #frames,
 		duration = duration,
@@ -2071,30 +2089,33 @@ end
 -- callback, errorMessage = getTargetCallback( targetAndEvent )
 -- targetAndEvent: "ID.subID.anotherSubID.event"
 function Gui:getTargetCallback(targetAndEvent)
+
 	local target, event = targetAndEvent:match('^(.-)%.?([^.]+)$')
 	if not target then
 		return nil, F'bad targetAndEvent value %q'(targetAndEvent)
 	end
+
 	local el, err = self:getTarget(target)
-	if not el then
-		return nil, err
-	end
+	if not el then return nil, err end
+
 	return el:getCallback(event)
 end
 
--- success, errorMessage = setTargetCallback( targetAndEvent, callback )
+-- element, errorMessage = setTargetCallback( targetAndEvent, callback )
 -- targetAndEvent: "ID.subID.anotherSubID.event"
 function Gui:setTargetCallback(targetAndEvent, cb)
+
 	local target, event = targetAndEvent:match('^(.-)%.?([^.]+)$')
 	if not target then
 		return nil, F'bad targetAndEvent value %q'(targetAndEvent)
 	end
+
 	local el, err = self:getTarget(target)
-	if not el then
-		return false, err
-	end
+	if not el then return nil, err end
+
 	el:on(event, cb)
-	return true
+
+	return el
 end
 
 
@@ -2130,6 +2151,11 @@ function Gui:setTheme(theme)
 	self._theme = theme
 	self._layoutNeedsUpdate = true
 end
+
+
+
+-- getTime
+Gui:defget'_time'
 
 
 
@@ -2294,6 +2320,29 @@ function Ms.imageMixin:getImageDimensions()
 	return sprite.width, sprite.height
 end
 
+-- Sets the scale of the image by specifying a size. Does nothing if there's no image.
+-- setImageSize( width, height )
+function Ms.imageMixin:setImageSize(w, h)
+	local sprite = self._sprite
+	if not sprite then return end
+	self:setImageScale(w/sprite.width, h/sprite.height)
+end
+
+-- Scales the image so it fills the element. Does nothing if there's no image or if no dimensions are set.
+-- maximizeImageSize( [ extraWidth=0, extraHeight=0 ] )
+function Ms.imageMixin:maximizeImageSize(extraWidth, extraHeight)
+
+	local sprite = self._sprite
+	if not sprite then return end
+
+	local paddingSum = (self:is(Cs.button) and 2*self._imagePadding or 0)
+
+	local scaleX = (self._width  and (self._width -paddingSum+(extraHeight or 0))/sprite.width  or self._imageScaleX)
+	local scaleY = (self._height and (self._height-paddingSum+(extraWidth  or 0))/sprite.height or self._imageScaleY)
+	self:setImageScale(scaleX, scaleY)
+
+end
+
 
 
 -- scaleX, scaleY = getImageScale( )
@@ -2338,9 +2387,10 @@ end
 
 
 
--- setSprite( image [, frames=oneFrameShowingWholeImage ] )
+-- setSprite( image [, quad ] )
+-- setSprite( image, frames )
 -- setSprite( spriteName )
-function Ms.imageMixin:setSprite(imageOrName, frames)
+function Ms.imageMixin:setSprite(imageOrName, framesOrQuad)
 	assertarg(1, imageOrName, 'userdata','string','nil')
 
 	local image = nil
@@ -2352,14 +2402,14 @@ function Ms.imageMixin:setSprite(imageOrName, frames)
 			printerror(2, 'There is no sprite loader to convert the sprite name %q to a sprite.', spriteName)
 			return
 		end
-		image, frames = spriteLoader(spriteName)
+		image, framesOrQuad = spriteLoader(spriteName)
 		if not image then
 			printerror(2, 'The sprite loader did not return a required image for sprite name %q.', spriteName)
 			return
 		end
 
 	elseif imageOrName then
-		assertarg(2, frames, 'table','nil')
+		assertarg(2, framesOrQuad, 'userdata','table','nil')
 		image = imageOrName
 
 	end
@@ -2369,7 +2419,7 @@ function Ms.imageMixin:setSprite(imageOrName, frames)
 		oldIw, oldIh = self._sprite.width, self._sprite.height
 	end
 
-	self._sprite = (image and newSprite(image, frames))
+	self._sprite = (image and newSprite(image, framesOrQuad))
 
 	local iw, ih = 0, 0
 	if self._sprite then
@@ -2437,6 +2487,7 @@ registerEvents(Cs.element, {
 	'beforedraw','afterdraw',
 	'close','closed',
 	'focused','blurred',
+	'init',
 	'keypressed',
 	'layout',
 	'mousepressed','mousemoved','mousereleased',
@@ -2711,11 +2762,20 @@ end
 function Cs.element:setCallback(event, cb)
 	assertarg(1, event, 'string')
 	assertarg(2, cb, 'function','nil')
+
 	if not self._events[event] then
 		printerror(2, 'Unknown event %q.', event)
 		return
 	end
+
 	self._callbacks[event] = cb
+
+	-- Since callbacks can only be attached to elements after the actual
+	-- initialization has happened we instead trigger the init event here.
+	if cb and event == 'init' then
+		trigger(self, 'init')
+	end
+
 end
 
 -- Alias for setCallback().
@@ -2832,6 +2892,13 @@ end
 
 -- getGui
 Cs.element:defget'_gui'
+
+
+
+-- time = getGuiTime( )
+function Cs.element:getGuiTime()
+	return self._gui._time
+end
 
 
 
@@ -5396,8 +5463,8 @@ function Cs.image:init(gui, data, parent)
 	-- retrieve(self, data, '_imageScaleX','_imageScaleY')
 	-- retrieve(self, data, '_sprite')
 
-	self._imageScaleX = (self._imageScaleX or data.imageScale or 1)
-	self._imageScaleY = (self._imageScaleY or data.imageScale or 1)
+	self._imageScaleX = (data.imageScaleX or data.imageScale or self._imageScaleX)
+	self._imageScaleY = (data.imageScaleY or data.imageScale or self._imageScaleY)
 
 	self:setSprite(data.sprite)
 
@@ -5638,15 +5705,15 @@ function Cs.button:init(gui, data, parent)
 	retrieve(self, data, '_close')
 	retrieve(self, data, '_imageBackgroundColor')
 	retrieve(self, data, '_imageColor')
-	retrieve(self, data, '_imageScaleX','_imageScaleY')
+	-- retrieve(self, data, '_imageScaleX','_imageScaleY')
 	retrieve(self, data, '_imagePadding')
 	-- retrieve(self, data, '_sprite')
 	-- retrieve(self, data, '_text2')
 	retrieve(self, data, '_toggled')
 	retrieve(self, data, '_toggledSprite','_untoggledSprite')
 
-	self._imageScaleX = (self._imageScaleX or data.imageScale or 1)
-	self._imageScaleY = (self._imageScaleY or data.imageScale or 1)
+	self._imageScaleX = (data.imageScaleX or data.imageScale or self._imageScaleX)
+	self._imageScaleY = (data.imageScaleY or data.imageScale or self._imageScaleY)
 
 	if data.sprite then
 		self:setSprite(data.sprite)
