@@ -86,7 +86,7 @@
 	find, findAll, findActive, findToggled, match, matchAll
 	getDefaultSound, setDefaultSound
 	getElementAt
-	getFont, setFont, getBoldFont, setBoldFont, getSmallFont, setSmallFont, getTooltipFont, setTooltipFont
+	getFont, setFont, getBoldFont, setBoldFont, getSmallFont, setSmallFont, getLargeFont, setLargeFont, getTooltipFont, setTooltipFont
 	getHoveredElement
 	getNavigationTarget, navigateTo, navigateToNext, navigateToPrevious, navigateToFirst, navigate, canNavigateTo
 	getRoot
@@ -110,6 +110,7 @@
 	----------------------------------------------------------------
 
 	(element)
+	- animate
 	- close, canClose
 	- exists
 	- getAnchor, setAnchor, getAnchorX, setAnchorX, getAnchorY, setAnchorY
@@ -205,6 +206,7 @@
 	- getText, getUnprocessedText, setText, drawText, drawAlignedText
 	- getTextColor, setTextColor, hasTextColor, useTextColor
 	- isBold, setBold
+	- isLarge, setLarge
 	- isSmall, setSmall
 
 		canvas
@@ -274,9 +276,10 @@ local Gui = class('Gui', {
 
 	TOOLTIP_DELAY = 0.15,
 
-	_defaultSounds = {},
+	_allAnimations = nil, _animationLockCount = 0,
+	_defaultSounds = nil,
 	_elementScissorIsSet = false,
-	_font = nil, _fontBold = nil, _fontSmall = nil, _fontTooltip = nil,
+	_font = nil, _fontBold = nil, _fontSmall = nil, _fontLarge = nil, _fontTooltip = nil,
 	_hoveredElement = nil,
 	_ignoreKeyboardInputThisFrame = false,
 	_keyboardFocus = nil,
@@ -336,6 +339,8 @@ local drawLayoutBackground
 local errorf
 local F
 local getTextDimensions
+local indexOf
+local ipairsr
 local lerp
 local matchAll
 local newSprite, cloneSprite, getCurrentViewOfSprite, updateSprite
@@ -351,7 +356,7 @@ local setMouseFocus, setKeyboardFocus
 local setScissor
 local setVisualScroll
 local themeCallBack, themeGet, themeRender, themeRenderArea, themeRenderOnScreen, themeGetSize
-local trigger
+local trigger, triggerIncludingAnimations
 local updateHoveredElement, validateNavigationTarget
 local updateLayout, updateLayoutIfNeeded, scheduleLayoutUpdateIfDisplayed
 local useColor
@@ -505,6 +510,31 @@ function getTextDimensions(font, text, wrapLimit)
 	local w, lines = font:getWrap(text, (wrapLimit or math.huge))
 	local h = font:getHeight()
 	return w, h + math.floor(h*font:getLineHeight()) * (math.max(#lines, 1)-1)
+end
+
+
+
+-- index = indexOf( table, value )
+-- index = indexOf( container, element )
+function indexOf(t, v)
+	for i, item in ipairs(t) do
+		if item == v then return i end
+	end
+	return nil
+end
+
+
+
+-- for index, item in ipairsr( table ) do
+do
+	local function iprev(t, i)
+		i = i-1
+		local v = t[i]
+		if v ~= nil then return i, v end
+	end
+	function ipairsr(t)
+		return iprev, t, #t+1
+	end
 end
 
 
@@ -1045,11 +1075,25 @@ end
 
 -- value = trigger( element, event, ... )
 function trigger(el, event, ...)
-	local callbacks = el._callbacks
-	local cb = (callbacks[event] or callbacks['*'])
-	if not cb then
-		return nil
+
+	local cb = el._callbacks[event]
+	if not cb then return nil end
+
+	return cb(el, event, ...)
+end
+
+-- value = triggerIncludingAnimations( element, event, ... )
+function triggerIncludingAnimations(el, event, ...)
+
+	local time = el._gui._time
+	for _, anim in ipairs(el._animations) do
+		local cb = anim.callbacks[event]
+		if cb then cb(el, event, (time-anim.startTime)/anim.duration, ...) end
 	end
+
+	local cb = el._callbacks[event]
+	if not cb then return nil end
+
 	return cb(el, event, ...)
 end
 
@@ -1082,22 +1126,27 @@ end
 
 -- didUpdate = updateLayout( element )
 function updateLayout(el)
+
 	local gui = el._gui
 	if gui.debug then
 		print('Gui: Updating layout')
 	end
+
 	local container = el:getRoot() -- @Incomplete: Make any element able to update it's layout.
-	if container._hidden then
-		return false
-	end
+	if container._hidden then return false end
+
 	container:_updateLayoutSize()
 	container:_expandLayout(nil, nil) -- (Currently, most likely only works correctly if 'container' is the root.)
 	container:_updateLayoutPosition()
+
 	gui._layoutNeedsUpdate = false
+
 	for innerEl in container:traverseVisible() do
-		trigger(innerEl, 'layout')
+		triggerIncludingAnimations(innerEl, 'layout')
 	end
+
 	updateHoveredElement(gui)
+
 	return true
 end
 
@@ -1421,6 +1470,7 @@ end
 -- Gui( )
 function Gui:init()
 
+	self._allAnimations = {}
 	self._defaultSounds = {}
 	self._mouseFocusSet = {}
 
@@ -1435,9 +1485,43 @@ end
 -- update( deltaTime )
 function Gui:update(dt)
 
-	self._time = self._time+dt
+	local time = self._time+dt
+	self._time = time
 	self._tooltipTime = self._tooltipTime+dt
 	self._timeSinceNavigation = self._timeSinceNavigation+dt
+
+	local allAnims = self._allAnimations
+	if allAnims[1] then
+
+		for i, anim in ipairsr(allAnims) do
+			local el = anim.element
+
+			if time >= anim.endTime then
+				local cb = anim.callbacks['done']
+				if cb then cb(el, 'done') end
+
+				local anims = el._animations
+				table.remove(allAnims, i)
+				table.remove(anims, assert(indexOf(anims, anim)))
+
+				if anim.lockInteraction then
+					self._animationLockCount = self._animationLockCount-1
+				end
+
+			else
+				local cb = anim.callbacks['update']
+				if cb then
+					cb(el, 'update', (time-anim.startTime)/anim.duration)
+				end
+			end
+
+		end
+
+		if self._animationLockCount == 0 then
+			updateHoveredElement(self)
+		end
+
+	end
 
 	local root = self._root
 	if root then
@@ -1518,11 +1602,15 @@ end
 
 -- handled = keypressed( key, scancode, isRepeat )
 function Gui:keypressed(key, scancode, isRepeat)
+	if self._animationLockCount > 0 then return true end
+
 	local focus = (self._keyboardFocus or self._mouseFocus)
 	local el = (focus or self._hoveredElement)
+
 	if self._ignoreKeyboardInputThisFrame then
 		return (el ~= nil)
 	end
+
 	if el then
 		if (not focus and trigger(el, 'keypressed', key, scancode, isRepeat)) then
 			return true
@@ -1535,9 +1623,9 @@ function Gui:keypressed(key, scancode, isRepeat)
 			return true
 		end
 	end
-	if focus then
-		return true
-	end
+
+	if focus then return true end
+
 	local root = self._root
 	if (root and not root._hidden) then
 		for el in root:traverseVisible() do
@@ -1551,26 +1639,32 @@ function Gui:keypressed(key, scancode, isRepeat)
 			end
 		end
 	end
+
 	return false
 end
 
 -- handled = keyreleased( key, scancode )
 function Gui:keyreleased(key, scancode)
+
 	local focus = self._keyboardFocus
 	if focus then
 		focus:_keyreleased(key, scancode)
 		return true
 	end
+
 	return false
 end
 
 -- handled = textinput( text )
 function Gui:textinput(text)
+	if self._animationLockCount > 0 then return true end
+
 	local focus = self._keyboardFocus
 	if focus then
 		focus:_textinput(text)
 		return true
 	end
+
 	return false
 end
 
@@ -1579,6 +1673,8 @@ end
 -- handled = mousepressed( x, y, button )
 function Gui:mousepressed(x, y, buttonN)
 	self._mouseX, self._mouseY = x, y
+
+	if self._animationLockCount > 0 then return true end
 
 	if self._mouseFocusSet[buttonN] then
 		-- The mouse button got pressed twice or more with no release inbetween.
@@ -1623,6 +1719,8 @@ end
 -- handled = mousemoved( x, y )
 function Gui:mousemoved(x, y)
 	self._mouseX, self._mouseY = x, y
+
+	if self._animationLockCount > 0 then return true end
 
 	if not updateLayoutIfNeeded(self) then
 		updateHoveredElement(self) -- Make sure hovered element updates whenever mouse moves.
@@ -1673,6 +1771,8 @@ end
 
 -- handled = wheelmoved( dx, dy )
 function Gui:wheelmoved(dx, dy)
+	if self._animationLockCount > 0 then return true end
+
 	local isScroll = (dx ~= 0 or dy ~= 0)
 
 	-- Shift key swaps X and Y scrolling.
@@ -1843,6 +1943,18 @@ end
 function Gui:setSmallFont(font)
 	if self._fontSmall == font then return end
 	self._fontSmall = font
+	self._layoutNeedsUpdate = true
+end
+
+-- font = getLargeFont( )
+function Gui:getLargeFont()
+	return self._fontLarge
+end
+
+-- setLargeFont( font )
+function Gui:setLargeFont(font)
+	if self._fontLarge == font then return end
+	self._fontLarge = font
 	self._layoutNeedsUpdate = true
 end
 
@@ -2449,6 +2561,7 @@ Cs.element = class('GuiElement', {
 
 	--[[STATIC]] _events = {},
 
+	_animations = nil,
 	_callbacks = nil,
 	_gui = nil,
 	_layoutExpandablesX = 0, _layoutExpandablesY = 0,
@@ -2502,7 +2615,9 @@ function Cs.element:init(gui, data, parent)
 
 	self._gui = assert(gui)
 	self._parent = parent
-	self._callbacks = {}
+
+	self._animations = {}
+	self._callbacks  = {}
 
 	if data.style then
 		local styleData = gui._styles[data.style]
@@ -2592,11 +2707,15 @@ end
 function Cs.element:_draw()
 	local x, y, w, h = xywh(self)
 
-	if not self._gui.debug then  trigger(self, 'beforedraw', x, y, w, h)  end
+	if not self._gui.debug then
+		triggerIncludingAnimations(self, 'beforedraw', x, y, w, h)
+	end
 
 	drawLayoutBackground(self)
 
-	if not self._gui.debug then  trigger(self, 'afterdraw', x, y, w, h)  end
+	if not self._gui.debug then
+		triggerIncludingAnimations(self, 'afterdraw', x, y, w, h)
+	end
 
 end
 
@@ -2679,6 +2798,57 @@ function Cs.element:_drawTooltip()
 	end
 
 	themeRenderOnScreen(self, 'tooltip', x, y, w, h, text, textW, textH, gui._tooltipTime-gui.TOOLTIP_DELAY)
+
+end
+
+
+
+--[[
+	animate( duration, [ lockInteraction=false, ] callbackTable )
+	callbackTable = { [event]=callback... }
+	callback = function( element, event, progress, ... )
+
+	-- Example:
+	myGui:find("myButton"):animate(1, true, {
+		afterdraw = function(myButton, event, progress, x, y, w, h)
+			-- Fade in and out a green cover over the button.
+			LG.setColor(0, 255, 0, 255*math.sin(progress*math.pi))
+			LG.rectangle('fill', x, y, w, h)
+		end,
+	})
+
+]]
+function Cs.element:animate(duration, lockInteraction, callbacks)
+	assertarg(1, duration, 'number')
+
+	if type(lockInteraction) == 'table' then
+		lockInteraction, callbacks = false, lockInteraction
+	else
+		assertarg(2, lockInteraction, 'boolean')
+		assertarg(3, callbacks, 'table')
+	end
+
+	local gui  = self._gui
+	local time = gui._time
+
+	local anim = {
+
+		element         = self,
+		lockInteraction = lockInteraction,
+		callbacks       = callbacks,
+
+		startTime = time,
+		endTime   = time+duration,
+		duration  = duration,
+
+	}
+
+	table.insert(self._animations, anim)
+	table.insert(gui._allAnimations, anim)
+
+	if lockInteraction then
+		gui._animationLockCount = gui._animationLockCount+1
+	end
 
 end
 
@@ -3947,7 +4117,9 @@ function Cs.container:_draw()
 	local sbW = themeGet(gui, 'scrollbarWidth')
 	local sbMinW = themeGet(gui, 'scrollbarMinLength')
 
-	if not self._gui.debug then  trigger(self, 'beforedraw', x, y, w, h)  end
+	if not self._gui.debug then
+		triggerIncludingAnimations(self, 'beforedraw', x, y, w, h)
+	end
 
 	drawLayoutBackground(self)
 	self:_drawDebug(0, 0, 255)
@@ -3976,7 +4148,7 @@ function Cs.container:_draw()
 			themeRenderArea(self, 'scrollbardeadzone', w-sbW, h-sbW, sbW, sbW)
 		end
 
-		trigger(self, 'afterdraw', x, y, w, h)
+		triggerIncludingAnimations(self, 'afterdraw', x, y, w, h)
 
 	end
 
@@ -4353,14 +4525,7 @@ end
 
 
 -- index = indexOf( element )
-function Cs.container:indexOf(el)
-	for i, child in ipairs(self) do
-		if child == el then
-			return i
-		end
-	end
-	return nil
-end
+Cs.container.indexOf = indexOf
 
 
 
@@ -5112,7 +5277,9 @@ function Cs.root:_draw()
 
 	local x, y, w, h = xywh(self)
 
-	if not self._gui.debug then  trigger(self, 'beforedraw', x, y, w, h)  end
+	if not self._gui.debug then
+		triggerIncludingAnimations(self, 'beforedraw', x, y, w, h)
+	end
 
 	drawLayoutBackground(self)
 	self:_drawDebug(0, 0, 255, 0)
@@ -5121,7 +5288,9 @@ function Cs.root:_draw()
 		child:_draw()
 	end
 
-	if not self._gui.debug then  trigger(self, 'afterdraw', x, y, w, h)  end
+	if not self._gui.debug then
+		triggerIncludingAnimations(self, 'afterdraw', x, y, w, h)
+	end
 
 end
 
@@ -5174,7 +5343,7 @@ Cs.leaf = Cs.element:extend('GuiLeaf', {
 	_unprocessedText = '',
 
 	_align = 'center',
-	_bold = false, _small = false,
+	_bold = false, _small = false, _large = false,
 	_mnemonics = false,
 	_text = '',
 	_textColor = nil,
@@ -5187,7 +5356,7 @@ function Cs.leaf:init(gui, data, parent)
 	Cs.leaf.super.init(self, gui, data, parent)
 
 	retrieve(self, data, '_align')
-	retrieve(self, data, '_bold', '_small')
+	retrieve(self, data, '_bold','_small','_large')
 	retrieve(self, data, '_mnemonics')
 	-- retrieve(self, data, '_text')
 	retrieve(self, data, '_textColor')
@@ -5208,7 +5377,11 @@ Cs.leaf:def'_align'
 
 -- font = getFont( )
 function Cs.leaf:getFont()
-	local k = (self._small and '_fontSmall' or self._bold and '_fontBold' or '_font')
+	local k =
+		   (self._large and '_fontLarge')
+		or (self._small and '_fontSmall')
+		or (self._bold and '_fontBold')
+		or '_font'
 	return (self._gui[k] or DEFAULT_FONT)
 end
 
@@ -5322,6 +5495,22 @@ end
 
 
 
+-- state = isLarge( )
+function Cs.leaf:isLarge(text)
+	return self._large
+end
+
+-- setLarge( state )
+function Cs.leaf:setLarge(state)
+	if self._large == state then
+		return
+	end
+	self._large = state
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+
+
+
 -- state = isSmall( )
 function Cs.leaf:isSmall(text)
 	return self._small
@@ -5386,7 +5575,7 @@ function Cs.canvas:_draw()
 
 	local x, y, w, h = xywh(self)
 
-	trigger(self, 'beforedraw', x, y, w, h)
+	triggerIncludingAnimations(self, 'beforedraw', x, y, w, h)
 
 	drawLayoutBackground(self)
 
@@ -5406,7 +5595,7 @@ function Cs.canvas:_draw()
 		LG.translate(cx, cy)
 		LG.setColor(255, 255, 255)
 
-		trigger(self, 'draw', cw, ch)
+		triggerIncludingAnimations(self, 'draw', cw, ch)
 		if gui._elementScissorIsSet then
 			setScissor(gui, nil)
 			gui._elementScissorIsSet = false
@@ -5415,7 +5604,7 @@ function Cs.canvas:_draw()
 		setScissor(gui, nil)
 	end
 
-	trigger(self, 'afterdraw', x, y, w, h)
+	triggerIncludingAnimations(self, 'afterdraw', x, y, w, h)
 
 end
 
@@ -5488,7 +5677,7 @@ function Cs.image:_draw()
 
 	local x, y, w, h = xywh(self)
 
-	trigger(self, 'beforedraw', x, y, w, h)
+	triggerIncludingAnimations(self, 'beforedraw', x, y, w, h)
 
 	drawLayoutBackground(self)
 
@@ -5498,7 +5687,7 @@ function Cs.image:_draw()
 	end
 	themeRender(self, 'image', iw*self._imageScaleX, ih*self._imageScaleY)
 
-	trigger(self, 'afterdraw', x, y, w, h)
+	triggerIncludingAnimations(self, 'afterdraw', x, y, w, h)
 
 end
 
@@ -5553,14 +5742,14 @@ function Cs.text:_draw()
 
 	local x, y, w, h = xywh(self)
 
-	trigger(self, 'beforedraw', x, y, w, h)
+	triggerIncludingAnimations(self, 'beforedraw', x, y, w, h)
 
 	drawLayoutBackground(self)
 
 	local textIndent = themeGet(self._gui, 'textIndentation')
 	themeRender(self, 'text', textIndent, self._textWidth, self._textHeight)
 
-	trigger(self, 'afterdraw', x, y, w, h)
+	triggerIncludingAnimations(self, 'afterdraw', x, y, w, h)
 
 end
 
@@ -5747,7 +5936,7 @@ function Cs.button:_draw()
 
 	local x, y, w, h = xywh(self)
 
-	trigger(self, 'beforedraw', x, y, w, h)
+	triggerIncludingAnimations(self, 'beforedraw', x, y, w, h)
 
 	drawLayoutBackground(self)
 
@@ -5760,7 +5949,7 @@ function Cs.button:_draw()
 		iw*self._imageScaleX+2*self._imagePadding, ih*self._imageScaleY+2*self._imagePadding
 	)
 
-	trigger(self, 'afterdraw', x, y, w, h)
+	triggerIncludingAnimations(self, 'afterdraw', x, y, w, h)
 
 end
 
@@ -6039,12 +6228,12 @@ function Cs.input:_draw()
 
 	local x, y, w, h = xywh(self)
 
-	trigger(self, 'beforedraw', x, y, w, h)
+	triggerIncludingAnimations(self, 'beforedraw', x, y, w, h)
 
 	drawLayoutBackground(self)
 	themeRender(self, 'input', inputIndent, self:getFont():getHeight())
 
-	trigger(self, 'afterdraw', x, y, w, h)
+	triggerIncludingAnimations(self, 'afterdraw', x, y, w, h)
 
 end
 
