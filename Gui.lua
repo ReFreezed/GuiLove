@@ -97,6 +97,7 @@
 	getTextPreprocessor, setTextPreprocessor, reprocessTexts
 	getTheme, setTheme
 	getTime
+	getTimeSinceNavigation
 	isBusy, isMouseBusy
 	isIgnoringKeyboardInput
 	isMouseGrabbed, setMouseIsGrabbed
@@ -2271,6 +2272,11 @@ Gui:defget'_time'
 
 
 
+-- getTimeSinceNavigation
+Gui:defget'_timeSinceNavigation'
+
+
+
 -- state = isBusy( )
 function Gui:isBusy()
 	return (self._keyboardFocus ~= nil or self:isMouseBusy())
@@ -2402,9 +2408,11 @@ function Ms.imageMixin:hasImageBackgroundColor()
 end
 
 -- Tell LÖVE to use the image background color.
--- useImageBackgroundColor( [ opacity=1.0 ] )
+-- hasImageBackgroundColor = useImageBackgroundColor( [ opacity=1.0 ] )
 function Ms.imageMixin:useImageBackgroundColor(opacity)
-	useColor((self._imageBackgroundColor or COLOR_TRANSPARENT), opacity)
+	local color = self._imageBackgroundColor
+	useColor((color or COLOR_TRANSPARENT), opacity)
+	return (color ~= nil)
 end
 
 
@@ -2418,9 +2426,11 @@ function Ms.imageMixin:hasImageColor()
 end
 
 -- Tell LÖVE to use the image color.
--- useImageColor( )
+-- hasImageColor = useImageColor( )
 function Ms.imageMixin:useImageColor()
-	LG.setColor(self._imageColor or COLOR_WHITE)
+	local color = self._imageColor
+	LG.setColor(color or COLOR_WHITE)
+	return (color ~= nil)
 end
 
 
@@ -5472,9 +5482,11 @@ function Cs.leaf:hasTextColor()
 end
 
 -- Tell LÖVE to use the text color.
--- useTextColor( )
+-- hasTextColor = useTextColor( )
 function Cs.leaf:useTextColor()
-	LG.setColor(self._textColor or COLOR_WHITE)
+	local color = self._textColor
+	LG.setColor(color or COLOR_WHITE)
+	return color ~= nil
 end
 
 
