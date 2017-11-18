@@ -26,12 +26,13 @@
 		local Gui = require("Gui")
 		gui = Gui()
 
-		gui:load{ type="root",
-			{type="vbar", id="myContainer", width=200,
-				{type="text", text="I'm just a text."},
-				{type="button", id="myButton", text="Press Me!"},
+		local tree = {"root",
+			{"vbar", id="myContainer", width=200,
+				{"text", text="I'm just a text."},
+				{"button", id="myButton", text="Press Me!"},
 			},
 		}
+		gui:load(tree)
 
 		local myButton = gui:find("myButton")
 		local pressCount = 0
@@ -40,7 +41,7 @@
 			pressCount = pressCount+1
 
 			local myContainer = gui:find("myContainer")
-			myContainer:insert{ type="text", text="Pressed button "..pressCount.." time(s)!" }
+			myContainer:insert{ "text", text="Pressed button "..pressCount.." time(s)!" }
 
 		end)
 
@@ -93,7 +94,7 @@
 	getScissorCoordsConverter, setScissorCoordsConverter
 	getSoundPlayer, setSoundPlayer
 	getSpriteLoader, setSpriteLoader
-	getTarget, getTargetCallback, setTargetCallback
+	getTarget, parseTargetAndEvent, getTargetCallback, setTargetCallback
 	getTextPreprocessor, setTextPreprocessor, reprocessTexts
 	getTheme, setTheme
 	getTime
@@ -134,6 +135,7 @@
 	- getPositionOnScreen, getXOnScreen, getYOnScreen
 	- getRoot
 	- getSound, getResultingSound, setSound
+	- getStyle
 	- getTimeSinceBecomingVisible
 	- getTooltip, setTooltip, drawTooltip
 	- getTooltipFont, useTooltipFont
@@ -222,6 +224,7 @@
 		(widget)
 		- isActive, setActive
 		- Event: navigate
+		- Event: navupdate
 
 			button
 			- Includes: imageMixin
@@ -340,6 +343,7 @@ local drawLayoutBackground
 local errorf
 local F
 local getTextDimensions
+local getTypeFromData
 local indexOf
 local ipairsr
 local lerp
@@ -511,6 +515,16 @@ function getTextDimensions(font, text, wrapLimit)
 	local w, lines = font:getWrap(text, (wrapLimit or math.huge))
 	local h = font:getHeight()
 	return w, h + math.floor(h*font:getLineHeight()) * (math.max(#lines, 1)-1)
+end
+
+
+
+-- elementType = getTypeFromData( data )
+function getTypeFromData(data)
+	if not data.type and type(data[1]) == 'string' then
+		data.type = table.remove(data, 1)
+	end
+	return data.type
 end
 
 
@@ -1498,7 +1512,10 @@ function Gui:update(dt)
 			local el = anim.element
 
 			if time >= anim.endTime then
-				local cb = anim.callbacks['done']
+				local cb = anim.callbacks['update']
+				if cb then cb(el, 'update', 1) end -- Make sure 'update' gets progress=1
+
+				cb = anim.callbacks['done']
 				if cb then cb(el, 'done') end
 
 				local anims = el._animations
@@ -1534,6 +1551,10 @@ function Gui:update(dt)
 			end
 		end
 	end
+
+	-- The navigation target has a special additional update event.
+	local nav = self._navigationTarget
+	if nav then trigger(nav, 'navupdate', dt) end
 
 	-- Check if mouse is inside window
 	if (self._mouseX and not love.window.hasMouseFocus()) then
@@ -1612,8 +1633,10 @@ function Gui:keypressed(key, scancode, isRepeat)
 		return (el ~= nil)
 	end
 
+	el = (el or self._navigationTarget) -- Can this be on the 'el' declaration line?
+
 	if el then
-		if (not focus and trigger(el, 'keypressed', key, scancode, isRepeat)) then
+		if (not focus and el:triggerBubbling('keypressed', key, scancode, isRepeat)) then
 			return true
 		end
 		local handled, grabFocus = el:_keypressed(key, scancode, isRepeat)
@@ -1694,7 +1717,7 @@ function Gui:mousepressed(x, y, buttonN)
 		-- Trigger any custom mousepressed event handler.
 		-- Returning true from the handler suppresses the default built-in behavior.
 		local screenX, screenY = el:getPositionOnScreen()
-		if trigger(el, 'mousepressed', x-screenX, y-screenY, buttonN) then
+		if el:triggerBubbling('mousepressed', x-screenX, y-screenY, buttonN) then
 			return true
 		end
 
@@ -2199,13 +2222,26 @@ function Gui:getTarget(target)
 	return el
 end
 
+-- target, event     = parseTargetAndEvent( targetAndEvent )
+-- nil, errorMessage = parseTargetAndEvent( targetAndEvent )
+-- targetAndEvent: "ID.subID.anotherSubID.event"
+function Gui:parseTargetAndEvent(targetAndEvent)
+
+	local target, event = targetAndEvent:match'^(.-)%.?([^.]+)$'
+	if not target then
+		return nil, F'Bad targetAndEvent format %q.'(targetAndEvent)
+	end
+
+	return target, event
+end
+
 -- callback, errorMessage = getTargetCallback( targetAndEvent )
 -- targetAndEvent: "ID.subID.anotherSubID.event"
 function Gui:getTargetCallback(targetAndEvent)
 
-	local target, event = targetAndEvent:match('^(.-)%.?([^.]+)$')
+	local target, event = self:parseTargetAndEvent(targetAndEvent)
 	if not target then
-		return nil, F'bad targetAndEvent value %q'(targetAndEvent)
+		return nil, event
 	end
 
 	local el, err = self:getTarget(target)
@@ -2218,9 +2254,9 @@ end
 -- targetAndEvent: "ID.subID.anotherSubID.event"
 function Gui:setTargetCallback(targetAndEvent, cb)
 
-	local target, event = targetAndEvent:match('^(.-)%.?([^.]+)$')
+	local target, event = self:parseTargetAndEvent(targetAndEvent)
 	if not target then
-		return nil, F'bad targetAndEvent value %q'(targetAndEvent)
+		return nil, event
 	end
 
 	local el, err = self:getTarget(target)
@@ -2311,7 +2347,7 @@ end
 -- load( data )
 function Gui:load(data)
 
-	if data.type ~= 'root' then
+	if getTypeFromData(data) ~= 'root' then
 		errorf('gui root element must be of type "root"')
 	end
 
@@ -2598,6 +2634,7 @@ Cs.element = class('GuiElement', {
 	_sounds = nil,
 	_spacing = 0, _spacingVertical = nil, _spacingHorizontal = nil,
 	_spacingTop = nil, _spacingRight = nil, _spacingBottom = nil, _spacingLeft = nil,
+	_style = '',
 	_tags = nil,
 	_tooltip = '', _unprocessedTooltip = '',
 	_width = nil, _height = nil,
@@ -2629,10 +2666,15 @@ function Cs.element:init(gui, data, parent)
 	self._animations = {}
 	self._callbacks  = {}
 
-	if data.style then
-		local styleData = gui._styles[data.style]
-			or errorf('bad style name %q', data.style)
+	local styleName = data.style
+	if styleName then
+
+		local styleData = gui._styles[styleName]
+			or errorf('No style with name %q exists.', styleName)
+
 		applyStyle(data, styleData)
+
+		self._style = styleName
 	end
 
 	retrieve(self, data, '_anchorX', '_anchorY')
@@ -2648,6 +2690,7 @@ function Cs.element:init(gui, data, parent)
 	-- retrieve(self, data, '_sounds')
 	retrieve(self, data, '_spacing', '_spacingVertical', '_spacingHorizontal')
 	retrieve(self, data, '_spacingTop', '_spacingRight', '_spacingBottom', '_spacingLeft')
+	-- retrieve(self, data, '_style')
 	-- retrieve(self, data, '_tags')
 	-- retrieve(self, data, '_tooltip')
 	retrieve(self, data, '_width', '_height')
@@ -3466,6 +3509,11 @@ end
 
 
 
+-- getStyle
+Cs.element:defget'_style'
+
+
+
 -- duration = getTimeSinceBecomingVisible( )
 function Cs.element:getTimeSinceBecomingVisible()
 	return self._gui._time-self._timeBecomingVisible
@@ -3589,7 +3637,7 @@ end
 
 
 -- state = isDisplayed( )
--- Returns true if the element and it's parents are visible (and the element exists).
+-- Returns true if the element and its parents are visible (and the element exists).
 function Cs.element.isDisplayed(el)
 	if not el:exists() then return false end
 	repeat
@@ -4060,7 +4108,8 @@ function Cs.container:init(gui, data, parent)
 	retrieve(self, data, '_solid')
 
 	for i, childData in ipairs(data) do
-		local C = Cs[childData.type] or errorf('bad gui type %q', childData.type)
+		local C = Cs[getTypeFromData(childData)]
+			or errorf('bad gui type %q', getTypeFromData(childData))
 		self[i] = C(gui, childData, self)
 	end
 
@@ -4630,7 +4679,9 @@ function Cs.container:insert(childData, i)
 	assertarg(1, childData, 'table')
 	assertarg(2, i, 'number','nil')
 
-	local C = Cs[childData.type] or errorf('Bad element type %q.', childData.type)
+	local C = Cs[getTypeFromData(childData)]
+		or errorf('Bad element type %q.', getTypeFromData(childData))
+
 	local child = C(self._gui, childData, self)
 	table.insert(self, (i or #self+1), child)
 
@@ -5837,6 +5888,7 @@ Cs.widget = Cs.leaf:extend('GuiWidget', {
 })
 registerEvents(Cs.widget, {
 	'navigate',
+	'navupdate',
 })
 
 function Cs.widget:init(gui, data, parent)
@@ -6134,7 +6186,7 @@ function Cs.button:press(ignoreActiveState)
 		end
 	end
 	if not closedAnything then
-		preparedSound() -- 'close' has it's own sound
+		preparedSound() -- 'close' has its own sound.
 	end
 
 	return true
