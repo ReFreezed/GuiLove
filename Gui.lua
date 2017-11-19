@@ -10,6 +10,7 @@
 --=  - refreezed.love.InputField
 --=
 --=  TODO:
+--=  - Add a way to confine navigation within a container.
 --=  - Make pageup/pagedown/home/end work in scrollables.
 --=  - Don't draw things that are outside the visible area in scrollables.
 --=  - Percentage sizes for elements.
@@ -101,6 +102,7 @@
 	getTimeSinceNavigation
 	isBusy, isMouseBusy
 	isIgnoringKeyboardInput
+	isInputCaptured
 	isMouseGrabbed, setMouseIsGrabbed
 	load
 	ok, back
@@ -118,6 +120,7 @@
 	- getAnchor, setAnchor, getAnchorX, setAnchorX, getAnchorY, setAnchorY
 	- getCallback, setCallback, on, off, trigger, triggerBubbling
 	- getClosest
+	- getClosestInDirection
 	- getData, setData, swapData
 	- getDimensions, setDimensions, getWidth, setWidth, getHeight, setHeight
 	- getGui
@@ -142,6 +145,7 @@
 	- hasTag, addTag, removeTag, removeAllTags, setTag
 	- isAt
 	- isDisplayed, getClosestHiddenElement, getFarthestHiddenElement
+	- isFirst, isLast
 	- isHidden, isVisible, setHidden, setVisible, show, hide, toggleHidden
 	- isHovered
 	- isMouseFocus, isKeyboardFocus
@@ -171,7 +175,7 @@
 	- Event: update
 
 	container
-	- find, findAll, findActive, findToggled, match, matchAll
+	- find, findAll, findType, findActive, findToggled, match, matchAll
 	- get, children
 	- getChildAreaDimensions, getChildAreaWidth, getChildAreaHeight
 	- getChildWithData
@@ -222,6 +226,7 @@
 		text
 
 		(widget)
+		- getPriority, setPriority
 		- isActive, setActive
 		- Event: navigate
 		- Event: navupdate
@@ -254,7 +259,7 @@
 	- getImageColor, setImageColor, hasImageColor, useImageColor
 	- getImageDimensions, setImageSize, maximizeImageSize
 	- getImageScale, getImageScaleX, getImageScaleY, setImageScale, setImageScaleX, setImageScaleY
-	- setSprite, hasSprite
+	- getSprite, setSprite, hasSprite
 
 
 
@@ -2102,55 +2107,26 @@ do
 		return first
 	end
 
-	-- element = navigate( angle )
-	local MAX_ANGLE_DIFF = tau/4
+	-- landingElement = navigate( angle )
 	function Gui:navigate(targetAng)
-		if self._lockNavigation then
-			return nil
-		end
-		local root = self._root
-		if (not root or root._hidden) then
-			return nil
-		end
-		local nav = self._navigationTarget
-		if not nav then
-			return self:navigateToFirst()
-		end
+		if self._lockNavigation then return nil end
 
-		updateLayoutIfNeeded(self)
+		local root = self._root
+		if not root or root._hidden then return nil end
+
+		local nav = self._navigationTarget
+		if not nav then return self:navigateToFirst() end
 
 		if trigger(nav, 'navigate', targetAng) then
 			return self._navigationTarget -- Suppress default behavior.
 		end
 
-		updateLayoutIfNeeded(self)
-
-		local navX, navY = nav:getLayoutCenterPosition()
-		navX = navX+nav._layoutOffsetX+0.495*nav._layoutWidth *math.cos(targetAng)
-		navY = navY+nav._layoutOffsetY+0.495*nav._layoutHeight*math.sin(targetAng)
-
-		-- Navigate to closest target in targetAng's general direction
-		local closestEl, closestDistSquared, closestAngDiff = nav, math.huge, math.huge
-		for el in root:traverseVisible() do
-			if (el ~= nav and el:is(Cs.widget)) then
-				local x, y = el:getPositionOnScreen()
-				x = math.min(math.max(navX, x+0.01), x+el._layoutWidth-0.01)
-				y = math.min(math.max(navY, y+0.01), y+el._layoutHeight-0.01)
-				local dx, dy = x-navX, y-navY
-				local distSquared = dx*dx+dy*dy
-				local angDiff = math.atan2(dy, dx)-targetAng
-				angDiff = math.abs(math.atan2(math.sin(angDiff), math.cos(angDiff))) -- Normalize.
-				if (angDiff < MAX_ANGLE_DIFF and distSquared <= closestDistSquared) then
-					closestEl, closestDistSquared, closestAngDiff = el, distSquared, angDiff
-				end
-			end
-			if (el._captureInput or el._captureGuiInput) then
-				break
-			end
+		local closestEl = nav:getClosestInDirection(targetAng)
+		if closestEl then
+			setNavigationTarget(self, closestEl)
 		end
-		setNavigationTarget(self, closestEl)
 
-		return closestEl
+		return (closestEl or nav)
 	end
 
 	-- state = canNavigateTo( element )
@@ -2332,6 +2308,23 @@ end
 
 
 
+-- state = isInputCaptured( [ includeGuiInput=false ] )
+function Gui:isInputCaptured(includeGuiInput)
+
+	local root = self._root
+	if not root or root._hidden then return false end
+
+	for el in root:traverseVisible() do
+		if el._captureInput or (includeGuiInput and el._captureGuiInput) then
+			return true
+		end
+	end
+
+	return false
+end
+
+
+
 -- state = isMouseGrabbed( )
 function Gui:isMouseGrabbed()
 	return self._mouseIsGrabbed
@@ -2416,6 +2409,8 @@ end
 
 Ms.imageMixin = {
 	--[[
+	spriteName = '',
+
 	_imageBackgroundColor = nil,
 	_imageColor = nil,
 	_imageScaleX = 1.0, _imageScaleY = 1.0,
@@ -2545,6 +2540,11 @@ end
 
 
 
+-- spriteName = getSprite( )
+function Ms.imageMixin:getSprite()
+	return self._spriteName
+end
+
 -- setSprite( image [, quad ] )
 -- setSprite( image, frames )
 -- setSprite( spriteName )
@@ -2552,9 +2552,10 @@ function Ms.imageMixin:setSprite(imageOrName, framesOrQuad)
 	assertarg(1, imageOrName, 'userdata','string','nil')
 
 	local image = nil
+	local spriteName = ''
 
 	if type(imageOrName) == 'string' then
-		local spriteName = imageOrName
+		spriteName = imageOrName
 		local spriteLoader = self._gui._spriteLoader
 		if not spriteLoader then
 			printerror(2, 'There is no sprite loader to convert the sprite name %q to a sprite.', spriteName)
@@ -2577,7 +2578,8 @@ function Ms.imageMixin:setSprite(imageOrName, framesOrQuad)
 		oldIw, oldIh = self._sprite.width, self._sprite.height
 	end
 
-	self._sprite = (image and newSprite(image, framesOrQuad))
+	self._sprite     = (image and newSprite(image, framesOrQuad))
+	self._spriteName = spriteName
 
 	local iw, ih = 0, 0
 	if self._sprite then
@@ -3047,6 +3049,66 @@ function Cs.element.getClosest(el, elType)
 		el = el._parent
 	until not el
 	return nil
+end
+
+
+
+-- element = getClosestInDirection( angle [, elementType="widget", ignoreInputCaptureState=false ] )
+local MAX_ANGLE_DIFF = tau/4
+function Cs.element:getClosestInDirection(ang, elType, ignoreCapture)
+	assertarg(1, ang, 'number')
+	assertarg(2, elType, 'nil','string')
+	assertarg(3, ignoreCapture, 'nil','boolean')
+
+	local C
+	if elType then
+		C = Cs[elType] or errorf('Bad element type %q.', elType)
+	else
+		C = Cs.widget
+	end
+
+	local gui = self._gui
+	updateLayoutIfNeeded(gui)
+
+	local fromX, fromY = self:getLayoutCenterPosition()
+	fromX = fromX+self._layoutOffsetX+0.495*self._layoutWidth *math.cos(ang)
+	fromY = fromY+self._layoutOffsetY+0.495*self._layoutHeight*math.sin(ang)
+
+	local closestEl      = nil
+	local closestDistSqr = math.huge
+	local closestAngDiff = math.huge
+
+	for el in gui._root:traverseVisible() do
+
+		if el ~= self and el:is(C) then
+			local x, y = el:getPositionOnScreen()
+			x = math.min(math.max(fromX, x+0.01), x+el._layoutWidth-0.01)
+			y = math.min(math.max(fromY, y+0.01), y+el._layoutHeight-0.01)
+
+			local dx, dy = x-fromX, y-fromY
+
+			local distSqr = dx*dx+dy*dy
+			if distSqr <= closestDistSqr then
+
+				local angDiff = math.atan2(dy, dx)-ang
+				angDiff = math.abs(math.atan2(math.sin(angDiff), math.cos(angDiff))) -- Normalize.
+
+				if angDiff < MAX_ANGLE_DIFF then
+					closestEl      = el
+					closestDistSqr = distSqr
+					closestAngDiff = angDiff
+				end
+
+			end
+		end
+
+		if not ignoreCapture and (el._captureInput or el._captureGuiInput) then
+			break
+		end
+
+	end
+
+	return closestEl
 end
 
 
@@ -3673,6 +3735,19 @@ end
 
 
 
+-- state = isFirst( )
+function Cs.element:isFirst()
+	return (not self._parent or self:getIndex() == 1)
+end
+
+-- state = isLast( )
+function Cs.element:isLast()
+	local parent = self._parent
+	return (not parent or self:getIndex() == #parent)
+end
+
+
+
 -- state = isHidden( )
 function Cs.element:isHidden()
 	return self._hidden
@@ -4236,6 +4311,18 @@ function Cs.container:findAll(id)
 	return els
 end
 
+-- elements = findType( elementType )
+function Cs.container:findType(elType)
+
+	local C = Cs[elType] or errorf('Bad element type %q.', elType)
+
+	for el in self:traverse() do
+		if el:is(C) then return el end
+	end
+
+	return nil
+end
+
 -- widget = findActive( )
 function Cs.container:findActive()
 	for el in self:traverse() do
@@ -4463,12 +4550,14 @@ do
 	-- position, length, maxPosition = getScrollHandleX( )
 	-- Units are in pixels.
 	function Cs.container:getScrollHandleX()
+		updateLayoutIfNeeded(self._gui)
 		return getScrollHandle(self, self:getChildAreaWidth(), self._layoutInnerWidth, self._scrollX)
 	end
 
 	-- position, length, maxPosition = getScrollHandleY( )
 	-- Units are in pixels.
 	function Cs.container:getScrollHandleY()
+		updateLayoutIfNeeded(self._gui)
 		return getScrollHandle(self, self:getChildAreaHeight(), self._layoutInnerHeight, self._scrollY)
 	end
 
@@ -5697,6 +5786,9 @@ end
 Cs.image = Cs.leaf:extend('GuiImage', {
 
 	-- imageMixin
+	_spriteName = nil,
+
+	-- imageMixin
 	_imageBackgroundColor = nil,
 	_imageColor = nil,
 	_imageScaleX = 1.0, _imageScaleY = 1.0,
@@ -5901,6 +5993,11 @@ end
 
 
 
+-- getPriority, setPriority
+Cs.widget:def'_priority'
+
+
+
 -- state = isActive( )
 function Cs.widget:isActive()
 	return self._active
@@ -5924,6 +6021,9 @@ end
 
 
 Cs.button = Cs.widget:extend('GuiButton', {
+
+	-- imageMixin
+	_spriteName = nil,
 
 	_isPressed = false,
 	_textWidth1 = 0, _textWidth2 = 0,
