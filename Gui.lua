@@ -98,8 +98,7 @@
 	getTarget, parseTargetAndEvent, getTargetCallback, setTargetCallback
 	getTextPreprocessor, setTextPreprocessor, reprocessTexts
 	getTheme, setTheme
-	getTime
-	getTimeSinceNavigation
+	getTime, getTimeSinceNavigation
 	isBusy, isMouseBusy
 	isIgnoringKeyboardInput
 	isInputCaptured
@@ -120,7 +119,7 @@
 	- getAnchor, setAnchor, getAnchorX, setAnchorX, getAnchorY, setAnchorY
 	- getCallback, setCallback, on, off, trigger, triggerBubbling
 	- getClosest
-	- getClosestInDirection
+	- getClosestInDirection, getNext, getPrevious
 	- getData, setData, swapData
 	- getDimensions, setDimensions, getWidth, setWidth, getHeight, setHeight
 	- getGui
@@ -132,7 +131,7 @@
 	- getLayoutPosition, getLayoutX, getLayoutY, getLayoutCenterPosition
 	- getMinDimensions, getMinWidth, getMinHeight
 	- getOrigin, setOrigin, getOriginX, setOriginX, getOriginY, setOriginY
-	- getParent, getParents, hasParent, hasParentWithId, parents, parentsr, lineageUp
+	- getParent, getParents, hasParent, getParentWithId, hasParentWithId, parents, parentsr, lineageUp
 	- getPathDescription
 	- getPosition, setPosition, getX, setX, getY, setY
 	- getPositionOnScreen, getXOnScreen, getYOnScreen
@@ -158,7 +157,7 @@
 	- remove
 	- reprocessTexts
 	- scrollIntoView
-	- setScissor
+	- setScissor, unsetScissor
 	- showMenu
 	- updateLayout
 	- Event: beforedraw, afterdraw
@@ -359,11 +358,12 @@ local playSound, prepareSound
 local preprocessText
 local printf, printerror, assertarg
 local registerEvents
+local requireElementClass
 local retrieve
 local reverseArray
 local round
 local setMouseFocus, setKeyboardFocus
-local setScissor
+local setScissor, intersectScissor
 local setVisualScroll
 local themeCallBack, themeGet, themeRender, themeRenderArea, themeRenderOnScreen, themeGetSize
 local trigger, triggerIncludingAnimations
@@ -696,7 +696,7 @@ do
 					local id
 					id, i = section:match('^([^#.]+)()', i+1)
 					if not id then
-						print('ERROR: Bad format in selector at "'..section:sub(i)..'".')
+						printf('ERROR: Bad format in selector at %q.', section:sub(i))
 						return nil
 					end
 					selPathSegment = {type='id', value=id}
@@ -706,7 +706,7 @@ do
 					local tag
 					tag, i = section:match('^([^#.]+)()', i+1)
 					if not tag then
-						print('ERROR: Bad format in selector at "'..section:sub(i)..'".')
+						printf('ERROR: Bad format in selector at %q.', section:sub(i))
 						return nil
 					end
 					selPathSegment = {type='tag', value=tag}
@@ -716,10 +716,10 @@ do
 					local elType
 					elType, i = section:match('^([^#.]+)()', i)
 					if not elType then
-						print('ERROR: Bad format in selector at "'..section:sub(i)..'".')
+						printf('ERROR: Bad format in selector at %q.', section:sub(i))
 						return nil
 					elseif not Cs[elType] then
-						print('ERROR: Invalid element type "'..elType..'" in selector.')
+						printf('ERROR: Unknown element type %q in selector.', elType)
 						return nil
 					end
 					selPathSegment = {type='type', value=elType}
@@ -922,6 +922,13 @@ end
 
 
 
+-- class = requireElementClass( elType )
+function requireElementClass(elType)
+	return Cs[elType] or errorf(2, 'Unknown element type %q.', elType)
+end
+
+
+
 -- retrieve( element, data, property1... )
 function retrieve(el, data, _k, ...)
 	local v = data[_k:sub(2)]
@@ -993,6 +1000,19 @@ function setScissor(gui, x, y, w, h)
 	end
 
 	LG.push('all')
+	LG.intersectScissor(x, y, w, h)
+
+end
+
+-- intersectScissor( gui, x, y, width, height )
+-- Note: Does not push or pop state like setScissor()!
+function intersectScissor(gui, x, y, w, h)
+
+	local convert = gui._scissorCoordsConverter
+	if convert then
+		x, y, w, h = convert(x, y, w, h)
+	end
+
 	LG.intersectScissor(x, y, w, h)
 
 end
@@ -1074,10 +1094,7 @@ function themeRenderOnScreen(el, what, x, y, w, h, ...)
 	LG.translate(x, y)
 
 	themeCallBack(gui, 'draw', what, el, w, h, ...)
-	if gui._elementScissorIsSet then
-		setScissor(gui, nil)
-		gui._elementScissorIsSet = false
-	end
+	el:unsetScissor()
 
 	LG.pop()
 end
@@ -2035,45 +2052,45 @@ do
 
 	do
 		local function navigateToNextOrPrevious(self, id, allowNone, usePrev)
+
 			local root = self._root
-			if (not root or root._hidden) then
-				return false
-			end
+			if not root or root._hidden then return nil end
+
 			local nav = self._navigationTarget
-			if (not nav and not usePrev) then
-				return self:navigateToFirst()
-			end
+			if (not nav and not usePrev) then return self:navigateToFirst() end
+
 			local foundNav, lastWidget = false, nil
-			for el in root:traverseVisible() do -- remember that we're traversing backwards
+			for el in root:traverseVisible() do -- Remember that we're traversing backwards.
+
 				local elIsValid = (el:is(Cs.widget) and (not id or el._id == id))
-				if (elIsValid and usePrev and foundNav) then
+				if elIsValid and usePrev and foundNav then
 					setNavigationTarget(self, el)
 					return el
 				end
+
 				foundNav = (foundNav or el == nav)
-				if (not usePrev and foundNav) then
-					if (lastWidget or allowNone) then
+				if not usePrev and foundNav then
+					if lastWidget or allowNone then
 						setNavigationTarget(self, lastWidget)
 						return lastWidget
 					end
 					return nav
 				end
-				if elIsValid then
-					lastWidget = el
-				end
-				if (el._captureInput or el._captureGuiInput) then
-					break
-				end
+
+				if elIsValid then lastWidget = el end
+
+				if el._captureInput or el._captureGuiInput then break end
+
 			end
-			if not allowNone then
-				return nav
-			end
+
+			if not allowNone then return nav end
+
 			setNavigationTarget(self, nil)
 			return nil
 		end
 
 		-- element = navigateToNext( [ id=any, allowNone=false ] )
-		-- Note: Same at navigateToFirst if there's currently no target
+		-- Note: Calls navigateToFirst() if there's no current navigation target.
 		function Gui:navigateToNext(id, allowNone)
 			return navigateToNextOrPrevious(self, id, allowNone, false)
 		end
@@ -2282,8 +2299,6 @@ end
 -- getTime
 Gui:defget'_time'
 
-
-
 -- getTimeSinceNavigation
 Gui:defget'_timeSinceNavigation'
 
@@ -2457,10 +2472,10 @@ function Ms.imageMixin:hasImageColor()
 end
 
 -- Tell LÖVE to use the image color.
--- hasImageColor = useImageColor( )
-function Ms.imageMixin:useImageColor()
+-- hasImageColor = useImageColor( [ opacity=1.0 ] )
+function Ms.imageMixin:useImageColor(opacity)
 	local color = self._imageColor
-	LG.setColor(color or COLOR_WHITE)
+	useColor((color or COLOR_WHITE), opacity)
 	return (color ~= nil)
 end
 
@@ -3041,7 +3056,7 @@ end
 -- Returns closest ancestor matching elementType (including self)
 -- element = getClosest( elementType )
 function Cs.element.getClosest(el, elType)
-	local C = Cs[elType] or errorf('bad gui type %q', elType)
+	local C = requireElementClass(elType)
 	repeat
 		if el:is(C) then
 			return el
@@ -3060,12 +3075,7 @@ function Cs.element:getClosestInDirection(ang, elType, ignoreCapture)
 	assertarg(2, elType, 'nil','string')
 	assertarg(3, ignoreCapture, 'nil','boolean')
 
-	local C
-	if elType then
-		C = Cs[elType] or errorf('Bad element type %q.', elType)
-	else
-		C = Cs.widget
-	end
+	local C = (elType and requireElementClass(elType) or Cs.widget)
 
 	local gui = self._gui
 	updateLayoutIfNeeded(gui)
@@ -3109,6 +3119,46 @@ function Cs.element:getClosestInDirection(ang, elType, ignoreCapture)
 	end
 
 	return closestEl
+end
+
+do
+	local function getNextOrPrevious(self, elType, ignoreCapture, usePrev)
+		local C = (elType and requireElementClass(elType) or Cs.widget)
+
+		local root = self._gui._root
+		if not root or root._hidden then return nil end
+
+		local foundSelf, lastMatch = false, nil
+		for el in root:traverseVisible() do -- Remember that we're traversing backwards.
+
+			local elIsValid = el:is(C)
+			if (elIsValid and usePrev and foundSelf) then return el end
+
+			foundSelf = (foundSelf or el == self)
+			if not usePrev and foundSelf then
+				return lastMatch -- May be nil.
+			end
+
+			if elIsValid then lastMatch = el end
+
+			if not ignoreCapture and (el._captureInput or el._captureGuiInput) then
+				break
+			end
+
+		end
+		return nil
+	end
+
+	-- element = getNext( [ elType="widget", ignoreInputCaptureState=false ] )
+	function Cs.element:getNext(elType, ignoreCapture)
+		return getNextOrPrevious(self, elType, ignoreCapture, false)
+	end
+
+	-- element = getPrevious( [ elType="widget", ignoreInputCaptureState=false ] )
+	function Cs.element:getPrevious(elType, ignoreCapture)
+		return getNextOrPrevious(self, elType, ignoreCapture, true)
+	end
+
 end
 
 
@@ -3361,17 +3411,22 @@ function Cs.element.hasParent(el, parent)
 	return false
 end
 
--- result = hasParentWithId( id )
-function Cs.element.hasParentWithId(el, id)
+-- container = getParentWithId( id )
+function Cs.element.getParentWithId(el, id)
 	while true do
 		el = el._parent
 		if not el then
-			return false
+			return nil
 		elseif el._id == id then
-			return true
+			return el
 		end
 	end
-	return false
+	return nil
+end
+
+-- state = hasParentWithId( id )
+function Cs.element:hasParentWithId(id)
+	return (self:getParentWithId() ~= nil)
 end
 
 -- for index, parent in parents( ) do
@@ -3928,8 +3983,7 @@ end
 
 -- result = isType( elementType )
 function Cs.element:isType(elType)
-	local C = Cs[elType] or errorf('bad gui type %q', elType)
-	return self:is(C)
+	return self:is(requireElementClass(elType))
 end
 
 
@@ -3972,10 +4026,17 @@ function Cs.element.scrollIntoView(el)
 
 	updateLayoutIfNeeded(gui)
 
+	local sbW = themeGet(gui, 'scrollbarWidth')
+	local navSize = themeGet(gui, 'navigationSize')
+
 	local x1, y1 = el:getPositionOnScreen(true)
 	local x2, y2 = x1+el._layoutWidth, y1+el._layoutHeight
 
-	local sbW = themeGet(gui, 'scrollbarWidth')
+	x1, y1 = x1-navSize, y1-navSize
+	x2, y2 = x2+navSize, y2+navSize
+
+	-- @Incomplete: navSize should probably be applied in places here below,
+	-- (though it only matters if there are scrollables inside scrollables).
 
 	repeat
 		local parent = el._parent
@@ -4025,15 +4086,52 @@ end
 
 
 -- Helper function for themes' drawing functions.
--- setScissor( relativeX, relativeY, width, height )
-function Cs.element:setScissor(x, y, w, h)
+-- Note that each call replaces the previous scissor.
+-- setScissor( relativeX, relativeY, width, height [, ignoreParentScrollables=false ] )
+-- setScissor( ) -- Only applies scissors from parent scrollables.
+function Cs.element:setScissor(x, y, w, h, ignoreScrollables)
 	local gui = self._gui
 
-	if gui._elementScissorIsSet then setScissor(gui, nil) end
+	self:unsetScissor()
 
-	setScissor(gui, self:getXOnScreen()+x, self:getYOnScreen()+y, w, h)
-	gui._elementScissorIsSet = true
+	if x then
+		setScissor(gui, self:getXOnScreen()+x, self:getYOnScreen()+y, w, h)
+		gui._elementScissorIsSet = true
+	end
 
+	if not ignoreScrollables then
+		local parent = self._parent
+		while parent do
+
+			if not parent then break end
+
+			if parent:hasScrollbars() then
+				local parentX, parentY = parent:getPositionOnScreen()
+
+				if not gui._elementScissorIsSet then
+					setScissor(gui, parentX, parentY, parent:getChildAreaDimensions())
+					gui._elementScissorIsSet = true
+				else
+					intersectScissor(self._gui, parentX, parentY, parent:getChildAreaDimensions())
+				end
+
+			end
+
+			parent = parent._parent
+		end
+	end
+
+end
+
+-- Remove scissor set by setScissor().
+-- Helper function for themes' drawing functions.
+-- unsetScissor( )
+function Cs.element:unsetScissor()
+	local gui = self._gui
+	if gui._elementScissorIsSet then
+		setScissor(gui, nil)
+		gui._elementScissorIsSet = false
+	end
 end
 
 
@@ -4313,8 +4411,7 @@ end
 
 -- elements = findType( elementType )
 function Cs.container:findType(elType)
-
-	local C = Cs[elType] or errorf('Bad element type %q.', elType)
+	local C = requireElementClass(elType)
 
 	for el in self:traverse() do
 		if el:is(C) then return el end
@@ -5032,7 +5129,7 @@ do
 		end
 	end
 	function Cs.container:traverseType(elType)
-		local C = Cs[elType] or errorf('bad gui type %q', elType)
+		local C = requireElementClass(elType)
 		return newIteratorCoroutine(traverseChildrenOfType, self, C)
 	end
 end
@@ -5579,7 +5676,7 @@ function Cs.leaf:setText(unprocessedText)
 			return c
 		end)
 		if mnemonicCount > 1 then
-			print('ERROR: Multiple mnemonics in "'..text..'".')
+			printf('ERROR: Multiple mnemonics in %q.', text)
 		end
 		text = cleanText
 	end
@@ -5622,11 +5719,11 @@ function Cs.leaf:hasTextColor()
 end
 
 -- Tell LÖVE to use the text color.
--- hasTextColor = useTextColor( )
-function Cs.leaf:useTextColor()
+-- hasTextColor = useTextColor( [ opacity=1.0 ] )
+function Cs.leaf:useTextColor(opacity)
 	local color = self._textColor
-	LG.setColor(color or COLOR_WHITE)
-	return color ~= nil
+	useColor((color or COLOR_WHITE), opacity)
+	return (color ~= nil)
 end
 
 
@@ -5748,10 +5845,7 @@ function Cs.canvas:_draw()
 		LG.setColor(255, 255, 255)
 
 		triggerIncludingAnimations(self, 'draw', cw, ch)
-		if gui._elementScissorIsSet then
-			setScissor(gui, nil)
-			gui._elementScissorIsSet = false
-		end
+		self:unsetScissor()
 
 		setScissor(gui, nil)
 	end

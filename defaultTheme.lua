@@ -104,6 +104,8 @@ return {
 
 	inputIndentation   = INPUT_PADDING, -- Affects mouse interactions and input field scrolling.
 
+	navigationSize     = 0, -- How much extra size the highlight of the navigation target has. Affects scrollIntoView().
+
 	scrollbarWidth     = SCROLLBAR_WIDTH, -- @Incomplete: Get scrollbar width as 'size' instead of like this.
 	scrollbarMinLength = SCROLLBAR_MIN_LENGTH,
 
