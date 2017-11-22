@@ -5203,50 +5203,36 @@ end
 -- REPLACE  _updateLayoutSize( )
 function Cs.container:_updateLayoutSize()
 
-	local maxW, maxH = self._maxWidth, self._maxHeight
-	local parent = self._parent
-
-	local w = self._width
-	if not w then
-		if self._expandX then
-			w = parent._layoutInnerWidth
-		else
-			w = math.max(self:getInnerSpaceX(), self._minWidth)
-		end
-		if maxW then  w = math.min(w, maxW)  end
-	end
-	self._layoutWidth = w
-
-	local h = self._height
-	if not h then
-		if self._expandY then
-			h = parent._layoutInnerHeight
-		else
-			h = math.max(self:getInnerSpaceY(), self._minHeight)
-		end
-		if maxH then  h = math.min(h, maxH)  end
-	end
-	self._layoutHeight = h
-
-	self._layoutInnerWidth  = self._layoutWidth -self:getInnerSpaceX()
-	self._layoutInnerHeight = self._layoutHeight-self:getInnerSpaceY()
-
 	updateContainerChildLayoutSizes(self)
+
+	local maxX, maxY = 0, 0
+	for _, child in ipairs(self) do
+		if not (child._hidden or child._floating) then
+
+			-- Note: We don't consider the anchor as we only care about the size here.
+			-- We do treat the position offset as part of the size (added to the top left of the child).
+			-- (Maybe the reasoning is flawed somewhere here but it seems to work.)
+			maxX = math.max(maxX, child._x+child._layoutWidth)
+			maxY = math.max(maxY, child._y+child._layoutHeight)
+
+		end
+	end
+
+	self._layoutInnerWidth  = (self._width  and self._width -self:getInnerSpaceX() or maxX)
+	self._layoutInnerHeight = (self._height and self._height-self:getInnerSpaceY() or maxY)
+
+	updateContainerLayoutSize(self)
 
 end
 
--- REPLACE  _expandLayout( [ expandWidth, expandHeight ] )
+-- REPLACE  _expandLayout( )
 function Cs.container:_expandLayout(expandW, expandH)
 
-	-- Expand self
 	expandContainer(self, expandW, expandH)
 
-	-- Expand children
 	for _, child in ipairs(self) do
 		if not child._hidden then
-			child:_expandLayout(
-				(expandW and self._layoutInnerWidth  or nil),
-				(expandH and self._layoutInnerHeight or nil))
+			child:_expandLayout(nil, nil)
 		end
 	end
 
