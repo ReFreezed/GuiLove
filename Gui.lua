@@ -2571,11 +2571,14 @@ function Ms.imageMixin:setSprite(imageOrName, framesOrQuad)
 
 	if type(imageOrName) == 'string' then
 		spriteName = imageOrName
+		if spriteName ~= '' and spriteName == self._spriteName then return end
+
 		local spriteLoader = self._gui._spriteLoader
 		if not spriteLoader then
 			printerror(2, 'There is no sprite loader to convert the sprite name %q to a sprite.', spriteName)
 			return
 		end
+
 		image, framesOrQuad = spriteLoader(spriteName)
 		if not image then
 			printerror(2, 'The sprite loader did not return a required image for sprite name %q.', spriteName)
