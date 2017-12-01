@@ -102,6 +102,7 @@
 	isBusy, isMouseBusy
 	isIgnoringKeyboardInput
 	isInputCaptured
+	isInteractionLocked
 	isMouseGrabbed, setMouseIsGrabbed
 	load
 	ok, back
@@ -2336,6 +2337,13 @@ function Gui:isInputCaptured(includeGuiInput)
 	end
 
 	return false
+end
+
+
+
+-- state = isInteractionLocked( )
+function Gui:isInteractionLocked()
+	return (self._animationLockCount > 0)
 end
 
 
