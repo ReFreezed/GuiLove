@@ -10,7 +10,6 @@
 --=  - refreezed.love.InputField
 --=
 --=  TODO:
---=  - Add a way to confine navigation within a container.
 --=  - Make pageup/pagedown/home/end work in scrollables.
 --=  - Don't draw things that are outside the visible area in scrollables.
 --=  - Percentage sizes for elements.
@@ -136,7 +135,7 @@
 	- getPathDescription
 	- getPosition, setPosition, getX, setX, getY, setY
 	- getPositionOnScreen, getXOnScreen, getYOnScreen
-	- getRoot
+	- getRoot, getNavigationRoot
 	- getSound, getResultingSound, setSound
 	- getStyle
 	- getTimeSinceBecomingVisible
@@ -2061,7 +2060,8 @@ do
 			if (not nav and not usePrev) then return self:navigateToFirst() end
 
 			local foundNav, lastWidget = false, nil
-			for el in root:traverseVisible() do -- Remember that we're traversing backwards.
+			for el in (nav and nav:getNavigationRoot() or root):traverseVisible() do
+				-- Note: Remember that we're traversing backwards.
 
 				local elIsValid = (el:is(Cs.widget) and (not id or el._id == id))
 				if elIsValid and usePrev and foundNav then
@@ -2126,7 +2126,7 @@ do
 	end
 
 	-- landingElement = navigate( angle )
-	function Gui:navigate(targetAng)
+	function Gui:navigate(ang)
 		if self._lockNavigation then return nil end
 
 		local root = self._root
@@ -2135,11 +2135,11 @@ do
 		local nav = self._navigationTarget
 		if not nav then return self:navigateToFirst() end
 
-		if trigger(nav, 'navigate', targetAng) then
+		if trigger(nav, 'navigate', ang) then
 			return self._navigationTarget -- Suppress default behavior.
 		end
 
-		local closestEl = nav:getClosestInDirection(targetAng)
+		local closestEl = nav:getClosestInDirection(ang)
 		if closestEl then
 			setNavigationTarget(self, closestEl)
 		end
@@ -3079,57 +3079,75 @@ end
 
 
 
--- element = getClosestInDirection( angle [, elementType="widget", ignoreInputCaptureState=false ] )
-local MAX_ANGLE_DIFF = tau/4
-function Cs.element:getClosestInDirection(ang, elType, ignoreCapture)
-	assertarg(1, ang, 'number')
-	assertarg(2, elType, 'nil','string')
-	assertarg(3, ignoreCapture, 'nil','boolean')
+-- element = getClosestInDirection( angle [, elementType="widget", ignoreInputCaptureState=false, ignoreConfinement=false ] )
+do
+	local MAX_ANGLE_DIFF = tau/4
 
-	local C = (elType and requireElementClass(elType) or Cs.widget)
+	local function _getClosestInDirection(navRoot, C, fromX, fromY, ang, ignoreCapture, elToIgnore)
+		local closestEl      = nil
+		local closestDistSqr = math.huge
+		local closestAngDiff = math.huge
 
-	local gui = self._gui
-	updateLayoutIfNeeded(gui)
+		for el in navRoot:traverseVisible() do
 
-	local fromX, fromY = self:getLayoutCenterPosition()
-	fromX = fromX+self._layoutOffsetX+0.495*self._layoutWidth *math.cos(ang)
-	fromY = fromY+self._layoutOffsetY+0.495*self._layoutHeight*math.sin(ang)
+			if el ~= elToIgnore and el:is(C) then
+				local x, y = el:getPositionOnScreen()
+				x = math.min(math.max(fromX, x+0.01), x+el._layoutWidth-0.01)
+				y = math.min(math.max(fromY, y+0.01), y+el._layoutHeight-0.01)
 
-	local closestEl      = nil
-	local closestDistSqr = math.huge
-	local closestAngDiff = math.huge
+				local dx, dy = x-fromX, y-fromY
 
-	for el in gui._root:traverseVisible() do
+				local distSqr = dx*dx+dy*dy
+				if distSqr <= closestDistSqr then
 
-		if el ~= self and el:is(C) then
-			local x, y = el:getPositionOnScreen()
-			x = math.min(math.max(fromX, x+0.01), x+el._layoutWidth-0.01)
-			y = math.min(math.max(fromY, y+0.01), y+el._layoutHeight-0.01)
+					local angDiff = math.atan2(dy, dx)-ang
+					angDiff = math.abs(math.atan2(math.sin(angDiff), math.cos(angDiff))) -- Normalize.
 
-			local dx, dy = x-fromX, y-fromY
+					if angDiff < MAX_ANGLE_DIFF then
+						closestEl      = el
+						closestDistSqr = distSqr
+						closestAngDiff = angDiff
+					end
 
-			local distSqr = dx*dx+dy*dy
-			if distSqr <= closestDistSqr then
-
-				local angDiff = math.atan2(dy, dx)-ang
-				angDiff = math.abs(math.atan2(math.sin(angDiff), math.cos(angDiff))) -- Normalize.
-
-				if angDiff < MAX_ANGLE_DIFF then
-					closestEl      = el
-					closestDistSqr = distSqr
-					closestAngDiff = angDiff
 				end
-
 			end
+
+			if not ignoreCapture and (el._captureInput or el._captureGuiInput) then
+				break
+			end
+
 		end
 
-		if not ignoreCapture and (el._captureInput or el._captureGuiInput) then
-			break
-		end
-
+		return closestEl
 	end
 
-	return closestEl
+	function Cs.element:getClosestInDirection(ang, elType, ignoreCapture, ignoreConfinement)
+		assertarg(1, ang, 'number')
+		assertarg(2, elType, 'nil','string')
+		assertarg(3, ignoreCapture, 'nil','boolean')
+
+		local C = (elType and requireElementClass(elType) or Cs.widget)
+
+		local gui = self._gui
+		updateLayoutIfNeeded(gui)
+
+		local navRoot = (ignoreConfinement and gui._root or self:getNavigationRoot())
+
+		local centerX, centerY = self:getLayoutCenterPosition()
+
+		local fromX = centerX+self._layoutOffsetX+0.495*self._layoutWidth *math.cos(ang)
+		local fromY = centerY+self._layoutOffsetY+0.495*self._layoutHeight*math.sin(ang)
+		local closestEl = _getClosestInDirection(navRoot, C, fromX, fromY, ang, ignoreCapture, self)
+
+		if not closestEl and not ignoreConfinement and navRoot._confineNavigation then
+			fromX = centerX+self._layoutOffsetX-10000*math.cos(ang)
+			fromY = centerY+self._layoutOffsetY-10000*math.sin(ang)
+			closestEl = _getClosestInDirection(navRoot, C, fromX, fromY, ang, ignoreCapture, nil)
+		end
+
+		return closestEl
+	end
+
 end
 
 do
@@ -3140,7 +3158,8 @@ do
 		if not root or root._hidden then return nil end
 
 		local foundSelf, lastMatch = false, nil
-		for el in root:traverseVisible() do -- Remember that we're traversing backwards.
+		for el in self:getNavigationRoot():traverseVisible() do
+			-- Note: Remember that we're traversing backwards.
 
 			local elIsValid = el:is(C)
 			if (elIsValid and usePrev and foundSelf) then return el end
@@ -3587,10 +3606,23 @@ end
 --   from the GUI. So this function differs slightly from gui:getRoot().
 function Cs.element.getRoot(el)
 	repeat
-		if el.class == Cs.root then  return el  end
+		if el.class == Cs.root then return el end
 		el = el._parent
 	until not el
 	return nil -- We've been removed from the root.
+end
+
+-- container = getNavigationRoot( )
+function Cs.element:getNavigationRoot()
+	local container = self._parent
+	if not container then return nil end -- Should we allow returning self if we're a container?
+
+	while container._parent do
+		if container._confineNavigation then return container end
+		container = container._parent
+	end
+
+	return container -- We've reached the top container we know of.
 end
 
 
@@ -4274,6 +4306,7 @@ Cs.container = Cs.element:extend('GuiContainer', {
 	_scrollX = 0.0, _scrollY = 0.0,
 	_visualScrollX = 0.0, _visualScrollY = 0.0,
 
+	_confineNavigation = false,
 	_expandX = false, _expandY = false,
 	_maxWidth = nil, _maxHeight = nil,
 	_padding = 0,
@@ -4286,6 +4319,7 @@ registerEvents(Cs.container, {
 function Cs.container:init(gui, data, parent)
 	Cs.container.super.init(self, gui, data, parent)
 
+	retrieve(self, data, '_confineNavigation')
 	retrieve(self, data, '_expandX', '_expandY')
 	retrieve(self, data, '_maxWidth', '_maxHeight')
 	retrieve(self, data, '_padding')
