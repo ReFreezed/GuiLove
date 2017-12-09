@@ -153,6 +153,7 @@
 	- isScrollingX, isScrollingY
 	- isSolid
 	- isType
+	- playSound
 	- refresh
 	- remove
 	- reprocessTexts
@@ -234,6 +235,7 @@
 			- Includes: imageMixin
 			- getArrow
 			- getText2, getUnprocessedText2, setText2, drawText2, drawAlignedText2
+			- isPressable, setPressable
 			- isToggled, setToggled
 			- press, isPressed
 			- Event: press
@@ -354,7 +356,7 @@ local lerp
 local matchAll
 local newSprite, cloneSprite, getCurrentViewOfSprite, updateSprite
 local parseSelector, isElementMatchingSelectorPath
-local playSound, prepareSound
+local prepareSound
 local preprocessText
 local printf, printerror, assertarg
 local registerEvents
@@ -810,16 +812,6 @@ do
 end
 
 
-
--- playSound( element, soundKey )
-function playSound(el, soundK)
-	local gui = el._gui
-	local soundPlayer = (gui and gui._soundPlayer)
-	local sound = (soundPlayer and el:getResultingSound(soundK))
-	if sound ~= nil then
-		soundPlayer(sound)
-	end
-end
 
 -- Prepare a sound for being played (Useful if it's possible the element will be removed in an event)
 -- playSound:function = prepareSound( element, soundKey )
@@ -2385,9 +2377,7 @@ end
 -- handled = ok( )
 function Gui:ok()
 	local nav = self._navigationTarget
-	if (nav and nav._active) then
-		return nav:_ok()
-	end
+	if nav and nav._active then return nav:_ok() end
 	return false
 end
 
@@ -4031,6 +4021,20 @@ end
 
 
 
+-- playSound( soundKey )
+function Cs.element:playSound(soundK)
+	assertarg(1, soundK, 'string')
+	checkValidSoundKey(soundK)
+
+	local gui = self._gui
+	local soundPlayer = (gui and gui._soundPlayer)
+
+	local sound = (soundPlayer and self:getResultingSound(soundK))
+	if sound ~= nil then soundPlayer(sound) end
+end
+
+
+
 -- Trigger helper event "refresh"
 -- refresh( )
 function Cs.element:refresh()
@@ -4642,7 +4646,7 @@ function Cs.container:setScroll(scrollX, scrollY, immediate)
 	if immediate then setVisualScroll(self, scrollX, scrollY) end
 
 	if self:isDisplayed() then
-		playSound(self, 'scroll') -- @Robustness: May have to add more limitations to whether "scroll" sound plays or not.
+		self:playSound('scroll') -- @Robustness: May have to add more limitations to whether "scroll" sound plays or not.
 		updateHoveredElement(self._gui)
 	end
 
@@ -6164,6 +6168,7 @@ Cs.button = Cs.widget:extend('GuiButton', {
 	_canToggle = false,
 	_close = false,
 	_imagePadding = 0,
+	_pressable = true,
 	_text2 = '',
 	_toggled = false,
 	_toggledSprite = nil, _untoggledSprite = nil,
@@ -6185,6 +6190,7 @@ function Cs.button:init(gui, data, parent)
 	retrieve(self, data, '_imageColor')
 	-- retrieve(self, data, '_imageScaleX','_imageScaleY')
 	retrieve(self, data, '_imagePadding')
+	retrieve(self, data, '_pressable')
 	-- retrieve(self, data, '_sprite')
 	-- retrieve(self, data, '_text2')
 	retrieve(self, data, '_toggled')
@@ -6313,6 +6319,16 @@ end
 
 
 
+-- state = isPressable( )
+function Cs.button:isPressable()
+	return self._pressable
+end
+
+-- setPressable
+Cs.button:defset'_pressable'
+
+
+
 -- state = isToggled( )
 function Cs.button:isToggled()
 	return self._toggled
@@ -6366,7 +6382,7 @@ end
 
 -- REPLACE  handled = _ok( )
 function Cs.button:_ok()
-	self:press(true)
+	self:press()
 	return true
 end
 
@@ -6374,26 +6390,30 @@ end
 
 -- success = press( [ ignoreActiveState=false ] )
 function Cs.button:press(ignoreActiveState)
-	if not (ignoreActiveState or self._active) then
+	if not ignoreActiveState and not (self._active and self._pressable) then
 		return false
 	end
 
 	-- Press/toggle the button
 	local preparedSound = prepareSound(self, 'press')
+
 	if self._canToggle then
 		local state = (not self._toggled)
-		self._toggled = state
-		if (state and self._toggledSprite) then
+		self._toggled = state -- We need to toggle before the press event in case the callback uses the value.
+
+		if state and self._toggledSprite then
 			self:setSprite(self._toggledSprite)
-		elseif (not state and self._untoggledSprite) then
+		elseif not state and self._untoggledSprite then
 			self:setSprite(self._untoggledSprite)
 		end
+
 	end
+
 	self._gui._ignoreKeyboardInputThisFrame = true
+
 	trigger(self, 'press')
-	if self._canToggle then
-		trigger(self, 'toggle')
-	end
+	if self._canToggle then trigger(self, 'toggle') end
+
 	self:triggerBubbling('pressed', self)
 
 	-- Close closest closable
@@ -6548,7 +6568,7 @@ function Cs.input:focus()
 
 	self._field:resetBlinking()
 
-	playSound(self, 'focus')
+	self:playSound('focus')
 
 	self:triggerBubbling('focused', self)
 end
@@ -6633,12 +6653,12 @@ function Cs.input:_keypressed(key, scancode, isRepeat)
 		if not isRepeat then
 			self._field:setText(self._savedValue)
 			self:blur()
-			playSound(self, 'inputrevert')
+			self:playSound('inputrevert')
 		end
 	elseif (key == 'return' or key == 'kpenter') then
 		if not isRepeat then
 			self:blur()
-			playSound(self, 'inputsubmit')
+			self:playSound('inputsubmit')
 			trigger(self, 'submit')
 		end
 	else
