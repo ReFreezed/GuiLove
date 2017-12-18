@@ -4219,7 +4219,8 @@ function Cs.element:showMenu(items, highlightI, offsetX, offsetY, cb)
 
 	-- Create menu.
 	local menu = root:insert{
-		type='container', style='_MENU', expandX=true, expandY=true, closable=true, captureGuiInput=true,
+		type='container', style='_MENU', expandX=true, expandY=true,
+		closable=true, captureGuiInput=true, confineNavigation=true,
 		[1] = {type='vbar', minWidth=self._layoutWidth, maxHeight=root._height},
 	}
 	menu:on('closed', function(button, event)
