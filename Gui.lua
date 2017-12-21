@@ -4188,29 +4188,30 @@ end
 -- items = { { itemText, itemExtraText }... }
 -- callback = function( index, itemText )
 --    index will be 0 if no item was chosen.
-function Cs.element:showMenu(items, highlightI, offsetX, offsetY, cb)
+function Cs.element:showMenu(items, highlightIndex, offsetX, offsetY, cb)
 	assertarg(1, items, 'table')
 
 	-- showMenu( items, highlightedIndex, offsetX, offsetY, callback )
-	if (type(highlightI) == 'number' and type(offsetX) == 'number' and type(offsetY) == 'number') then
+	if (type(highlightIndex) == 'number' and type(offsetX) == 'number' and type(offsetY) == 'number') then
 		-- void
 
 	-- showMenu( items, offsetX, offsetY, callback )
-	elseif (type(highlightI) == 'number' and type(offsetX) == 'number') then
-		highlightI, offsetX, offsetY, cb = nil, highlightI, offsetX, offsetY
+	elseif (type(highlightIndex) == 'number' and type(offsetX) == 'number') then
+		highlightIndex, offsetX, offsetY, cb = nil, highlightIndex, offsetX, offsetY
 
 	-- showMenu( items, highlightedIndex, callback )
-	elseif (type(highlightI) == 'number') then
+	elseif (type(highlightIndex) == 'number') then
 		offsetX, offsetY, cb = 0, 0, offsetX
 
 	-- showMenu( items, callback )
 	else
-		highlightI, offsetX, offsetY, cb = nil, 0, 0, highlightI
+		highlightIndex, offsetX, offsetY, cb = nil, 0, 0, highlightIndex
 
 	end
 	if type(cb) ~= 'function' then
 		error('Missing callback argument.', 2)
 	end
+
 
 	local gui = self._gui
 	local root = self:getRoot()
@@ -4218,17 +4219,22 @@ function Cs.element:showMenu(items, highlightI, offsetX, offsetY, cb)
 	updateLayoutIfNeeded(gui) -- So we get the correct self size and position here below.
 
 	-- Create menu.
+
 	local menu = root:insert{
 		type='container', style='_MENU', expandX=true, expandY=true,
 		closable=true, captureGuiInput=true, confineNavigation=true,
 		[1] = {type='vbar', minWidth=self._layoutWidth, maxHeight=root._height},
 	}
+
 	menu:on('closed', function(button, event)
 		local _cb = cb
 		cb = nil
+
 		menu:remove()
+
 		if _cb then _cb(0, '') end
 	end)
+
 	menu:on('mousepressed', function(button, event, x, y, buttonN)
 		menu:close()
 	end)
@@ -4236,25 +4242,34 @@ function Cs.element:showMenu(items, highlightI, offsetX, offsetY, cb)
 	-- Add menu items.
 	local buttons = menu[1]
 	for i, text in ipairs(items) do
+
 		local text2 = nil
-		if type(text) == 'table' then
-			text, text2 = unpack(text)
-		end
-		local isToggled = (i == highlightI)
+		if type(text) == 'table' then text, text2 = unpack(text) end
+
+		local isToggled = (i == highlightIndex)
 		local button = buttons:insert{ type='button', text=text, text2=text2, align='left', toggled=isToggled }
+
+		button:on('mousepressed', function(button, event, x, y, buttonN)
+			button:press()
+			return true -- Prevent the menu from receiving the mousepressed event.
+		end)
+
 		button:on('press', function(button, event)
 			local _cb = cb
 			cb = nil
+
 			menu:remove()
+
 			if _cb then _cb(i, text) end
 		end)
-		if isToggled then
-			gui:navigateTo(button)
-		end
+
+		if isToggled then gui:navigateTo(button) end
 	end
 
 	-- Set position.
+
 	menu:_updateLayoutSize() -- Expanding and positioning of the whole menu isn't necessary right here.
+
 	buttons:setPosition(
 		self:getXOnScreen()+offsetX,
 		math.max(math.min(self:getYOnScreen()+offsetY, root._height-buttons._layoutHeight), 0)
