@@ -186,6 +186,7 @@
 	- getScroll, getScrollX, getScrollY, setScroll, setScrollX, setScrollY, scroll, updateScroll
 	- getScrollHandleX, getScrollHandleY
 	- getScrollLimit, getScrollLimitX, getScrollLimitY
+	- getToggledChild, setToggledChild
 	- getVisibleChild, getVisibleChildNumber, getVisibleChildCount, setVisibleChild
 	- getVisualScroll, getVisualScrollX, getVisualScrollY
 	- hasScrollbars, hasScrollbarOnRight, hasScrollbarOnBottom
@@ -193,7 +194,6 @@
 	- insert, removeAt, empty
 	- setChildrenActive
 	- setChildrenHidden
-	- setToggledChild
 	- sort
 	- traverse, traverseType, traverseVisible
 
@@ -5128,11 +5128,25 @@ end
 
 
 
+-- widget = getToggledChild( [ includeGrandchildren=false ] )
+function Cs.container:getToggledChild(deep)
+	if deep then
+		for button in self:traverseType'button' do
+			if button:isToggled() then  return button  end
+		end
+	else
+		for _, child in ipairs(self) do
+			if child:is(Cs.button) and child:isToggled() then  return child  end
+		end
+	end
+	return nil
+end
+
 -- widget = setToggledChild( id [, includeGrandchildren=false ] )
 function Cs.container:setToggledChild(id, deep)
 	local toggledChild = nil
 	if deep then
-		for button in self:traverseType('button') do
+		for button in self:traverseType'button' do
 			if button._id == id then
 				button:setToggled(true)
 				toggledChild = button
