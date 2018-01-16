@@ -52,8 +52,8 @@
 	function love.mousepressed(x, y, mouseButton)
 		gui:mousepressed(x, y, mouseButton)
 	end
-	function love.mousemoved(dx, dy)
-		gui:mousemoved(dx, dy)
+	function love.mousemoved(x, y)
+		gui:mousemoved(x, y)
 	end
 	function love.mousereleased(x, y, mouseButton)
 		gui:mousereleased(x, y, mouseButton)
@@ -92,6 +92,7 @@
 	getNavigationTarget, navigateTo, navigateToNext, navigateToPrevious, navigateToFirst, navigate, canNavigateTo
 	getRoot
 	getScissorCoordsConverter, setScissorCoordsConverter
+	getScrollSpeed, setScrollSpeed
 	getSoundPlayer, setSoundPlayer
 	getSpriteLoader, setSpriteLoader
 	getTarget, parseTargetAndEvent, getTargetCallback, setTargetCallback
@@ -303,6 +304,7 @@ local Gui = class('Gui', {
 	_navigationTarget = nil, _timeSinceNavigation = 0.0,
 	_root = nil,
 	_scissorCoordsConverter = nil,
+	_scrollSpeedX = 1.0, _scrollSpeedY = 1.0,
 	_soundPlayer = nil,
 	_spriteLoader = nil,
 	_styles = nil,
@@ -2172,6 +2174,21 @@ Gui:defget'_root'
 
 -- getScissorCoordsConverter, setScissorCoordsConverter
 Gui:def'_scissorCoordsConverter'
+
+
+
+-- speedX, speedY = getScrollSpeed( )
+function Gui:getScrollSpeed()
+	return self._scrollSpeedX, self._scrollSpeedY
+end
+
+-- setScrollSpeed( speedX [, speedY=speedX ] )
+function Gui:setScrollSpeed(speedX, speedY)
+	assertarg(1, speedX, 'number')
+	assertarg(2, speedY, 'number','nil')
+	self._scrollSpeedX = speedX
+	self._scrollSpeedY = speedY or speedX
+end
 
 
 
@@ -4320,7 +4337,7 @@ end
 Cs.container = Cs.element:extend('GuiContainer', {
 
 	SCROLL_SMOOTHNESS = 0.65,
-	SCROLL_SPEED_X = 15, SCROLL_SPEED_Y = 20,
+	SCROLL_SPEED_X = 30, SCROLL_SPEED_Y = 50,
 
 	_mouseScrollDirection = nil, _mouseScrollOffset = 0,
 	_scrollX = 0.0, _scrollY = 0.0,
@@ -5079,9 +5096,12 @@ end
 -- REPLACE  handled = _wheelmoved( deltaX, deltaY )
 function Cs.container:_wheelmoved(dx, dy)
 	if (dx ~= 0 and self._maxWidth) or (dy ~= 0 and self._maxHeight) then
-		if self:scroll(self.SCROLL_SPEED_X*dx, self.SCROLL_SPEED_Y*dy) then
-			return true
-		end
+		local gui = self._gui
+		local scrolled = self:scroll(
+			gui._scrollSpeedX*self.SCROLL_SPEED_X*dx,
+			gui._scrollSpeedY*self.SCROLL_SPEED_Y*dy
+		)
+		if scrolled then return true end
 	end
 	return false
 end
@@ -5923,6 +5943,13 @@ end
 
 -- getCanvasBackgroundColor, setCanvasBackgroundColor
 Cs.canvas:def'_canvasBackgroundColor'
+
+
+
+-- REPLACE  handled, grabFocus = _mousepressed( x, y, button )
+function Cs.canvas:_mousepressed(x, y, buttonN)
+	return true, true
+end
 
 
 
