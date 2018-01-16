@@ -354,9 +354,9 @@ return {
 				if mnemonicPos then
 					local font = button:getFont()
 					local text1 = button:getText()
-					local mnemonicX1 = text1X+font:getWidth(text1:sub(1, mnemonicPos-1))-1
+					local mnemonicX1 = text1X+font:getWidth(text1:sub(1, mnemonicPos-1))
 					local mnemonicX2 = text1X+font:getWidth(text1:sub(1, mnemonicPos))
-					LG.rectangle('fill', mnemonicX1, textY+font:getHeight(), mnemonicX2-mnemonicX1, 1)
+					LG.rectangle('fill', mnemonicX1, textY+font:getBaseline(), mnemonicX2-mnemonicX1, 1)
 				end
 
 			-- Image and text
@@ -386,9 +386,9 @@ return {
 				if mnemonicPos then
 					local font = button:getFont()
 					local text1 = button:getText()
-					local mnemonicX1 = text1X+font:getWidth(text1:sub(1, mnemonicPos-1))-1
+					local mnemonicX1 = text1X+font:getWidth(text1:sub(1, mnemonicPos-1))
 					local mnemonicX2 = text1X+font:getWidth(text1:sub(1, mnemonicPos))
-					LG.rectangle('fill', mnemonicX1, textY+font:getHeight(), mnemonicX2-mnemonicX1, 1)
+					LG.rectangle('fill', mnemonicX1, textY+font:getBaseline(), mnemonicX2-mnemonicX1, 1)
 				end
 
 			end
