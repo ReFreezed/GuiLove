@@ -99,7 +99,7 @@
 	getTextPreprocessor, setTextPreprocessor, reprocessTexts
 	getTheme, setTheme
 	getTime, getTimeSinceNavigation
-	isBusy, isMouseBusy
+	isBusy, isKeyboardBusy, isMouseBusy
 	isIgnoringKeyboardInput
 	isInputCaptured
 	isInteractionLocked
@@ -286,6 +286,11 @@ local tau = 2*math.pi
 local Gui = class('Gui', {
 
 	TOOLTIP_DELAY = 0.15,
+
+	VALUE_MASK_INT    =  '^%-?%d+$',       -- Integer number.
+	VALUE_MASK_UINT   =  '^%d+$',          -- Unsigned integer number.
+	VALUE_MASK_FLOAT  =  '^%-?%d+%.?%d*$', -- Floating point number.
+	VALUE_MASK_UFLOAT =  '^%d+%.?%d*$',    -- Unsigned floating point number.
 
 	_allAnimations = nil, _animationLockCount = 0,
 	_defaultSounds = nil,
@@ -2316,7 +2321,12 @@ Gui:defget'_timeSinceNavigation'
 
 -- state = isBusy( )
 function Gui:isBusy()
-	return (self._keyboardFocus ~= nil or self:isMouseBusy())
+	return (self:isKeyboardBusy() or self:isMouseBusy())
+end
+
+-- state = isKeyboardBusy( )
+function Gui:isKeyboardBusy()
+	return (self._keyboardFocus ~= nil)
 end
 
 -- state = isMouseBusy( )
@@ -6549,6 +6559,7 @@ Cs.input = Cs.widget:extend('GuiInput', {
 	_savedValue = '',
 
 	--[[REPLACE]] _width = 0, -- Inputs always have a width.
+	_mask = '',
 	_placeholder = '',
 
 })
@@ -6560,7 +6571,8 @@ registerEvents(Cs.input, {
 function Cs.input:init(gui, data, parent)
 	Cs.input.super.init(self, gui, data, parent)
 
-	-- retrieve(self, data, '_password')
+	-- retrieve(self, data, '_password') -- This is saved in the field instead.
+	retrieve(self, data, '_mask')
 	retrieve(self, data, '_placeholder')
 
 	self._field = InputField()
@@ -6703,24 +6715,33 @@ end
 
 -- REPLACE  handled, grabFocus = _keypressed( key, scancode, isRepeat )
 function Cs.input:_keypressed(key, scancode, isRepeat)
-	if not self:isKeyboardFocus() then
-		return false, false
-	end
+	if not self:isKeyboardFocus() then  return false, false  end
+
 	if key == 'escape' then
 		if not isRepeat then
 			self._field:setText(self._savedValue)
 			self:blur()
 			self:playSound('inputrevert')
 		end
-	elseif (key == 'return' or key == 'kpenter') then
+
+	elseif key == 'return' or key == 'kpenter' then
 		if not isRepeat then
 			self:blur()
 			self:playSound('inputsubmit')
 			trigger(self, 'submit')
 		end
+
 	else
-		self._field:keypressed(key, scancode, isRepeat)
+		local v = self:getValue()
+
+		local handled = self._field:keypressed(key, scancode, isRepeat)
+
+		local mask = self._mask
+		if handled and mask ~= '' and not self:getValue():find(mask) then
+			self:setValue(v)
+		end
 	end
+
 	return true, false
 end
 
@@ -6730,7 +6751,14 @@ end
 
 -- REPLACE  _textinput( text )
 function Cs.input:_textinput(text)
+	local v = self:getValue()
+
 	self._field:textinput(text)
+
+	local mask = self._mask
+	if mask ~= '' and not self:getValue():find(mask) then
+		self:setValue(v)
+	end
 end
 
 
