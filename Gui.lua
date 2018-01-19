@@ -3239,9 +3239,7 @@ end
 
 -- setDimensions( width, height )
 function Cs.element:setDimensions(w, h)
-	if (self._width == w and self._height == h) then
-		return
-	end
+	if self._width == w and self._height == h then return end
 	self._width, self._height = w, h
 	scheduleLayoutUpdateIfDisplayed(self)
 end
@@ -3251,9 +3249,7 @@ Cs.element:defget'_width'
 
 -- setWidth( width )
 function Cs.element:setWidth(w)
-	if self._width == w then
-		return
-	end
+	if self._width == w then return end
 	self._width = w
 	scheduleLayoutUpdateIfDisplayed(self)
 end
@@ -3262,10 +3258,8 @@ end
 Cs.element:defget'_height'
 
 -- setHeight( height )
-function Cs.element:setHeight(w)
-	if self._height == h then
-		return
-	end
+function Cs.element:setHeight(h)
+	if self._height == h then return end
 	self._height = h
 	scheduleLayoutUpdateIfDisplayed(self)
 end
@@ -5925,8 +5919,10 @@ function Cs.canvas:_draw()
 
 	-- Draw canvas.
 	-- We don't call themeRender() for canvases as they should only draw things through the "draw" event.
-	local cw, ch = (self._width or w), (self._height or h)
-	if (cw > 0 and ch > 0) then
+	local cw = self._width  or w
+	local ch = self._height or h
+	if cw > 0 and ch > 0 then
+		LG.push('all')
 
 		local cx, cy = x+math.floor((w-cw)/2), y+math.floor((h-ch)/2)
 		local bgColor = self._canvasBackgroundColor
@@ -5943,6 +5939,7 @@ function Cs.canvas:_draw()
 		self:unsetScissor()
 
 		setScissor(gui, nil)
+		LG.pop()
 	end
 
 	triggerIncludingAnimations(self, 'afterdraw', x, y, w, h)
