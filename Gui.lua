@@ -999,7 +999,7 @@ function setScissor(gui, x, y, w, h)
 	end
 
 	LG.push('all')
-	LG.intersectScissor(x, y, w, h)
+	LG.intersectScissor(x, y, math.max(w, 0), math.max(h, 0))
 
 end
 
@@ -4893,6 +4893,7 @@ end
 
 -- width, height = getChildAreaDimensions( )
 function Cs.container:getChildAreaDimensions()
+	updateLayoutIfNeeded(self._gui)
 	local sbW = themeGet(self._gui, 'scrollbarWidth')
 	return
 		(self._maxHeight and self._layoutWidth -sbW or self._layoutWidth),
@@ -4901,6 +4902,7 @@ end
 
 -- width = getChildAreaWidth( )
 function Cs.container:getChildAreaWidth()
+	updateLayoutIfNeeded(self._gui)
 	return
 		self:hasScrollbarOnRight() and self._layoutWidth-themeGet(self._gui, 'scrollbarWidth')
 		or self._layoutWidth
@@ -4908,6 +4910,7 @@ end
 
 -- height = getChildAreaHeight( )
 function Cs.container:getChildAreaHeight()
+	updateLayoutIfNeeded(self._gui)
 	return
 		self:hasScrollbarOnBottom() and self._layoutHeight-themeGet(self._gui, 'scrollbarWidth')
 		or self._layoutHeight
