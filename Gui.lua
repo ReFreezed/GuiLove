@@ -174,6 +174,7 @@
 	- Event: refresh
 	- Event: show, hide
 	- Event: update
+	- Event: wheelmoved
 
 	container
 	- find, findAll, findType, findActive, findToggled, match, matchAll
@@ -1738,7 +1739,7 @@ function Gui:mousepressed(x, y, buttonN)
 		-- Trigger any custom mousepressed event handler.
 		-- Returning true from the handler suppresses the default built-in behavior.
 		local screenX, screenY = el:getPositionOnScreen()
-		if el:triggerBubbling('mousepressed', x-screenX, y-screenY, buttonN) then
+		if el:trigger('mousepressed', x-screenX, y-screenY, buttonN) then
 			return true
 		end
 
@@ -1825,24 +1826,31 @@ function Gui:wheelmoved(dx, dy)
 		dx, dy = dy, dx
 	end
 
-	-- Focus
 	local focus = self._mouseFocus
-	if focus then
-		return (isScroll and focus:_wheelmoved(dx, dy) or focus:isSolid())
+	if not focus then
+		updateLayoutIfNeeded(self) -- Updates hovered element.
 	end
 
-	-- Hovered element (bubbling event)
-	updateLayoutIfNeeded(self) -- Updates hovered element.
-	local el, anyIsSolid = self._hoveredElement, false
+	-- Focus (non-bubbling event)
+	-- OR hovered element (bubbling event).
+	local el         = focus or self._hoveredElement
+	local anyIsSolid = false
 	while el do
-		if (isScroll and el:_wheelmoved(dx, dy)) then
-			return true
+		if isScroll then
+
+			-- Trigger any custom wheelmoved event handler.
+			-- Returning true from the handler suppresses the default built-in behavior.
+			if el:trigger('wheelmoved', dx, dy) then return true end
+
+			if el:_wheelmoved(dx, dy) then return true end
 		end
-		anyIsSolid = (anyIsSolid or el:isSolid())
+
+		if focus then return focus:isSolid() end
+
+		anyIsSolid = anyIsSolid or el:isSolid()
 		el = el._parent
 	end
 	return anyIsSolid
-
 end
 
 
@@ -2701,6 +2709,7 @@ registerEvents(Cs.element, {
 	'refresh',
 	'show','hide',
 	'update',
+	'wheelmoved',
 })
 
 function Cs.element:init(gui, data, parent)
@@ -6642,11 +6651,11 @@ function Cs.input:focus()
 	self:triggerBubbling('focused', self)
 end
 
--- blur( )
+-- success = blur( )
 function Cs.input:blur()
 	local gui = self._gui
 	if gui._keyboardFocus ~= self then
-		return
+		return false
 	end
 
 	setKeyboardFocus(gui, nil)
@@ -6664,6 +6673,8 @@ function Cs.input:blur()
 	end
 
 	self:triggerBubbling('blurred', self)
+
+	return true
 end
 
 -- state = isFocused( )
