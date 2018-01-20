@@ -4280,7 +4280,7 @@ function Cs.element:showMenu(items, highlightIndex, offsetX, offsetY, cb)
 		local button = buttons:insert{ type='button', text=text, text2=text2, align='left', toggled=isToggled }
 
 		button:on('mousepressed', function(button, event, x, y, buttonN)
-			button:press()
+			if buttonN == 1 then button:press() end
 			return true -- Prevent the menu from receiving the mousepressed event.
 		end)
 
