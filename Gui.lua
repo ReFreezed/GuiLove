@@ -5457,16 +5457,22 @@ function Cs.hbar:_expandLayout(expandW, expandH)
 			if child._floating then
 				child:_expandLayout(nil, nil)
 			else
-				if (expandW and not child._width) then
-					local spaceX = round(totalSpaceX/expandablesX)
-					expandablesX, totalSpaceX = expandablesX-1, totalSpaceX-spaceX
-					expandW = (self._homogeneous and 0 or child._layoutWidth)+spaceX
+				if not child._width then
+					if expandW then
+						local spaceX = round(totalSpaceX/expandablesX)
+						totalSpaceX = totalSpaceX-spaceX
+						expandW = (self._homogeneous and 0 or child._layoutWidth)+spaceX
+					end
+					expandablesX = expandablesX-1
 				end
-				child:_expandLayout((not child._width and expandW or nil),
-					(self._expandChildren and self._layoutInnerHeight or nil))
+				child:_expandLayout(
+					(not child._width and expandW or nil),
+					(self._expandChildren and self._layoutInnerHeight or nil)
+				)
 			end
 		end
 	end
+	assert(expandablesX == 0, expandablesX)
 
 end
 
@@ -5562,16 +5568,22 @@ function Cs.vbar:_expandLayout(expandW, expandH)
 			if child._floating then
 				child:_expandLayout(nil, nil)
 			else
-				if (expandH and not child._height) then
-					local spaceY = round(totalSpaceY/expandablesY)
-					expandablesY, totalSpaceY = expandablesY-1, totalSpaceY-spaceY
-					expandH = (self._homogeneous and 0 or child._layoutHeight)+spaceY
+				if not child._height then
+					if expandH then
+						local spaceY = round(totalSpaceY/expandablesY)
+						totalSpaceY = totalSpaceY-spaceY
+						expandH = (self._homogeneous and 0 or child._layoutHeight)+spaceY
+					end
+					expandablesY = expandablesY-1
 				end
-				child:_expandLayout((self._expandChildren and self._layoutInnerWidth or nil),
-					(not child._height and expandH or nil))
+				child:_expandLayout(
+					(self._expandChildren and self._layoutInnerWidth or nil),
+					(not child._height and expandH or nil)
+				)
 			end
 		end
 	end
+	assert(expandablesY == 0, expandablesY)
 
 end
 
