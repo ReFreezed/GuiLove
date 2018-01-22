@@ -131,6 +131,7 @@
 	- getLayoutDimensions, getLayoutWidth, getLayoutHeight
 	- getLayoutPosition, getLayoutX, getLayoutY, getLayoutCenterPosition
 	- getMinDimensions, getMinWidth, getMinHeight
+	- getMousePosition, getMouseX, getMouseY
 	- getOrigin, setOrigin, getOriginX, setOriginX, getOriginY, setOriginY
 	- getParent, getParents, hasParent, getParentWithId, hasParentWithId, parents, parentsr, lineageUp
 	- getPathDescription
@@ -3390,6 +3391,31 @@ Cs.element:defget'_minHeight'
 
 
 
+-- Get the mouse position relative the element.
+-- Returns nil if the mouse position is unknown.
+-- x, y = getMousePosition( )
+function Cs.element:getMousePosition()
+	local gui = self._gui
+	if not gui._mouseX then return nil end
+
+	local x, y = self:getPositionOnScreen()
+	return gui._mouseX-x, gui._mouseY-y
+end
+
+-- x = getMouseX( )
+function Cs.element:getMouseX()
+	local x = self._gui._mouseX
+	return x and x-self:getXOnScreen()
+end
+
+-- y = getMouseY( )
+function Cs.element:getMouseY()
+	local y = self._gui._mouseY
+	return y and y-self:getYOnScreen()
+end
+
+
+
 -- originX, originY = getOrigin( )
 function Cs.element:getOrigin()
 	return self._originX, self._originY
@@ -5746,9 +5772,11 @@ function Cs.leaf:getFont()
 end
 
 -- Tell LÖVE to use the font.
--- useFont( )
+-- fontBeingUsed = useFont( )
 function Cs.leaf:useFont()
-	LG.setFont(self:getFont())
+	local font = self:getFont()
+	LG.setFont(font)
+	return font
 end
 
 
