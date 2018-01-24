@@ -4239,33 +4239,40 @@ end
 
 
 
--- menuElement = showMenu( items, [ highlightedIndex, ] [ offsetX=0, offsetY=0, ] callback )
+-- menuElement = showMenu( items, [ highlightedIndex,   ] [ offsetX=0, offsetY=0, ] callback )
+-- menuElement = showMenu( items, [ highlightedIndices, ] [ offsetX=0, offsetY=0, ] callback )
 -- items = { itemText... }
 -- items = { { itemText, itemExtraText }... }
 -- callback = function( index, itemText )
 --    index will be 0 if no item was chosen.
-function Cs.element:showMenu(items, highlightIndex, offsetX, offsetY, cb)
+function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 	assertarg(1, items, 'table')
 
-	-- showMenu( items, highlightedIndex, offsetX, offsetY, callback )
-	if (type(highlightIndex) == 'number' and type(offsetX) == 'number' and type(offsetY) == 'number') then
+	-- showMenu( items, highlightedIndex,   offsetX, offsetY, callback )
+	-- showMenu( items, highlightedIndices, offsetX, offsetY, callback )
+	if (type(hlIndices) == 'number' or type(hlIndices) == 'table') and type(offsetX) == 'number' and type(offsetY) == 'number' then
 		-- void
 
 	-- showMenu( items, offsetX, offsetY, callback )
-	elseif (type(highlightIndex) == 'number' and type(offsetX) == 'number') then
-		highlightIndex, offsetX, offsetY, cb = nil, highlightIndex, offsetX, offsetY
+	elseif (type(hlIndices) == 'number' or type(hlIndices) == 'table') and type(offsetX) == 'number' then
+		hlIndices, offsetX, offsetY, cb = nil, hlIndices, offsetX, offsetY
 
-	-- showMenu( items, highlightedIndex, callback )
-	elseif (type(highlightIndex) == 'number') then
+	-- showMenu( items, highlightedIndex,   callback )
+	-- showMenu( items, highlightedIndices, callback )
+	elseif type(hlIndices) == 'number' or type(hlIndices) == 'table' then
 		offsetX, offsetY, cb = 0, 0, offsetX
 
 	-- showMenu( items, callback )
 	else
-		highlightIndex, offsetX, offsetY, cb = nil, 0, 0, highlightIndex
+		hlIndices, offsetX, offsetY, cb = nil, 0, 0, hlIndices
 
 	end
 	if type(cb) ~= 'function' then
 		error('Missing callback argument.', 2)
+	end
+
+	if type(hlIndices) == 'number' then
+		hlIndices = {hlIndices}
 	end
 
 
@@ -4302,7 +4309,7 @@ function Cs.element:showMenu(items, highlightIndex, offsetX, offsetY, cb)
 		local text2 = nil
 		if type(text) == 'table' then text, text2 = unpack(text) end
 
-		local isToggled = (i == highlightIndex)
+		local isToggled = (indexOf(hlIndices, i) ~= nil)
 		local button = buttons:insert{ type='button', text=text, text2=text2, align='left', toggled=isToggled }
 
 		button:on('mousepressed', function(button, event, x, y, buttonN)
@@ -4319,18 +4326,21 @@ function Cs.element:showMenu(items, highlightIndex, offsetX, offsetY, cb)
 			if _cb then _cb(i, text) end
 		end)
 
-		if isToggled then gui:navigateTo(button) end
 	end
+
+	local hlButton = buttons:getToggledChild()
+	if hlButton then gui:navigateTo(hlButton) end
 
 	-- Set position.
 
 	menu:_updateLayoutSize() -- Expanding and positioning of the whole menu isn't necessary right here.
 
 	buttons:setPosition(
-		self:getXOnScreen()+offsetX,
+		math.max(math.min(self:getXOnScreen()+offsetX, root._width -buttons._layoutWidth),  0),
 		math.max(math.min(self:getYOnScreen()+offsetY, root._height-buttons._layoutHeight), 0)
 	)
 
+	if hlButton then hlButton:scrollIntoView() end
 	return menu
 end
 
