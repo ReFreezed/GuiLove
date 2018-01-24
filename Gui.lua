@@ -3042,7 +3042,7 @@ function Cs.element:setCallback(event, cb)
 	assertarg(2, cb, 'function','nil')
 
 	if not self._events[event] then
-		printerror(2, 'Unknown event %q.', event)
+		printerror(2, 'Unknown event %q. (%s)', event, self:getPathDescription())
 		return
 	end
 
@@ -3069,7 +3069,7 @@ end
 function Cs.element:trigger(event, ...)
 	assertarg(1, event, 'string')
 	if not self._events[event] then
-		printerror(2, 'Unknown event %q.', event)
+		printerror(2, 'Unknown event %q. (%s)', event, self:getPathDescription())
 		return nil
 	end
 	return trigger(self, event, ...)
@@ -3079,7 +3079,7 @@ end
 function Cs.element:triggerBubbling(event, ...)
 	assertarg(1, event, 'string')
 	if not self._events[event] then
-		printerror(2, 'Unknown event %q.', event)
+		printerror(2, 'Unknown event %q. (%s)', event, self:getPathDescription())
 		return
 	end
 	local el = self
