@@ -6793,13 +6793,13 @@ function Cs.input:_keypressed(key, scancode, isRepeat)
 		end
 
 	else
-		local v = self:getValue()
+		local oldValue = self:getValue()
+		local handled  = self._field:keypressed(key, scancode, isRepeat)
 
-		local handled = self._field:keypressed(key, scancode, isRepeat)
-
-		local mask = self._mask
-		if handled and mask ~= '' and not self:getValue():find(mask) then
-			self:setValue(v)
+		local mask     = self._mask
+		local newValue = self:getValue()
+		if handled and mask ~= '' and newValue ~= oldValue and not newValue:find(mask) then
+			self:setValue(oldValue)
 		end
 	end
 
@@ -6812,13 +6812,13 @@ end
 
 -- REPLACE  _textinput( text )
 function Cs.input:_textinput(text)
-	local v = self:getValue()
+	local oldValue = self:getValue()
+	local handled  = self._field:textinput(text)
 
-	self._field:textinput(text)
-
-	local mask = self._mask
-	if mask ~= '' and not self:getValue():find(mask) then
-		self:setValue(v)
+	local mask     = self._mask
+	local newValue = self:getValue()
+	if handled and mask ~= '' and newValue ~= oldValue and not self:getValue():find(mask) then
+		self:setValue(oldValue)
 	end
 end
 
