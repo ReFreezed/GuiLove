@@ -1312,7 +1312,7 @@ function updateContainerLayoutSize(self)
 		if maxH then  h = math.min(h, maxH)  end
 	end
 	self._layoutHeight = h
-	-- self._layoutInnerHeight = w-self:getInnerSpaceY() -- Wrong! (But why?)
+	-- self._layoutInnerHeight = h-self:getInnerSpaceY() -- Wrong! (But why?)
 
 end
 
