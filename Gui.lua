@@ -131,6 +131,7 @@
 	- getLayoutDimensions, getLayoutWidth, getLayoutHeight
 	- getLayoutPosition, getLayoutX, getLayoutY, getLayoutCenterPosition
 	- getMinDimensions, getMinWidth, getMinHeight
+	- getMouseCursor, getResultingMouseCursor, setMouseCursor
 	- getMousePosition, getMouseX, getMouseY
 	- getOrigin, setOrigin, getOriginX, setOriginX, getOriginY, setOriginY
 	- getParent, getParents, hasParent, getParentWithId, hasParentWithId, parents, parentsr, lineageUp
@@ -295,6 +296,7 @@ local Gui = class('Gui', {
 	VALUE_MASK_UFLOAT =  '^%d+%.?%d*$',    -- Unsigned floating point number.
 
 	_allAnimations = nil, _animationLockCount = 0,
+	_currentMouseCursor = nil,
 	_defaultSounds = nil,
 	_elementScissorIsSet = false,
 	_font = nil, _fontBold = nil, _fontSmall = nil, _fontLarge = nil, _fontTooltip = nil,
@@ -306,7 +308,6 @@ local Gui = class('Gui', {
 	_lockNavigation = false,
 	_mouseFocus = nil, _mouseFocusSet = nil,
 	_mouseIsGrabbed = false,
-	_mouseIsOverInput = false,
 	_mouseX = nil, _mouseY = nil,
 	_navigationTarget = nil, _timeSinceNavigation = 0.0,
 	_root = nil,
@@ -1586,22 +1587,24 @@ function Gui:update(dt)
 
 
 
-	-- Update mouse cursor
+	-- Update mouse cursor.
 
-	local mouseWasOverInput = self._mouseIsOverInput
-	self._mouseIsOverInput = false
+	local lastCursor = self._currentMouseCursor
+	self._currentMouseCursor = nil
 
-	local el = (self._mouseFocus or self._hoveredElement)
-	if (el and el:is(Cs.input) and el._active)
-		and (el:isKeyboardFocus() or not el._mouseFocus)
-		and (el:isHovered() or self._mouseFocusSet[1])
+	local el = self._mouseFocus or self._hoveredElement
+	if el
+		and not (el:isType'widget'   and not el:isActive())
+		and not (self._keyboardFocus and not el:isKeyboardFocus())
+		and not (self._mouseFocus    and not el:isMouseFocus())
+		and (el:isHovered() or self._mouseFocusSet[1] or self._mouseFocusSet[2] or self._mouseFocusSet[3])
 	then
-		self._mouseIsOverInput = true
+		self._currentMouseCursor = el:getResultingMouseCursor()
 	end
 
-	if self._mouseIsOverInput ~= mouseWasOverInput then
-		if self._mouseIsOverInput then
-			LM.setCursor(LM.getSystemCursor'ibeam')
+	if self._currentMouseCursor ~= lastCursor then
+		if self._currentMouseCursor then
+			LM.setCursor(self._currentMouseCursor)
 		else
 			LM.setCursor()
 		end
@@ -2684,6 +2687,7 @@ Cs.element = class('GuiElement', {
 	_hidden = false,
 	_id = '',
 	_minWidth = 0, _minHeight = 0,
+	_mouseCursor = nil,
 	_originX = 0.0, _originY = 0.0, -- where in the parent to base x and y off
 	_sounds = nil,
 	_spacing = 0, _spacingVertical = nil, _spacingHorizontal = nil,
@@ -2741,6 +2745,7 @@ function Cs.element:init(gui, data, parent)
 	retrieve(self, data, '_hidden')
 	retrieve(self, data, '_id')
 	retrieve(self, data, '_minWidth', '_minHeight')
+	-- retrieve(self, data, '_mouseCursor')
 	retrieve(self, data, '_originX', '_originY')
 	-- retrieve(self, data, '_sounds')
 	retrieve(self, data, '_spacing', '_spacingVertical', '_spacingHorizontal')
@@ -2784,9 +2789,8 @@ function Cs.element:init(gui, data, parent)
 		end
 	end
 
-	if data.tooltip ~= nil then
-		self:setTooltip(data.tooltip)
-	end
+	if data.mouseCursor ~= nil then  self:setMouseCursor(data.mouseCursor)  end
+	if data.tooltip     ~= nil then  self:setTooltip(data.tooltip)          end
 
 	-- Set initial offset
 	if parent then
@@ -2796,10 +2800,7 @@ function Cs.element:init(gui, data, parent)
 		self._layoutOffsetY = parent._layoutOffsetY+parent._visualScrollY
 	end
 
-	if data.debug then
-		gui.debug = true
-	end
-
+	if data.debug then gui.debug = true end
 end
 
 
@@ -3388,6 +3389,34 @@ Cs.element:defget'_minWidth'
 
 -- getMinHeight
 Cs.element:defget'_minHeight'
+
+
+
+-- cursor           = getMouseCursor( )
+-- systemCursorType = getMouseCursor( )
+function Cs.element:getMouseCursor()
+	return self._mouseCursor
+end
+
+-- cursor = getResultingMouseCursor( )
+-- Returns nil if no cursor is set.
+function Cs.element:getResultingMouseCursor()
+	local cur = self._mouseCursor
+	if type(cur) ~= 'string' then return cur end
+	return love.mouse.getSystemCursor(cur)
+end
+
+-- setMouseCursor( cursor )
+-- setMouseCursor( systemCursorType )
+function Cs.element:setMouseCursor(cur)
+	assertarg(1, cur, 'userdata','string','nil')
+
+	if type(cur) == 'string' then
+		assert(love.mouse.getSystemCursor(cur))
+	end
+
+	self._mouseCursor = cur
+end
 
 
 
@@ -6617,6 +6646,7 @@ Cs.input = Cs.widget:extend('GuiInput', {
 	_savedKeyRepeat = false,
 	_savedValue = '',
 
+	--[[OVERRIDE]] _mouseCursor = 'ibeam',
 	--[[REPLACE]] _width = 0, -- Inputs always have a width.
 	_mask = '',
 	_placeholder = '',
