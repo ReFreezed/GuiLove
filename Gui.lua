@@ -1650,6 +1650,10 @@ end
 
 -- handled = keypressed( key, scancode, isRepeat )
 function Gui:keypressed(key, scancode, isRepeat)
+	assertarg(1, key,      'string')
+	assertarg(2, scancode, 'string')
+	assertarg(3, isRepeat, 'boolean')
+
 	if self._animationLockCount > 0 then return true end
 
 	local focus = (self._keyboardFocus or self._mouseFocus)
@@ -1695,6 +1699,8 @@ end
 
 -- handled = keyreleased( key, scancode )
 function Gui:keyreleased(key, scancode)
+	assertarg(1, key,      'string')
+	assertarg(2, scancode, 'string')
 
 	local focus = self._keyboardFocus
 	if focus then
@@ -1707,6 +1713,8 @@ end
 
 -- handled = textinput( text )
 function Gui:textinput(text)
+	assertarg(1, text, 'string')
+
 	if self._animationLockCount > 0 then return true end
 
 	local focus = self._keyboardFocus
@@ -1722,6 +1730,10 @@ end
 
 -- handled = mousepressed( x, y, button )
 function Gui:mousepressed(x, y, buttonN)
+	assertarg(1, x,       'number')
+	assertarg(2, y,       'number')
+	assertarg(3, buttonN, 'number')
+
 	self._mouseX, self._mouseY = x, y
 
 	if self._animationLockCount > 0 then return true end
@@ -1768,6 +1780,9 @@ end
 
 -- handled = mousemoved( x, y )
 function Gui:mousemoved(x, y)
+	assertarg(1, x, 'number')
+	assertarg(2, y, 'number')
+
 	self._mouseX, self._mouseY = x, y
 
 	if self._animationLockCount > 0 then return true end
@@ -1792,6 +1807,10 @@ end
 
 -- handled = mousereleased( x, y, button )
 function Gui:mousereleased(x, y, buttonN)
+	assertarg(1, x,       'number')
+	assertarg(2, y,       'number')
+	assertarg(3, buttonN, 'number')
+
 	self._mouseX, self._mouseY = x, y
 
 	local focus = self._mouseFocus
@@ -1821,6 +1840,9 @@ end
 
 -- handled = wheelmoved( dx, dy )
 function Gui:wheelmoved(dx, dy)
+	assertarg(1, dx, 'number')
+	assertarg(2, dy, 'number')
+
 	if self._animationLockCount > 0 then return true end
 
 	local isScroll = (dx ~= 0 or dy ~= 0)
@@ -6847,7 +6869,7 @@ function Cs.input:_textinput(text)
 
 	local mask     = self._mask
 	local newValue = self:getValue()
-	if handled and mask ~= '' and newValue ~= oldValue and not self:getValue():find(mask) then
+	if handled and mask ~= '' and newValue ~= oldValue and not newValue:find(mask) then
 		self:setValue(oldValue)
 	end
 end
