@@ -1780,8 +1780,8 @@ end
 
 -- handled = mousemoved( x, y )
 function Gui:mousemoved(x, y)
-	assertarg(1, x, 'number')
-	assertarg(2, y, 'number')
+	assertarg(1, x, 'number','nil')
+	assertarg(2, y, 'number','nil')
 
 	self._mouseX, self._mouseY = x, y
 
@@ -3425,7 +3425,7 @@ end
 function Cs.element:getResultingMouseCursor()
 	local cur = self._mouseCursor
 	if type(cur) ~= 'string' then return cur end
-	return love.mouse.getSystemCursor(cur)
+	return LM.getSystemCursor(cur)
 end
 
 -- setMouseCursor( cursor )
@@ -3434,7 +3434,7 @@ function Cs.element:setMouseCursor(cur)
 	assertarg(1, cur, 'userdata','string','nil')
 
 	if type(cur) == 'string' then
-		assert(love.mouse.getSystemCursor(cur))
+		assert(LM.getSystemCursor(cur))
 	end
 
 	self._mouseCursor = cur
