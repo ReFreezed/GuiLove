@@ -82,6 +82,7 @@
 	keypressed, keyreleased, textinput
 	mousepressed, mousemoved, mousereleased, wheelmoved
 
+	areStandardKeysActive, setStandardKeysActive
 	blur
 	defineStyle
 	find, findAll, findActive, findToggled, match, matchAll
@@ -175,6 +176,7 @@
 	- Event: pressed
 	- Event: refresh
 	- Event: show, hide
+	- Event: textinput
 	- Event: update
 	- Event: wheelmoved
 
@@ -315,6 +317,7 @@ local Gui = class('Gui', {
 	_scrollSpeedX = 1.0, _scrollSpeedY = 1.0,
 	_soundPlayer = nil,
 	_spriteLoader = nil,
+	_standardKeysAreActive = true,
 	_styles = nil,
 	_textPreprocessor = nil,
 	_theme = nil,
@@ -1717,10 +1720,29 @@ function Gui:textinput(text)
 
 	if self._animationLockCount > 0 then return true end
 
-	local focus = self._keyboardFocus
-	if focus then
-		focus:_textinput(text)
-		return true
+	local focus = self._keyboardFocus or self._mouseFocus
+	local el    = focus or self._hoveredElement
+
+	if self._ignoreKeyboardInputThisFrame then
+		return (el ~= nil)
+	end
+
+	el = (el or self._navigationTarget) -- Can this be on the 'el' declaration line?
+
+	if el then
+		if not focus and el:triggerBubbling('textinput', text) then  return true  end
+
+		if el:_textinput(text) then  return true  end
+	end
+
+	if focus then return true end
+
+	local root = self._root
+	if root and not root._hidden then
+		for el in root:traverseVisible() do
+			if el._captureInput    then return true end
+			if el._captureGuiInput then break       end
+		end
 	end
 
 	return false
@@ -1882,6 +1904,18 @@ end
 
 
 --==============================================================
+
+
+
+-- state = areStandardKeysActive( )
+function Gui:areStandardKeysActive()
+	return self._standardKeysAreActive
+end
+
+-- setStandardKeysActive( state )
+function Gui:setStandardKeysActive(state)
+	self._standardKeysAreActive = state
+end
 
 
 
@@ -2735,6 +2769,7 @@ registerEvents(Cs.element, {
 	'pressed',
 	'refresh',
 	'show','hide',
+	'textinput',
 	'update',
 	'wheelmoved',
 })
@@ -3864,9 +3899,9 @@ function Cs.element:_keyreleased(key, scancode)
 	-- void
 end
 
--- _textinput( text )
+-- handled = _textinput( text )
 function Cs.element:_textinput(text)
-	-- void
+	return false
 end
 
 
@@ -4377,10 +4412,104 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 			if _cb then _cb(i, text) end
 		end)
 
+		button:on('navigated', function(button, event)
+			buttons:setToggledChild(button._id)
+		end)
+
 	end
 
-	local hlButton = buttons:getToggledChild()
-	if hlButton then gui:navigateTo(hlButton) end
+	local searchTerm       = ''
+	local searchStartIndex = 1
+	local lastInputTime    = -99
+
+	if gui._standardKeysAreActive then
+		menu:on('keypressed', function(button, event, key, scancode, isRepeat)
+
+			if key == 'up' then
+				local button     = buttons:getToggledChild()
+				searchStartIndex = button and (button:getIndex()-2)%#buttons+1 or 1
+				lastInputTime    = -99
+				gui:navigateTo(buttons[searchStartIndex])
+				return true
+
+			elseif key == 'down' then
+				local button     = buttons:getToggledChild()
+				searchStartIndex = button and button:getIndex()%#buttons+1 or 1
+				lastInputTime    = -99
+				gui:navigateTo(buttons[searchStartIndex])
+				return true
+
+			elseif key == 'home' or key == 'pageup' then
+				searchStartIndex = 1
+				lastInputTime    = -99
+				gui:navigateTo(buttons[searchStartIndex])
+				return true
+
+			elseif key == 'end' or key == 'pagedown' then
+				searchStartIndex = #buttons
+				lastInputTime    = -99
+				gui:navigateTo(buttons[searchStartIndex])
+				return true
+
+			elseif key == 'return' or key == 'kpenter' then
+				local button = buttons:getToggledChild()
+				if button then button:press() end
+				return true
+
+			end
+		end)
+	end
+
+	menu:on('textinput', function(button, event, text)
+
+		-- Append to old or start a new term.
+		local time = gui._time
+		if time-lastInputTime > 1.00 then
+			searchTerm = text:lower()
+			local button = buttons:getToggledChild()
+			searchStartIndex = button and button:getIndex() or 1
+
+		else
+			searchTerm = searchTerm..text:lower()
+		end
+		lastInputTime = time
+
+		-- Pressing the same letter over and over should just cycle through all items starting with that letter.
+		if #searchTerm > 1 then
+			local firstChar = searchTerm:match('^'..require'utf8'.charpattern)
+			local reps = #searchTerm/#firstChar
+
+			if reps == math.floor(reps) and searchTerm == firstChar:rep(reps) then
+				local i = searchStartIndex
+
+				while true do
+					i = i%#buttons+1
+					local button = buttons[i]
+
+					if button._text:lower():find(firstChar, 1, true) == 1 then
+						reps = reps-1
+						if reps <= 0 then
+							gui:navigateTo(button)
+							return
+						end
+					end
+				end
+
+			end
+		end
+
+		-- Otherwise search for the whole term.
+		for i = 1, #buttons do
+			i = (searchStartIndex+i-1)%#buttons+1
+			local button = buttons[i]
+
+			if button._text:lower():find(searchTerm, 1, true) == 1 then
+				gui:navigateTo(button)
+				break
+			end
+		end
+
+	end)
 
 	-- Set position.
 
@@ -4391,7 +4520,9 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 		math.max(math.min(self:getYOnScreen()+offsetY, root._height-buttons._layoutHeight), 0)
 	)
 
-	if hlButton then hlButton:scrollIntoView() end
+	local button = buttons:getToggledChild()
+	if button then gui:navigateTo(button) end
+
 	return menu
 end
 
@@ -6862,8 +6993,10 @@ end
 -- function Cs.input:_keyreleased(key, scancode)
 -- end
 
--- REPLACE  _textinput( text )
+-- REPLACE  handled = _textinput( text )
 function Cs.input:_textinput(text)
+	if not self:isKeyboardFocus() then return false end
+
 	local oldValue = self:getValue()
 	local handled  = self._field:textinput(text)
 
@@ -6872,6 +7005,8 @@ function Cs.input:_textinput(text)
 	if handled and mask ~= '' and newValue ~= oldValue and not newValue:find(mask) then
 		self:setValue(oldValue)
 	end
+
+	return true
 end
 
 
