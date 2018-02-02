@@ -140,6 +140,7 @@
 	- getPosition, setPosition, getX, setX, getY, setY
 	- getPositionOnScreen, getXOnScreen, getYOnScreen
 	- getRoot, getNavigationRoot
+	- getSibling
 	- getSound, getResultingSound, setSound
 	- getStyle
 	- getTimeSinceBecomingVisible
@@ -3755,6 +3756,14 @@ function Cs.element:getNavigationRoot()
 	end
 
 	return container -- We've reached the top container we know of.
+end
+
+
+
+-- element = getSibling( offset )
+function Cs.element:getSibling(offset)
+	local i = self:getIndex()
+	return i and self._parent[i+offset]
 end
 
 
