@@ -303,6 +303,7 @@ local Gui = class('Gui', {
 	_defaultSounds = nil,
 	_elementScissorIsSet = false,
 	_font = nil, _fontBold = nil, _fontSmall = nil, _fontLarge = nil, _fontTooltip = nil,
+	_heres = nil,
 	_hoveredElement = nil,
 	_ignoreKeyboardInputThisFrame = false,
 	_keyboardFocus = nil,
@@ -373,6 +374,7 @@ local parseSelector, isElementMatchingSelectorPath
 local prepareSound
 local preprocessText
 local printf, printerror, assertarg
+local printHere, printHeres
 local registerEvents
 local requireElementClass
 local retrieve
@@ -911,6 +913,33 @@ do
 		end
 	end
 
+end
+
+
+
+-- printHere( element )
+function printHere(self)
+	local ids = {}
+	local el  = self
+
+	repeat
+		if not el._automaticId then  table.insert(ids, 1, el._id)  end
+		el = el._parent
+	until not el
+
+	ids[1] = ids[1] or self:getPathDescription()
+	print('[Gui] HERE:  '..table.concat(ids, '.'))
+	-- ids[1] = ids[1] or '~'
+	-- printf('[Gui] HERE:  %s  (%s)', table.concat(ids, '.'), self:getPathDescription())
+end
+
+-- printHeres( gui )
+function printHeres(gui)
+	local heres = gui._heres
+	for i, el in ipairs(heres) do
+		printHere(el)
+		heres[i] = nil
+	end
 end
 
 
@@ -1515,6 +1544,7 @@ function Gui:init()
 
 	self._allAnimations = {}
 	self._defaultSounds = {}
+	self._heres         = {}
 	self._mouseFocusSet = {}
 
 	self._styles = {
@@ -2458,6 +2488,8 @@ function Gui:load(data)
 	local root = Cs.root(self, data, nil)
 	self._root = root
 
+	printHeres(self)
+
 	local themeInit = themeGet(self, 'init')
 	themeInit(root)
 	for el in root:traverse() do
@@ -2722,6 +2754,7 @@ Cs.element = class('GuiElement', {
 	--[[STATIC]] _events = {},
 
 	_animations = nil,
+	_automaticId = false,
 	_callbacks = nil,
 	_gui = nil,
 	_layoutExpandablesX = 0, _layoutExpandablesY = 0,
@@ -2825,7 +2858,9 @@ function Cs.element:init(gui, data, parent)
 	if self._id == '' then
 		local numId = gui._lastAutomaticId+1
 		gui._lastAutomaticId = numId
+
 		self._id = '__'..numId
+		self._automaticId = true
 	end
 
 	-- Set sounds table
@@ -2857,6 +2892,9 @@ function Cs.element:init(gui, data, parent)
 		self._layoutOffsetX = parent._layoutOffsetX+parent._visualScrollX
 		self._layoutOffsetY = parent._layoutOffsetY+parent._visualScrollY
 	end
+
+	-- The 'here' debug attribute prints the path to the element.
+	if data.here then table.insert(gui._heres, self) end
 
 	if data.debug then gui.debug = true end
 end
@@ -2931,7 +2969,7 @@ function Cs.element:_drawDebug(r, g, b, bgOpacity)
 	r, g, b = lerp(r, 255, 0.5), lerp(g, 255, 0.5), lerp(b, 255, 0.5)
 	LG.setFont(gui._font or DEFAULT_FONT)
 	LG.setColor(r, g, b, 200)
-	if self._id:find'^__%d+$' then
+	if self._automaticId then
 		LG.print(F'%d.%d'   (self:getDepth(), (self:getIndex() or 0)          ), 2, 1)
 	else
 		LG.print(F'%d.%d:%s'(self:getDepth(), (self:getIndex() or 0), self._id), 2, 1)
@@ -3637,26 +3675,31 @@ end
 
 
 -- description = getPathDescription( )
-function Cs.element:getPathDescription()
-	local parts, el = {}, self
+function Cs.element.getPathDescription(el)
+	local parts = {}
+
 	while true do
-		local id, i = el._id, el:getIndex()
-		if id:find('__', 1, true) ~= 1 then
+
+		if not el._automaticId then
 			table.insert(parts, ')')
 			table.insert(parts, el._id)
 			table.insert(parts, '(')
 		end
+
 		table.insert(parts, (el.class.__name:gsub('^Gui', '')))
+
+		local i = el:getIndex()
 		if i then
 			table.insert(parts, ':')
 			table.insert(parts, i)
 		end
+
 		el = el._parent
-		if not el then
-			break
-		end
+		if not el then break end
+
 		table.insert(parts, '/')
 	end
+
 	return table.concat(reverseArray(parts))
 end
 
@@ -4604,8 +4647,10 @@ function Cs.container:init(gui, data, parent)
 
 	for i, childData in ipairs(data) do
 		local C = Cs[getTypeFromData(childData)]
-			or errorf('bad gui type %q', getTypeFromData(childData))
-		self[i] = C(gui, childData, self)
+			or errorf('Bad GUI type %q.', getTypeFromData(childData))
+
+		local child = C(gui, childData, self)
+		self[i] = child
 	end
 
 end
@@ -5195,6 +5240,8 @@ function Cs.container:insert(childData, i)
 
 	local child = C(self._gui, childData, self)
 	table.insert(self, (i or #self+1), child)
+
+	printHeres(self._gui)
 
 	scheduleLayoutUpdateIfDisplayed(child)
 
