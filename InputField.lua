@@ -44,7 +44,6 @@
 
 
 
--- Modules
 local moduleFolder = ('.'..(...)) :gsub('%.%w+$', '')
 local utf8  = require'utf8'
 local class = require((moduleFolder..'.class'):sub(2))
@@ -54,21 +53,35 @@ local LT = love.timer
 
 local InputField = class('InputField', {
 
-	DOUBLE_CLICK_MAX_DELAY = 0.4,
+	DOUBLE_CLICK_MAX_DELAY     = 0.40,
 
-	_blinkTimer = 0,
-	_cursorPosition = 0, _selectionStart = 0, _selectionEnd = 0,
+	_blinkTimer                = 0,
+
+	_cursorPosition            = 0,
+	_selectionStart            = 0,
+	_selectionEnd              = 0,
+
 	_doubleClickExpirationTime = 0.0,
-	_doubleClickLastX = 0.0, _doubleClickLastY = 0.0,
-	_editHistory = nil, _editHistoryIndex = 1, _editHistoryGroup = nil,
-	_font = love.graphics.getFont(),
-	_fontFilteringIsActive = false,
-	_mouseScrollX = nil,
-	_mouseTextSelectionStart = nil,
-	_passwordIsActive = false,
-	_scroll = 0,
-	_text = '',
-	_width = math.huge,
+	_doubleClickLastX          = 0.0,
+	_doubleClickLastY          = 0.0,
+
+	_editHistory               = nil,
+	_editHistoryIndex          = 1,
+	_editHistoryGroup          = nil,
+
+	_font                      = love.graphics.getFont(),
+	_fontFilteringIsActive     = false,
+
+	_mouseScrollX              = nil,
+	_mouseTextSelectionStart   = nil,
+
+	_passwordIsActive          = false,
+
+	_scroll                    = 0,
+
+	_text                      = '',
+
+	_width                     = math.huge,
 
 })
 
@@ -130,52 +143,50 @@ do
 		return set
 	end
 
-	local punctuation = '!"#$%&\'()*+,-./:;<=>?@[\\]^`{|}~'; punctuation = newSet{punctuation:byte(1, #punctuation)};
-	local whitespace = newSet{9,10,11,12,13,32} -- horizontal tab, LF, vertical tab, form-feed, CR, space
+	local punctuation = '!"#$%&\'()*+,-./:;<=>?@[\\]^`{|}~'; punctuation = newSet{punctuation:byte(1, #punctuation)}
+	local whitespace  = newSet{9,10,11,12,13,32} -- Horizontal tab, LF, vertical tab, form-feed, CR, space.
 
-	local typeWord = 1
-	local typePunctuation = 2
-	local typeWhitespace = 3
+	local TYPE_WORD        = 1
+	local TYPE_PUNCTUATION = 2
+	local TYPE_WHITESPACE  = 3
 
 	local function getCodepointCharType(c)
-		if (punctuation[c]) then
-			return typePunctuation
-		elseif (whitespace[c]) then
-			return typeWhitespace
-		end
-		return typeWord
+		if punctuation[c] then return TYPE_PUNCTUATION end
+		if whitespace[c]  then return TYPE_WHITESPACE  end
+		return TYPE_WORD
 	end
 
 	function getNextWordBound(s, pos, dirNum)
 		assert(type(s) == 'string')
 		assert(dirNum == 1 or dirNum == -1)
 		assert(isInteger(pos))
-		if (dirNum < 0) then
-			pos = pos+1
-		end
+
 		local codepoints = {utf8.codepoint(s, 1, #s)}
 		pos = clamp(pos, 0, #codepoints)
+
+		if dirNum < 0 then  pos = pos+1  end
+
 		while true do
 			pos = pos+dirNum
-			-- Check for end of string
-			local prevC, nextC = codepoints[pos], codepoints[pos+dirNum]
+
+			-- Check for end of string.
+			local prevC = codepoints[pos]
+			local nextC = codepoints[pos+dirNum]
 			if not (prevC and nextC) then
-				if (dirNum < 0) then
-					pos = pos-1
-				else
-					pos = pos+1
-				end
+				pos = pos+dirNum
 				break
 			end
-			-- Check for word bound
-			local prevType, nextType = getCodepointCharType(prevC), getCodepointCharType(nextC)
-			if (nextType ~= prevType and not (nextType ~= typeWhitespace and prevType == typeWhitespace)) then
-				if (dirNum < 0) then
-					pos = pos-1
-				end
+
+			-- Check for word bound.
+			local prevType = getCodepointCharType(prevC)
+			local nextType = getCodepointCharType(nextC)
+			if nextType ~= prevType and not (nextType ~= TYPE_WHITESPACE and prevType == TYPE_WHITESPACE) then
+				if dirNum < 0 then  pos = pos-1  end
 				break
 			end
+
 		end
+
 		return clamp(pos, 0, #codepoints)
 	end
 
@@ -602,38 +613,51 @@ end
 
 -- wasHandled = mousepressed( x, y, button )
 function InputField:mousepressed(x, y, buttonN)
-	if (buttonN ~= 1) then
-		return false
-	end
-	local visibleText = self:getVisibleText()
+	if buttonN ~= 1 then return false end
 
-	-- Check double click
+	-- Check if double click.
 	local isDoubleClick = false
-	if (buttonN == 1) then
+
+	if buttonN == 1 then
 		local time = LT.getTime()
-		isDoubleClick = (math.abs(self._doubleClickLastX-x) <= 1 and math.abs(self._doubleClickLastY-y) <= 1
-			and time < self._doubleClickExpirationTime)
-		self._doubleClickExpirationTime = (isDoubleClick and 0 or time+self.DOUBLE_CLICK_MAX_DELAY)
-		self._doubleClickLastX, self._doubleClickLastY = x, y
+
+		isDoubleClick
+			=   math.abs(self._doubleClickLastX-x) <= 1
+			and math.abs(self._doubleClickLastY-y) <= 1
+			and time < self._doubleClickExpirationTime
+
+		self._doubleClickExpirationTime = isDoubleClick and 0 or time+self.DOUBLE_CLICK_MAX_DELAY
+		self._doubleClickLastX          = x
+		self._doubleClickLastY          = y
+
 	else
 		self._doubleClickExpirationTime = 0.0
 	end
 
-	-- Handle mouse press
-	local pos = getPositionInText(self._font, visibleText, x+self._scroll)
+	-- Handle mouse press.
+	local visibleText = self:getVisibleText()
+	local pos         = getPositionInText(self._font, visibleText, x+self._scroll)
+
 	if isDoubleClick then
 		pos = getNextWordBound(visibleText, pos+1, -1)
+
 		self:setSelection(pos, getNextWordBound(visibleText, pos, 1))
-	elseif isModKeyState('s') then
+
+	elseif isModKeyState's' then
 		local anchorPos = (self:getAnchorSelectionSide() == 'start' and self._selectionStart or self._selectionEnd)
+
 		self:setSelection(pos, anchorPos, (pos < anchorPos and 'left' or 'right'))
+
 		self._mouseTextSelectionStart = anchorPos
-		self._mouseScrollX = x
+		self._mouseScrollX            = x
+
 	else
 		self:setCursor(pos)
+
 		self._mouseTextSelectionStart = pos
-		self._mouseScrollX = x
+		self._mouseScrollX            = x
 	end
+
 	return true
 end
 
