@@ -72,10 +72,6 @@
 	Gui methods
 	----------------------------------------------------------------
 
-	STATIC  create9PartQuads
-	STATIC  draw9PartScaled
-	STATIC  newMonochromeImage, newImageUsingPalette
-
 	update
 	draw
 
@@ -268,6 +264,15 @@
 	- getImageDimensions, setImageSize, maximizeImageSize
 	- getImageScale, getImageScaleX, getImageScaleY, setImageScale, setImageScaleX, setImageScaleY
 	- getSprite, setSprite, hasSprite
+
+
+
+	Tools
+	----------------------------------------------------------------
+
+	create9PartQuads
+	draw9PartScaled
+	newMonochromeImage, newImageUsingPalette
 
 
 
@@ -7192,7 +7197,7 @@ return Gui
 --=
 --=  MIT License
 --=
---=  Copyright © 2017 Marcus 'ReFreezed' Thunström
+--=  Copyright © 2017-2018 Marcus 'ReFreezed' Thunström
 --=
 --=  Permission is hereby granted, free of charge, to any person obtaining a copy
 --=  of this software and associated documentation files (the "Software"), to deal
