@@ -6859,6 +6859,8 @@ Cs.input = Cs.widget:extend('GuiInput', {
 	--[[REPLACE]] _width = 0, -- Inputs always have a width.
 	_mask = '',
 	_placeholder = '',
+	_spin = 0,
+	_spinMin = -math.huge, _spinMax = math.huge,
 
 })
 registerEvents(Cs.input, {
@@ -6872,6 +6874,8 @@ function Cs.input:init(gui, data, parent)
 	-- retrieve(self, data, '_password') -- This is saved in the field instead.
 	retrieve(self, data, '_mask')
 	retrieve(self, data, '_placeholder')
+	retrieve(self, data, '_spin')
+	retrieve(self, data, '_spinMin','_spinMax')
 
 	self._field = InputField()
 	self._field:setFont(self:getFont())
@@ -7029,6 +7033,23 @@ function Cs.input:_keypressed(key, scancode, isRepeat)
 			self:blur()
 			self:playSound('inputsubmit')
 			trigger(self, 'submit')
+		end
+
+	elseif self.spin ~= 0 and (key == 'up' or key == 'down') then
+		local oldValue = self:getValue()
+		local n = tonumber(oldValue) or 0
+
+		if key == 'up' then
+			n = n+self._spin
+		elseif key == 'down' then
+			n = n-self._spin
+		end
+		n = math.min(math.max(n, self._spinMin), self._spinMax)
+
+		local newValue = tostring(n)
+		if newValue ~= oldValue then
+			self:setValue(newValue)
+			self._field:selectAll()
 		end
 
 	else
