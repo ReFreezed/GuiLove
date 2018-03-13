@@ -669,20 +669,20 @@ end
 
 -- updateSprite( sprite, deltaTime )
 function updateSprite(sprite, dt)
+	if sprite.length == 1 then return end
 
 	local frames = sprite.frames
 
-	local i = sprite.currentFrame
-	local time = sprite.currentTime+dt
+	local i      = sprite.currentFrame
+	local time   = sprite.currentTime+dt
 
 	while time >= frames[i].duration do
 		time = time-frames[i].duration
-		i = i%sprite.length+1
+		i    = i%sprite.length+1
 	end
 
 	sprite.currentFrame = i
-	sprite.currentTime = time
-
+	sprite.currentTime  = time
 end
 
 
