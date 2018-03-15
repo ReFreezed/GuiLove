@@ -4452,7 +4452,7 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 		local text2 = nil
 		if type(text) == 'table' then text, text2 = unpack(text) end
 
-		local isToggled = (indexOf(hlIndices, i) ~= nil)
+		local isToggled = (hlIndices ~= nil and indexOf(hlIndices, i) ~= nil)
 		local button = buttons:insert{ type='button', text=text, text2=text2, align='left', toggled=isToggled }
 
 		button:on('mousepressed', function(button, event, x, y, buttonN)
