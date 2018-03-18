@@ -3177,18 +3177,22 @@ function Cs.element:trigger(event, ...)
 	return trigger(self, event, ...)
 end
 
--- triggerBubbling( event [, extraArguments... ] )
-function Cs.element:triggerBubbling(event, ...)
+-- value = triggerBubbling( event [, extraArguments... ] )
+function Cs.element.triggerBubbling(el, event, ...)
 	assertarg(1, event, 'string')
-	if not self._events[event] then
-		printerror(2, 'Unknown event %q. (%s)', event, self:getPathDescription())
+
+	if not el._events[event] then
+		printerror(2, 'Unknown event %q. (%s)', event, el:getPathDescription())
 		return
 	end
-	local el = self
+
+	local returnV = nil
 	repeat
-		local returnV = trigger(el, event, ...)
+		returnV = trigger(el, event, ...)
 		el = el._parent
 	until (returnV or not el)
+
+	return returnV
 end
 
 
