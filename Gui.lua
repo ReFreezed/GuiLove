@@ -127,6 +127,7 @@
 	- getLayout
 	- getLayoutDimensions, getLayoutWidth, getLayoutHeight
 	- getLayoutPosition, getLayoutX, getLayoutY, getLayoutCenterPosition
+	- getMinWidth, setMinWidth, getMinHeight, setMinHeight
 	- getMinDimensions, getMinWidth, getMinHeight
 	- getMouseCursor, getResultingMouseCursor, setMouseCursor
 	- getMousePosition, getMouseX, getMouseY
@@ -4616,6 +4617,34 @@ end
 -- _updateLayoutPosition( )
 function Cs.element:_updateLayoutPosition()
 	-- void (position is always set by the parent container)
+end
+
+
+
+-- getMinWidth
+Cs.element:defget'_minWidth'
+
+-- setMinWidth( width )
+function Cs.element:setMinWidth(w)
+	w = math.min(w or 0, 0)
+
+	if self._minWidth == w then  return  end
+
+	self._minWidth = w
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+
+-- getMinHeight
+Cs.element:defget'_minHeight'
+
+-- setMinHeight( height )
+function Cs.element:setMinHeight(h)
+	h = math.min(h or 0, 0)
+
+	if self._minHeight == h then  return  end
+
+	self._minHeight = h
+	scheduleLayoutUpdateIfDisplayed(self)
 end
 
 
