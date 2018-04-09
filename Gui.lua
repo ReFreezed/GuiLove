@@ -398,8 +398,7 @@ local xywh
 
 local updateContainerChildLayoutSizes
 local getContainerLayoutSizeValues
-local updateContainerLayoutSize
-local expandContainer
+local updateContainerLayoutSize, expandContainer
 local updateFloatingElementPosition
 
 --==============================================================
@@ -1335,45 +1334,46 @@ end
 
 -- updateContainerLayoutSize( container )
 function updateContainerLayoutSize(self)
-
-	local maxW, maxH = self._maxWidth, self._maxHeight
-
 	local w = self._width
 	if not w then
-		w = math.max(self._layoutInnerWidth+self:getInnerSpaceX(), self._minWidth)
-		if maxW then  w = math.min(w, maxW)  end
+		w = math.min(
+			math.max(self._layoutInnerWidth+self:getInnerSpaceX(), self._minWidth),
+			(self._maxWidth or math.huge)
+		)
 	end
 	self._layoutWidth = w
-	-- self._layoutInnerWidth = w-self:getInnerSpaceX() -- Wrong! (But why?)
+	-- self._layoutInnerWidth = w-self:getInnerSpaceX() -- No! The inner size is the size of the contents.
 
 	local h = self._height
 	if not h then
-		h = math.max(self._layoutInnerHeight+self:getInnerSpaceY(), self._minHeight)
-		if maxH then  h = math.min(h, maxH)  end
+		h = math.min(
+			math.max(self._layoutInnerHeight+self:getInnerSpaceY(), self._minHeight),
+			(self._maxHeight or math.huge)
+		)
 	end
 	self._layoutHeight = h
-	-- self._layoutInnerHeight = h-self:getInnerSpaceY() -- Wrong! (But why?)
-
+	-- self._layoutInnerHeight = h-self:getInnerSpaceY() -- No! The inner size is the size of the contents.
 end
-
-
 
 -- expandContainer( container [, expandWidth, expandHeight ] )
 function expandContainer(self, expandW, expandH)
-
-	local maxW, maxH = self._maxWidth, self._maxHeight
 	local parent = self._parent
 
 	if (expandW or self._expandX) and (not self._width) then
-		self._layoutWidth = math.min((expandW or parent._layoutInnerWidth), (maxW or math.huge))
+		self._layoutWidth = math.max(
+			math.min((expandW or parent._layoutInnerWidth+self:getInnerSpaceX()), (self._maxWidth or math.huge)),
+			self._minWidth
+		)
 		self._layoutInnerWidth = self._layoutWidth-self:getInnerSpaceX()
 	end
 
 	if (expandH or self._expandY) and (not self._height) then
-		self._layoutHeight = math.min((expandH or parent._layoutInnerHeight), (maxH or math.huge))
+		self._layoutHeight = math.max(
+			math.min((expandH or parent._layoutInnerHeight+self:getInnerSpaceY()), (self._maxHeight or math.huge)),
+			self._minHeight
+		)
 		self._layoutInnerHeight = self._layoutHeight-self:getInnerSpaceY()
 	end
-
 end
 
 
@@ -3496,6 +3496,26 @@ Cs.element:defget'_minWidth'
 -- getMinHeight
 Cs.element:defget'_minHeight'
 
+-- setMinWidth( width )
+function Cs.element:setMinWidth(w)
+	w = math.max(w or 0, 0)
+
+	if self._minWidth == w then  return  end
+
+	self._minWidth = w
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+
+-- setMinHeight( height )
+function Cs.element:setMinHeight(h)
+	h = math.max(h or 0, 0)
+
+	if self._minHeight == h then  return  end
+
+	self._minHeight = h
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+
 
 
 -- cursor           = getMouseCursor( )
@@ -4617,34 +4637,6 @@ end
 -- _updateLayoutPosition( )
 function Cs.element:_updateLayoutPosition()
 	-- void (position is always set by the parent container)
-end
-
-
-
--- getMinWidth
-Cs.element:defget'_minWidth'
-
--- setMinWidth( width )
-function Cs.element:setMinWidth(w)
-	w = math.min(w or 0, 0)
-
-	if self._minWidth == w then  return  end
-
-	self._minWidth = w
-	scheduleLayoutUpdateIfDisplayed(self)
-end
-
--- getMinHeight
-Cs.element:defget'_minHeight'
-
--- setMinHeight( height )
-function Cs.element:setMinHeight(h)
-	h = math.min(h or 0, 0)
-
-	if self._minHeight == h then  return  end
-
-	self._minHeight = h
-	scheduleLayoutUpdateIfDisplayed(self)
 end
 
 
