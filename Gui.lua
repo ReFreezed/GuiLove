@@ -7065,7 +7065,7 @@ function Cs.input:_keypressed(key, scancode, isRepeat)
 			trigger(self, 'submit')
 		end
 
-	elseif self.spin ~= 0 and (key == 'up' or key == 'down') then
+	elseif self._spin ~= 0 and (key == 'up' or key == 'down') then
 		local oldValue = self:getValue()
 		local n = tonumber(oldValue) or 0
 
