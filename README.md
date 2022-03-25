@@ -90,14 +90,17 @@ function love.textinput(text)
 	gui:textinput(text)
 end
 
-function love.mousepressed(mx, my, mbutton, pressCount)
+function love.mousepressed(mx, my, mbutton, isTouch, pressCount)
 	gui:mousepressed(mx, my, mbutton, pressCount)
 end
-function love.mousemoved(mx, my)
+function love.mousemoved(mx, my, dx, dy, isTouch)
 	gui:mousemoved(mx, my)
 end
-function love.mousereleased(mx, my, mbutton)
+function love.mousereleased(mx, my, mbutton, isTouch, pressCount)
 	gui:mousereleased(mx, my, mbutton)
+end
+function love.wheelmoved(dx, dy)
+	gui:wheelmoved(dx, dy)
 end
 
 function love.update(dt)

@@ -50,14 +50,17 @@
 		gui:textinput(text)
 	end
 
-	function love.mousepressed(mx, my, mbutton, pressCount)
+	function love.mousepressed(mx, my, mbutton, isTouch, pressCount)
 		gui:mousepressed(mx, my, mbutton, pressCount)
 	end
-	function love.mousemoved(mx, my)
+	function love.mousemoved(mx, my, dx, dy, isTouch)
 		gui:mousemoved(mx, my)
 	end
-	function love.mousereleased(mx, my, mbutton)
+	function love.mousereleased(mx, my, mbutton, isTouch, pressCount)
 		gui:mousereleased(mx, my, mbutton)
+	end
+	function love.wheelmoved(dx, dy)
+		gui:wheelmoved(dx, dy)
 	end
 
 	function love.update(dt)
@@ -3082,40 +3085,6 @@ local function printerr(depth, s, ...)
 	print()
 end
 
--- value = assertarg( [ functionName=auto, ] argumentNumber, value, expectedValueType... [, depth=1 ] )
-local assertarg
-do
-	local function _assertarg(fName, n, v, ...)
-		local vType       = type(v)
-		local varargCount = select("#", ...)
-		local lastArg     = select(varargCount, ...)
-		local hasDepthArg = (type(lastArg) == "number")
-		local typeCount   = varargCount+(hasDepthArg and -1 or 0)
-
-		for i = 1, typeCount do
-			if vType == select(i, ...) then
-				return v
-			end
-		end
-
-		local depth = 2+(hasDepthArg and lastArg or 1)
-		if not fName then
-			fName = debug.traceback("", depth-2):match(": in function '(.-)'") or "?"
-		end
-
-		local expects = table.concat({...}, " or ", 1, typeCount)
-		error(F("bad argument #%d to '%s' (%s expected, got %s)", n, fName, expects, vType), depth)
-	end
-
-	function assertarg(fNameOrArgNum, ...)
-		if type(fNameOrArgNum) == "string" then
-			return _assertarg(fNameOrArgNum, ...)
-		else
-			return _assertarg(nil, fNameOrArgNum, ...)
-		end
-	end
-end
-
 
 
 -- errorf( [ level=1, ] formatString, ... )
@@ -3127,13 +3096,24 @@ local function errorf(i, s, ...)
 	end
 end
 
+local function argerror(errLevel, argN, argName, v, ...)
+	errorf(
+		1+errLevel,
+		"Bad argument #%d (%s) to '%s'. (Expected %s, got %s)",
+		argN,
+		argName,
+		debug.getinfo(errLevel, "n").name or "?",
+		table.concat({...}, " or "),
+		type(v)
+	)
+end
+
 
 
 -- applyMixin( class, mixin )
 local function applyMixin(C, mixin)
 	for fName, f in pairs(mixin) do
-		-- A mixin should only add new methods to classes, not override anything.
-		assert(C[fName] == nil)
+		if not (C[fName] == nil) then  error((fName))  end -- A mixin should only add new methods to classes, not override anything.
 		C[fName] = f
 	end
 end
@@ -3279,9 +3259,8 @@ end
 -- frames = { frame1, ... }
 -- frame  = { duration=duration, quad=quad }
 local function newSprite(image, framesOrQuad)
-	assertarg(1, image, "userdata")
-	assertarg(2, framesOrQuad, "userdata","table","nil")
-
+	if type(image)~="userdata" then argerror(1,1,"image",image,"userdata") end
+	if not(type(framesOrQuad)=="userdata" or type(framesOrQuad)=="table" or framesOrQuad==nil) then argerror(1,2,"framesOrQuad",framesOrQuad,"userdata","table","nil") end
 	local frames
 
 	if not framesOrQuad then
@@ -3501,7 +3480,6 @@ do
 
 		return false -- We went through all parents without matching the whole path.
 	end
-
 end
 
 
@@ -4323,9 +4301,9 @@ end
 
 -- handled = gui:keypressed( key, scancode, isRepeat )
 function Gui:keypressed(key, scancode, isRepeat)
-	assertarg(1, key     , "string")
-	assertarg(2, scancode, "string")
-	assertarg(3, isRepeat, "boolean")
+	if type(key)~="string" then argerror(2,1,"key",key,"string") end
+	if type(scancode)~="string" then argerror(2,2,"scancode",scancode,"string") end
+	if type(isRepeat)~="boolean" then argerror(2,3,"isRepeat",isRepeat,"boolean") end
 
 	if self._animationLockCount > 0 then  return true  end
 
@@ -4374,8 +4352,8 @@ end
 
 -- handled = gui:keyreleased( key, scancode )
 function Gui:keyreleased(key, scancode)
-	assertarg(1, key,      "string")
-	assertarg(2, scancode, "string")
+	if type(key)~="string" then argerror(2,1,"key",key,"string") end
+	if type(scancode)~="string" then argerror(2,2,"scancode",scancode,"string") end
 
 	local focus = self._keyboardFocus
 	if focus then
@@ -4388,7 +4366,7 @@ end
 
 -- handled = gui:textinput( text )
 function Gui:textinput(text)
-	assertarg(1, text, "string")
+	if type(text)~="string" then argerror(2,1,"text",text,"string") end
 
 	if self._animationLockCount > 0 then  return true  end
 
@@ -4424,11 +4402,13 @@ end
 
 -- handled = gui:mousepressed( mouseX, mouseY, mouseButton [, pressCount=auto ] )
 function Gui:mousepressed(mx, my, mbutton, pressCount)
-	assertarg(1, mx,      "number")
-	assertarg(2, my,      "number")
-	assertarg(3, mbutton, "number")
+	if type(mx)~="number" then argerror(2,1,"mx",mx,"number") end
+	if type(my)~="number" then argerror(2,2,"my",my,"number") end
+	if type(mbutton)~="number" then argerror(2,3,"mbutton",mbutton,"number") end
+	if not(type(pressCount)=="number" or pressCount==nil) then argerror(2,4,"pressCount",pressCount,"number","nil") end
 
-	self._mouseX, self._mouseY = mx, my
+	self._mouseX = mx
+	self._mouseY = my
 
 	if self._animationLockCount > 0 then  return true  end
 
@@ -4474,10 +4454,11 @@ end
 
 -- handled = gui:mousemoved( mouseX, mouseY )
 function Gui:mousemoved(mx, my)
-	assertarg(1, mx, "number","nil")
-	assertarg(2, my, "number","nil")
+	if not(type(mx)=="number" or mx==nil) then argerror(2,1,"mx",mx,"number","nil") end
+	if not(type(my)=="number" or my==nil) then argerror(2,2,"my",my,"number","nil") end
 
-	self._mouseX, self._mouseY = mx, my
+	self._mouseX = mx
+	self._mouseY = my
 
 	if self._animationLockCount > 0 then  return true  end
 
@@ -4486,9 +4467,7 @@ function Gui:mousemoved(mx, my)
 	end
 
 	local focus = self._mouseFocus
-	if not focus then
-		return false
-	end
+	if not focus then  return false  end
 
 	local el = (mx and focus or self._hoveredElement)
 	if el then
@@ -4501,11 +4480,12 @@ end
 
 -- handled = gui:mousereleased( mouseX, mouseY, mouseButton )
 function Gui:mousereleased(mx, my, mbutton)
-	assertarg(1, mx,      "number")
-	assertarg(2, my,      "number")
-	assertarg(3, mbutton, "number")
+	if type(mx)~="number" then argerror(2,1,"mx",mx,"number") end
+	if type(my)~="number" then argerror(2,2,"my",my,"number") end
+	if type(mbutton)~="number" then argerror(2,3,"mbutton",mbutton,"number") end
 
-	self._mouseX, self._mouseY = mx, my
+	self._mouseX = mx
+	self._mouseY = my
 
 	local focus = self._mouseFocus
 	if not (focus and self._mouseFocusSet[mbutton]) then
@@ -4534,8 +4514,8 @@ end
 
 -- handled = gui:wheelmoved( dx, dy )
 function Gui:wheelmoved(dx, dy)
-	assertarg(1, dx, "number")
-	assertarg(2, dy, "number")
+	if type(dx)~="number" then argerror(2,1,"dx",dx,"number") end
+	if type(dy)~="number" then argerror(2,2,"dy",dy,"number") end
 
 	if self._animationLockCount > 0 then  return true  end
 
@@ -4620,8 +4600,8 @@ end
 --     })
 --
 function Gui:defineStyle(styleName, styleData)
-	assertarg(1, styleName, "string")
-	assertarg(2, styleData, "table")
+	if type(styleName)~="string" then argerror(2,1,"styleName",styleName,"string") end
+	if type(styleData)~="table" then argerror(2,2,"styleData",styleData,"table") end
 	self._styles[styleName] = styleData
 end
 
@@ -4685,7 +4665,7 @@ end
 
 -- sound = gui:getDefaultSound( soundKey )
 function Gui:getDefaultSound(soundK)
-	assertarg(1, soundK, "string")
+	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
 	return self._defaultSounds[soundK]
 end
@@ -4694,7 +4674,7 @@ end
 -- gui:setDefaultSound( soundKey, nil ) -- Remove default sound.
 -- Note: 'sound' is the value sent to the GUI sound player callback.
 function Gui:setDefaultSound(soundK, sound)
-	assertarg(1, soundK, "string")
+	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
 	self._defaultSounds[soundK] = sound
 end
@@ -4883,7 +4863,7 @@ do
 	end
 
 	-- landingElement = gui:navigate( angle )
-	function Gui:navigate(ang)
+	function Gui:navigate(angle)
 		if self._lockNavigation then  return nil  end
 
 		local root = self._root
@@ -4892,11 +4872,11 @@ do
 		local nav = self._navigationTarget
 		if not nav then  return self:navigateToFirst()  end
 
-		if trigger(nav, "navigate", ang) then
+		if trigger(nav, "navigate", angle) then
 			return self._navigationTarget -- Suppress default behavior.
 		end
 
-		local closestEl = nav:getClosestInDirection(ang)
+		local closestEl = nav:getClosestInDirection(angle)
 		if closestEl then
 			setNavigationTarget(self, closestEl)
 		end
@@ -4954,8 +4934,8 @@ end
 
 -- gui:setScrollSpeed( speedX [, speedY=speedX ] )
 function Gui:setScrollSpeed(speedX, speedY)
-	assertarg(1, speedX, "number")
-	assertarg(2, speedY, "number","nil")
+	if type(speedX)~="number" then argerror(2,1,"speedX",speedX,"number") end
+	if not(type(speedY)=="number" or speedY==nil) then argerror(2,2,"speedY",speedY,"number","nil") end
 	self._scrollSpeedX = speedX
 	self._scrollSpeedY = speedY or speedX
 end
@@ -5063,7 +5043,7 @@ end
 -- gui:setTextPreprocessor( textPreprocessor|nil )
 -- newText = textPreprocessor( text, element, mnemonicsAreEnabled )
 function Gui:setTextPreprocessor(f)
-	assertarg(1, f, "function","nil")
+	if not(type(f)=="function" or f==nil) then argerror(2,1,"f",f,"function","nil") end
 	self._textPreprocessor = f
 end
 
@@ -5085,7 +5065,7 @@ end
 
 -- gui:setTheme( theme|nil )
 function Gui:setTheme(theme)
-	assertarg(1, theme, "table","nil")
+	if not(type(theme)=="table" or theme==nil) then argerror(2,1,"theme",theme,"table","nil") end
 	if self._theme == theme then  return  end
 	self._theme             = theme
 	self._layoutNeedsUpdate = true
@@ -5354,10 +5334,10 @@ end
 -- imageMixinElement:setImageScaleX( scale )
 -- imageMixinElement:setImageScaleY( scale )
 function Ms.imageMixin:setImageScale(sx, sy)
-	assertarg(1, sx, "number")
-	assertarg(2, sy, "number","nil")
+	if type(sx)~="number" then argerror(2,1,"sx",sx,"number") end
+	if not(type(sy)=="number" or sy==nil) then argerror(2,2,"sy",sy,"number","nil") end
 
-	sy = (sy or sx)
+	sy = sy or sx
 	if self._imageScaleX == sx and self._imageScaleY == sy then  return  end
 
 	self._imageScaleX = sx
@@ -5365,14 +5345,14 @@ function Ms.imageMixin:setImageScale(sx, sy)
 	if self._sprite then  scheduleLayoutUpdateIfDisplayed(self)  end
 end
 function Ms.imageMixin:setImageScaleX(sx)
-	assertarg(1, sx, "number")
+	if type(sx)~="number" then argerror(2,1,"sx",sx,"number") end
 	if self._imageScaleX == sx then  return  end
 
 	self:setImageScale(sx, self._imageScaleY)
 	if self._sprite then  scheduleLayoutUpdateIfDisplayed(self)  end
 end
 function Ms.imageMixin:setImageScaleY(sy)
-	assertarg(1, sy, "number")
+	if type(sy)~="number" then argerror(2,1,"sy",sy,"number") end
 	if self._imageScaleY == sy then  return  end
 
 	self:setImageScale(self._imageScaleY, sy)
@@ -5393,7 +5373,7 @@ end
 -- frames = { frame1, ... }
 -- frame  = { duration=duration, quad=quad }
 function Ms.imageMixin:setSprite(imageOrName, framesOrQuad)
-	assertarg(1, imageOrName, "userdata","string","nil")
+	if not(type(imageOrName)=="userdata" or type(imageOrName)=="string" or imageOrName==nil) then argerror(2,1,"imageOrName",imageOrName,"userdata","string","nil") end
 
 	local image      = nil
 	local spriteName = ""
@@ -5415,7 +5395,7 @@ function Ms.imageMixin:setSprite(imageOrName, framesOrQuad)
 		end
 
 	elseif imageOrName then
-		assertarg(2, framesOrQuad, "userdata","table","nil")
+		if not(type(framesOrQuad)=="userdata" or type(framesOrQuad)=="table" or framesOrQuad==nil) then argerror(2,2,"framesOrQuad",framesOrQuad,"userdata","table","nil") end
 		image = imageOrName
 
 	end
@@ -5436,7 +5416,6 @@ function Ms.imageMixin:setSprite(imageOrName, framesOrQuad)
 	if not (iw == oldIw and ih == oldIh) then
 		scheduleLayoutUpdateIfDisplayed(self)
 	end
-
 end
 
 -- bool = imageMixinElement:hasSprite( )
@@ -5510,7 +5489,7 @@ registerEvents(Cs.element, {
 })
 
 function Cs.element:init(gui, elData, parent)
-	self._gui    = assert(gui)
+	self._gui    = gui or error("Missing gui object argument.")
 	self._parent = parent
 
 	self._animations = {}
@@ -5547,7 +5526,7 @@ function Cs.element:init(gui, elData, parent)
 	self._timeBecomingVisible = gui._time
 
 	-- Set data table.
-	assert(elData.data == nil or type(elData.data) == "table")
+	if not (elData.data == nil or type(elData.data) == "table") then  error("Assertion failed: elData.data == nil or type(elData.data) == \"table\"")  end
 	self._data = elData.data or {}
 	self.data  = self._data -- element.data is exposed for easy access.
 
@@ -5562,7 +5541,7 @@ function Cs.element:init(gui, elData, parent)
 	-- Set sounds table.
 	self._sounds = {}
 	if elData.sounds ~= nil then
-		assert(type(elData.sounds) == "table")
+		if not (type(elData.sounds) == "table") then  error("Assertion failed: type(elData.sounds) == \"table\"")  end
 		for soundK, sound in pairs(elData.sounds) do
 			checkValidSoundKey(soundK, 2)
 			self._sounds[soundK] = sound
@@ -5572,7 +5551,7 @@ function Cs.element:init(gui, elData, parent)
 	-- Add tags.
 	self._tags = {}
 	if elData.tags ~= nil then
-		assert(type(elData.tags) == "table")
+		if not (type(elData.tags) == "table") then  error("Assertion failed: type(elData.tags) == \"table\"")  end
 		for _, tag in ipairs(elData.tags) do
 			self._tags[tag] = true
 		end
@@ -5714,13 +5693,12 @@ end
 --     })
 --
 function Cs.element:animate(duration, lockInteraction, callbacks)
-	assertarg(1, duration, "number")
+	if type(duration)~="number" then argerror(2,1,"duration",duration,"number") end
 
 	if type(lockInteraction) == "table" then
 		lockInteraction, callbacks = false, lockInteraction
 	else
-		assertarg(2, lockInteraction, "boolean")
-		assertarg(3, callbacks, "table")
+		if type(lockInteraction)~="boolean" then argerror(2,2,"lockInteraction",lockInteraction,"boolean") end
 	end
 
 	local gui = self._gui
@@ -5741,7 +5719,6 @@ function Cs.element:animate(duration, lockInteraction, callbacks)
 	if lockInteraction then
 		gui._animationLockCount = gui._animationLockCount+1
 	end
-
 end
 
 
@@ -5820,8 +5797,8 @@ end
 
 -- element:setCallback( event, callback|nil )
 function Cs.element:setCallback(event, cb)
-	assertarg(1, event, "string")
-	assertarg(2, cb, "function","nil")
+	if type(event)~="string" then argerror(2,1,"event",event,"string") end
+	if not(type(cb)=="function" or cb==nil) then argerror(2,2,"cb",cb,"function","nil") end
 
 	if not self._events[event] then
 		printerr(2, "Unknown event '%s'. (%s)", event, self:getPathDescription())
@@ -5835,7 +5812,6 @@ function Cs.element:setCallback(event, cb)
 	if cb and event == "init" then
 		trigger(self, "init")
 	end
-
 end
 
 -- element:on( event, callback|nil )
@@ -5849,7 +5825,7 @@ end
 
 -- value = element:trigger( event [, extraArgument1, ... ] )
 function Cs.element:trigger(event, ...)
-	assertarg(1, event, "string")
+	if type(event)~="string" then argerror(2,1,"event",event,"string") end
 	if not self._events[event] then
 		printerr(2, "Unknown event '%s'. (%s)", event, self:getPathDescription())
 		return nil
@@ -5859,7 +5835,7 @@ end
 
 -- value = element:triggerBubbling( event [, extraArgument1, ... ] )
 function Cs.element.triggerBubbling(el, event, ...)
-	assertarg(1, event, "string")
+	if type(event)~="string" then argerror(2,1,"event",event,"string") end
 
 	if not el._events[event] then
 		printerr(2, "Unknown event '%s'. (%s)", event, el:getPathDescription())
@@ -5893,7 +5869,7 @@ end
 do
 
 
-	local function _getClosestInDirection(navRoot, C, fromX, fromY, ang, ignoreCapture, elToIgnore)
+	local function _getClosestInDirection(navRoot, C, fromX, fromY, angle, ignoreCapture, elToIgnore)
 		local closestEl      = nil
 		local closestDistSqr = 1/0
 		local closestAngDiff = 1/0
@@ -5901,16 +5877,17 @@ do
 		for el in navRoot:traverseVisible() do
 			if el ~= elToIgnore and el:is(C) then
 				local x, y = el:getPositionOnScreen()
-				x = math.min(math.max(fromX, x+0.01), x+el._layoutWidth-0.01)
-				y = math.min(math.max(fromY, y+0.01), y+el._layoutHeight-0.01)
+				x          = math.min(math.max(fromX, x+.01), x+el._layoutWidth -.01)
+				y          = math.min(math.max(fromY, y+.01), y+el._layoutHeight-.01)
 
-				local dx, dy = x-fromX, y-fromY
+				local dx = x - fromX
+				local dy = y - fromY
 
 				local distSqr = dx*dx+dy*dy
-				if distSqr <= closestDistSqr then
 
-					local angDiff = math.atan2(dy, dx)-ang
-					angDiff = math.abs(math.atan2(math.sin(angDiff), math.cos(angDiff))) -- Normalize.
+				if distSqr <= closestDistSqr then
+					local angDiff = math.atan2(dy, dx) - angle
+					angDiff       = math.abs(math.atan2(math.sin(angDiff), math.cos(angDiff))) -- Normalize.
 
 					if angDiff < 1.5707963267949 then
 						closestEl      = el
@@ -5929,12 +5906,13 @@ do
 	end
 
 	-- otherElement|nil = element:getClosestInDirection( angle [, elementType="widget", ignoreInputCaptureState=false, ignoreConfinement=false ] )
-	function Cs.element:getClosestInDirection(ang, elType, ignoreCapture, ignoreConfinement)
-		assertarg(1, ang          , "number")
-		assertarg(2, elType       , "nil","string")
-		assertarg(3, ignoreCapture, "nil","boolean")
+	function Cs.element:getClosestInDirection(angle, elType, ignoreCapture, ignoreConfinement)
+		if type(angle)~="number" then argerror(2,1,"angle",angle,"number") end
+		if not(type(elType)=="string" or elType==nil) then argerror(2,2,"elType",elType,"string","nil") end
+		if not(type(ignoreCapture)=="boolean" or ignoreCapture==nil) then argerror(2,3,"ignoreCapture",ignoreCapture,"boolean","nil") end
+		if not(type(ignoreConfinement)=="boolean" or ignoreConfinement==nil) then argerror(2,4,"ignoreConfinement",ignoreConfinement,"boolean","nil") end
 
-		local C = (elType and requireElementClass(elType) or Cs.widget)
+		local C = elType and requireElementClass(elType) or Cs.widget
 
 		local gui = self._gui
 		updateLayoutIfNeeded(gui)
@@ -5943,19 +5921,18 @@ do
 
 		local centerX, centerY = self:getLayoutCenterPosition()
 
-		local fromX = centerX+self._layoutOffsetX+0.495*self._layoutWidth *math.cos(ang)
-		local fromY = centerY+self._layoutOffsetY+0.495*self._layoutHeight*math.sin(ang)
-		local closestEl = _getClosestInDirection(navRoot, C, fromX, fromY, ang, ignoreCapture, self)
+		local fromX = centerX+self._layoutOffsetX+0.495*self._layoutWidth *math.cos(angle)
+		local fromY = centerY+self._layoutOffsetY+0.495*self._layoutHeight*math.sin(angle)
+		local closestEl = _getClosestInDirection(navRoot, C, fromX, fromY, angle, ignoreCapture, self)
 
 		if not closestEl and not ignoreConfinement and navRoot._confineNavigation then
-			fromX = centerX+self._layoutOffsetX-10000*math.cos(ang)
-			fromY = centerY+self._layoutOffsetY-10000*math.sin(ang)
-			closestEl = _getClosestInDirection(navRoot, C, fromX, fromY, ang, ignoreCapture, nil)
+			fromX = centerX+self._layoutOffsetX-10000*math.cos(angle)
+			fromY = centerY+self._layoutOffsetY-10000*math.sin(angle)
+			closestEl = _getClosestInDirection(navRoot, C, fromX, fromY, angle, ignoreCapture, nil)
 		end
 
 		return closestEl
 	end
-
 end
 
 do
@@ -6018,7 +5995,7 @@ end
 
 -- oldDataTable = element:swapData( newDataTable )
 function Cs.element:swapData(data)
-	assertarg(1, data, "table")
+	if type(data)~="table" then argerror(2,1,"data",data,"table") end
 	local oldData = self._data
 	self._data    = data
 	self.data     = data
@@ -6214,10 +6191,10 @@ end
 
 -- element:setMouseCursor( cursor|systemCursorType|nil )
 function Cs.element:setMouseCursor(cur)
-	assertarg(1, cur, "userdata","string","nil")
+	if not(type(cur)=="userdata" or type(cur)=="string" or cur==nil) then argerror(2,1,"cur",cur,"userdata","string","nil") end
 
-	if type(cur) == "string" then
-		assert(love.mouse.getSystemCursor(cur))
+	if type(cur) == "string" and not pcall(love.mouse.getSystemCursor, cur) then
+		errorf(2, "Invalid system cursor type '%s'.", cur)
 	end
 
 	self._mouseCursor = cur
@@ -6510,14 +6487,14 @@ end
 
 -- sound|nil = element:getSound( soundKey )
 function Cs.element:getSound(soundK)
-	assertarg(1, soundK, "string")
+	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
 	return self._sounds[soundK]
 end
 
 -- sound|nil = element:getResultingSound( soundKey )
 function Cs.element:getResultingSound(soundK)
-	assertarg(1, soundK, "string")
+	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
 
 	local sound = self._sounds[soundK]
@@ -6540,7 +6517,7 @@ end
 -- element:setSound( soundKey, sound )
 -- element:setSound( soundKey, nil ) -- Remove sound.
 function Cs.element:setSound(soundK, sound)
-	assertarg(1, soundK, "string")
+	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
 	self._sounds[soundK] = sound
 end
@@ -6738,7 +6715,7 @@ end
 
 -- stateChanged = element:setHidden( bool )
 function Cs.element:setHidden(hidden)
-	assertarg(1, hidden, "boolean")
+	if type(hidden)~="boolean" then argerror(2,1,"hidden",hidden,"boolean") end
 	if self._hidden == hidden then  return false  end
 
 	local wasDisplayed = self:isDisplayed()
@@ -6906,7 +6883,7 @@ end
 
 -- element:playSound( soundKey )
 function Cs.element:playSound(soundK)
-	assertarg(1, soundK, "string")
+	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
 
 	local soundPlayer = self._gui   and self._gui._soundPlayer
@@ -7003,13 +6980,10 @@ function Cs.element.scrollIntoView(el)
 			end
 
 			parent:setScroll(scrollX, scrollY)
-
 		end
 
 		el, parent = parent, parent._parent
-
 	until not parent
-
 end
 
 
@@ -7070,7 +7044,7 @@ end
 -- items       = { { itemText1, itemExtraText1 }, ... }
 -- callback    = function( index, itemText ) -- 'index' will be 0 if no item was chosen.
 function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
-	assertarg(1, items, "table")
+	if type(items)~="table" then argerror(2,1,"items",items,"table") end
 
 	-- showMenu( items, highlightedIndex,   offsetX, offsetY, callback )
 	-- showMenu( items, highlightedIndices, offsetX, offsetY, callback )
@@ -7337,7 +7311,6 @@ function Cs.container:init(gui, elData, parent)
 		local child = C(gui, childData, self)
 		self[i]     = child
 	end
-
 end
 
 
@@ -7359,31 +7332,24 @@ function Cs.container:_update(dt)
 	local didScroll = false
 
 	if visualScrollX ~= scrollX then
-
 		visualScrollX = scrollX+self.SCROLL_SMOOTHNESS*(visualScrollX-scrollX)
 		if math.abs(visualScrollX-scrollX) < 0.5 then
 			visualScrollX = scrollX
 		end
-
 		didScroll = true
-
 	end
 
 	if visualScrollY ~= scrollY then
-
 		visualScrollY = scrollY+self.SCROLL_SMOOTHNESS*(visualScrollY-scrollY)
 		if math.abs(visualScrollY-scrollY) < 0.5 then
 			visualScrollY = scrollY
 		end
-
 		didScroll = true
-
 	end
 
 	if didScroll then
 		setVisualScroll(self, visualScrollX, visualScrollY)
 	end
-
 end
 
 
@@ -7629,9 +7595,8 @@ end
 
 -- scrollChanged = container:setScroll( x, y [, immediate=false ] )
 function Cs.container:setScroll(scrollX, scrollY, immediate)
-	assertarg(1, scrollX, "number")
-	assertarg(2, scrollY, "number")
-
+	if type(scrollX)~="number" then argerror(2,1,"scrollX",scrollX,"number") end
+	if type(scrollY)~="number" then argerror(2,2,"scrollY",scrollY,"number") end
 	updateLayoutIfNeeded(self._gui)
 
 	-- Limit scrolling
@@ -7907,8 +7872,8 @@ end
 -- child = container:insert( elementData [, index=atEnd ] )
 -- See gui:load() for the elementData format.
 function Cs.container:insert(childData, i)
-	assertarg(1, childData, "table")
-	assertarg(2, i, "number","nil")
+	if type(childData)~="table" then argerror(2,1,"childData",childData,"table") end
+	if not(type(i)=="number" or i==nil) then argerror(2,2,"i",i,"number","nil") end
 
 	local C     = Cs[getTypeFromElementData(childData)] or errorf("Bad element type '%s'.", getTypeFromElementData(childData))
 	local child = C(self._gui, childData, self)
@@ -7934,7 +7899,7 @@ end
 -- REPLACE  container:removeAt( index )
 -- Note that grandchildren are also removed from their parent. (Is this good?)
 function Cs.container:removeAt(i)
-	assertarg(1, i, "number")
+	if type(i)~="number" then argerror(2,1,"i",i,"number") end
 
 	local child = self[i]
 	if not child then
@@ -8153,7 +8118,7 @@ end
 -- container:sort( sortFunction )
 -- aIsLessThanB = sortFunction( elementA, elementB )
 function Cs.container:sort(f)
-	assertarg(1, f, "function")
+	if type(f)~="function" then argerror(2,1,"f",f,"function") end
 	table.sort(self, f)
 	scheduleLayoutUpdateIfDisplayed(self)
 end
@@ -8284,15 +8249,11 @@ end
 
 -- INTERNAL REPLACE  container:_expandLayout( )
 function Cs.container:_expandLayout(expandW, expandH)
-
 	expandContainer(self, expandW, expandH)
 
 	for _, child in ipairs(self) do
-		if not child._hidden then
-			child:_expandLayout(nil, nil)
-		end
+		if not child._hidden then  child:_expandLayout(nil, nil)  end
 	end
-
 end
 
 -- INTERNAL REPLACE  container:_updateLayoutPosition( )
@@ -8446,7 +8407,8 @@ function Cs.hbar:_expandLayout(expandW, expandH)
 			end
 		end
 	end
-	assert(expandablesX == 0, expandablesX)
+
+	if not (expandablesX == 0) then  error((tostring(expandablesX)))  end
 end
 function Cs.vbar:_expandLayout(expandW, expandH)
 	-- Expand self
@@ -8490,7 +8452,8 @@ function Cs.vbar:_expandLayout(expandW, expandH)
 			end
 		end
 	end
-	assert(expandablesY == 0, expandablesY)
+
+	if not (expandablesY == 0) then  error((tostring(expandablesY)))  end
 end
 
 -- INTERNAL REPLACE  hbar:_updateLayoutPosition( )
@@ -8601,8 +8564,8 @@ end
 
 -- REPLACE  root:setDimensions( width, height )
 function Cs.root:setDimensions(w, h)
-	assertarg(1, w, "number")
-	assertarg(2, h, "number")
+	if type(w)~="number" then argerror(2,1,"w",w,"number") end
+	if type(h)~="number" then argerror(2,2,"h",h,"number") end
 	if self._width == w and self._height == h then  return  end
 
 	self._width, self._height = w, h
@@ -8743,9 +8706,11 @@ function Cs.leaf:setText(unprocessedText)
 			matchCount = matchCount + 1
 			return c
 		end)
+
 		if mnemonicCount > 1 then
 			printerr(2, "Multiple mnemonics in '%s'.", text)
 		end
+
 		text = cleanText
 	end
 
@@ -8754,10 +8719,10 @@ function Cs.leaf:setText(unprocessedText)
 
 	local oldW      = self._textWidth
 	self._textWidth = self:getFont():getWidth(text)
+
 	if self._textWidth ~= oldW then
 		scheduleLayoutUpdateIfDisplayed(self)
 	end
-
 end
 
 -- leaf:drawText( x, y )
@@ -8767,11 +8732,11 @@ end
 
 -- leaf:drawAlignedText( areaX, areaY, areaWidth [, align=self:getAlign() ] )
 function Cs.leaf:drawAlignedText(x, y, w, align)
-	align = (align or self._align)
+	align = align or self._align
 	if align == "right" then
-		x = x+w-self._textWidth
+		x = x + w - self._textWidth
 	elseif align == "center" then
-		x = x+math.floor((w-self._textWidth)/2)
+		x = x + math.floor((w-self._textWidth)/2)
 	end
 	self:drawText(x, y)
 end
@@ -8980,7 +8945,6 @@ function Cs.image:init(gui, elData, parent)
 	self._imageScaleY = (elData.imageScaleY or elData.imageScale or self._imageScaleY)
 
 	self:setSprite(elData.sprite)
-
 end
 
 
@@ -9302,7 +9266,7 @@ function Cs.button:setText(text)
 	local oldW = self._textWidth
 
 	Cs.button.super.setText(self, text)
-	text = nil -- Don't use this anymore.
+	text = nil -- Don't use this anymore!
 
 	if self._text == oldText then
 		return
@@ -9314,7 +9278,6 @@ function Cs.button:setText(text)
 	if self._textWidth ~= oldW then
 		scheduleLayoutUpdateIfDisplayed(self)
 	end
-
 end
 
 -- button:setText2( text )
@@ -9324,16 +9287,16 @@ function Cs.button:setText2(unprocessedText)
 	local text = preprocessText(self._gui, unprocessedText, self, false)
 	if self._text2 == text then  return  end
 
-	self._text2 = text
+	self._text2            = text
 	self._unprocessedText2 = unprocessedText
 
-	local oldW = self._textWidth
+	local oldW       = self._textWidth
 	self._textWidth2 = self:getFont():getWidth(text)
-	self._textWidth = self._textWidth1+self._textWidth2
+	self._textWidth  = self._textWidth1+self._textWidth2
+
 	if self._textWidth ~= oldW then
 		scheduleLayoutUpdateIfDisplayed(self)
 	end
-
 end
 
 -- button:drawText2( x, y )
@@ -9343,11 +9306,11 @@ end
 
 -- button:drawAlignedText2( areaX, areaY, areaWidth [, align=self:getAlign() ] )
 function Cs.button:drawAlignedText2(x, y, w, align)
-	align = (align or self._align)
+	align = align or self._align
 	if align == "right" then
-		x = x+w-self._textWidth2
+		x = x + w - self._textWidth2
 	elseif align == "center" then
-		x = x+math.floor((w-self._textWidth2)/2)
+		x = x + math.floor((w-self._textWidth2)/2)
 	end
 	self:drawText(x, y)
 end

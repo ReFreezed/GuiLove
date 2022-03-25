@@ -1,6 +1,6 @@
 --[[============================================================
 --=
---=  LuaPreprocess v1.18 - preprocessing library
+--=  LuaPreprocess v1.18-dev - preprocessing library
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see the bottom of this file)
@@ -26,7 +26,7 @@
 	- toLua, serialize, evaluate
 	Only during processing:
 	- getCurrentPathIn, getCurrentPathOut
-	- getOutputSoFar, getOutputSizeSoFar, getCurrentLineNumberInOutput
+	- getOutputSoFar, getOutputSoFarOnLine, getOutputSizeSoFar, getCurrentLineNumberInOutput
 	- loadResource
 	- outputValue, outputLua, outputLuaTemplate
 	- startInterceptingOutput, stopInterceptingOutput
@@ -130,7 +130,7 @@
 
 
 
-local PP_VERSION = "1.18.0"
+local PP_VERSION = "1.18.0-dev"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -1647,6 +1647,29 @@ function metaFuncs.getOutputSoFar(asTable)
 	errorIfNotRunningMeta(2)
 	-- Should there be a way to get the contents of current_meta_output etc.? :GetMoreOutputFromStack
 	return asTable and copyArray(current_meta_outputStack[1]) or table.concat(current_meta_outputStack[1])
+end
+
+-- getOutputSoFarOnLine()
+--   luaString = getOutputSoFarOnLine( )
+--   Get Lua code that's been outputted so far on the current line.
+--   Raises an error if no file or string is being processed.
+function metaFuncs.getOutputSoFarOnLine()
+	errorIfNotRunningMeta(2)
+
+	local lineFragments = {}
+
+	-- Should there be a way to get the contents of current_meta_output etc.? :GetMoreOutputFromStack
+	for i = #current_meta_outputStack[1], 1, -1 do
+		local fragment = current_meta_outputStack[1][i]
+
+		if fragment:find("\n", 1, true) then
+			tableInsert(lineFragments, (fragment:gsub(".*\n", "")))
+			break
+		end
+		tableInsert(lineFragments, fragment)
+	end
+
+	return table.concat(lineFragments)
 end
 
 -- getOutputSizeSoFar()
