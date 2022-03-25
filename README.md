@@ -5,9 +5,9 @@
 </p>
 
 <p align="center">
-	<img src="https://img.shields.io/badge/beta-0.1-blue.svg">
+	<img src="https://img.shields.io/badge/beta-0.2-blue.svg">
 	<a href="https://love2d.org/">
-		<img src="https://img.shields.io/badge/LÖVE-0.10.2-green.svg">
+		<img src="https://img.shields.io/badge/LÖVE-0.10.2+-green.svg">
 	</a>
 </p>
 
