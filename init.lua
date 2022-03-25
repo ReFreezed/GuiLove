@@ -1,2 +1,2 @@
-local moduleFolder = ('.'..(...)) :gsub('%.init$', '')
-return require((moduleFolder..'.Gui'):sub(2))
+-- Require Gui.lua from the same folder.
+return require(((".".. ...):gsub("%.init$", "")..".Gui"):sub(2))

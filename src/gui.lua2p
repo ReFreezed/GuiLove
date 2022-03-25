@@ -349,7 +349,7 @@ local validSoundKeys = {
 	["inputsubmit"] = true, ["inputrevert"] = true,
 }
 
-local defaultThemeModuleName = ((".".. ...):gsub("%.%w+$", "")..".defaultTheme"):sub(2)
+local defaultTheme
 
 
 
@@ -974,7 +974,7 @@ end
 -- value1, ... = themeCallBack( gui, sectionKey, what, argument1, ... )
 local function themeCallBack(gui, k, what, ...)
 	local section = gui._theme and gui._theme[k]
-	local cb      = (section and section[what] or require(defaultThemeModuleName)[k][what]) or errorf(2, "Missing default theme callback for '%s.%s'.", k, what)
+	local cb      = (section and section[what] or defaultTheme[k][what]) or errorf(2, "Missing default theme callback for '%s.%s'.", k, what)
 	return cb(...)
 end
 
@@ -982,7 +982,7 @@ end
 local function themeGet(gui, k)
 	local v = gui._theme and gui._theme[k]
 	if v == nil then
-		return require(defaultThemeModuleName)[k]
+		return defaultTheme[k]
 	end
 	return v
 end
@@ -1331,40 +1331,43 @@ end
 
 
 
--- quads = create9PartQuads( image, leftMargin, topMargin [, rightMargin=leftMargin, bottomMargin=rightMargin ] )
+-- quads = create9PartQuads( image, leftColumnSize, topRowSize [, rightColumnSize=leftColumnSize, bottomRowSize=topRowSize ] )
 -- quads = {
---    topLeftQuad,    topCenterQuad,    topRightQuad,
---    middleLeftQuad, middleCenterQuad, middleRightQuad,
---    bottomLeftQuad, bottomCenterQuad, bottomRightQuad }
+--     topLeftQuad,    topCenterQuad,    topRightQuad,
+--     middleLeftQuad, middleCenterQuad, middleRightQuad,
+--     bottomLeftQuad, bottomCenterQuad, bottomRightQuad,
+-- }
 function _M.create9PartQuads(image, l, t, r, b)
-	r = (r or l)
-	b = (b or t)
+	r = r or l
+	b = b or t
 	local iw, ih = image:getDimensions()
 	return {
-		$LG.newQuad(  0,    0,     l,      t,       iw, ih ),
-		$LG.newQuad(  l,    0,     iw-l-r, t,       iw, ih ),
-		$LG.newQuad(  iw-r, 0,     r,      t,       iw, ih ),
-		$LG.newQuad(  0,    t,     l,      ih-t-b,  iw, ih ),
-		$LG.newQuad(  l,    t,     iw-l-r, ih-t-b,  iw, ih ),
-		$LG.newQuad(  iw-r, t,     r,      ih-t-b,  iw, ih ),
-		$LG.newQuad(  0,    ih-b,  l,      b,       iw, ih ),
-		$LG.newQuad(  l,    ih-b,  iw-l-r, b,       iw, ih ),
-		$LG.newQuad(  iw-r, ih-b,  r,      b,       iw, ih ),
+		$LG.newQuad(   0,    0,      l,      t, iw, ih),
+		$LG.newQuad(   l,    0, iw-l-r,      t, iw, ih),
+		$LG.newQuad(iw-r,    0,      r,      t, iw, ih),
+		$LG.newQuad(   0,    t,      l, ih-t-b, iw, ih),
+		$LG.newQuad(   l,    t, iw-l-r, ih-t-b, iw, ih),
+		$LG.newQuad(iw-r,    t,      r, ih-t-b, iw, ih),
+		$LG.newQuad(   0, ih-b,      l,      b, iw, ih),
+		$LG.newQuad(   l, ih-b, iw-l-r,      b, iw, ih),
+		$LG.newQuad(iw-r, ih-b,      r,      b, iw, ih),
 	}
 end
 
 
 
 -- draw9PartScaled(
---    x, y, width, height,
---    topLeftImage,    topCenterImage,    topRightImage,
---    middleLeftImage, middleCenterImage, middleRightImage,
---    bottomLeftImage, bottomCenterImage, bottomRightImage )
+--     x, y, width, height,
+--     topLeftImage,    topCenterImage,    topRightImage,
+--     middleLeftImage, middleCenterImage, middleRightImage,
+--     bottomLeftImage, bottomCenterImage, bottomRightImage
+-- )
 -- draw9PartScaled(
---    x, y, width, height, image,
---    topLeftQuad,    topCenterQuad,    topRightQuad,
---    middleLeftQuad, middleCenterQuad, middleRightQuad,
---    bottomLeftQuad, bottomCenterQuad, bottomRightQuad )
+--     x, y, width, height, image,
+--     topLeftQuad,    topCenterQuad,    topRightQuad,
+--     middleLeftQuad, middleCenterQuad, middleRightQuad,
+--     bottomLeftQuad, bottomCenterQuad, bottomRightQuad
+-- )
 function _M.draw9PartScaled(x, y, w, h, image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33)
 	if not obj33 then
 		image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33
@@ -1389,24 +1392,25 @@ function _M.draw9PartScaled(x, y, w, h, image, obj11, obj12, obj13, obj21, obj22
 		sy = (h-t-b) / obj21:getHeight()
 	end
 
+	$LG.push()
 	$LG.translate(x, y)
 
-	-- Fill
+	-- Fill.
 	drawImage(image, obj22, l, t, 0, sx, sy)
 
-	-- Sides
-	drawImage(image, obj12, l,   0,   0, sx, 1)
-	drawImage(image, obj23, w-r, t,   0, 1,  sy)
-	drawImage(image, obj32, l,   h-b, 0, sx, 1)
-	drawImage(image, obj21, 0,   t,   0, 1,  sy)
+	-- Sides.
+	drawImage(image, obj12,   l,   0, 0, sx,  1)
+	drawImage(image, obj23, w-r,   t, 0,  1, sy)
+	drawImage(image, obj32,   l, h-b, 0, sx,  1)
+	drawImage(image, obj21,   0,   t, 0,  1, sy)
 
-	-- Corners
-	drawImage(image, obj11, 0,   0)
-	drawImage(image, obj13, w-r, 0)
-	drawImage(image, obj31, 0,   h-b)
+	-- Corners.
+	drawImage(image, obj11,   0,   0)
+	drawImage(image, obj13, w-r,   0)
+	drawImage(image, obj31,   0, h-b)
 	drawImage(image, obj33, w-r, h-b)
 
-	$LG.translate(-x, -y)
+	$LG.pop()
 end
 
 
@@ -7138,6 +7142,17 @@ function Cs.input:_expandLayout(expandW, expandH)
 	self._layoutInnerHeight = self._layoutHeight
 
 	self._field:setWidth(self._layoutInnerWidth)
+end
+
+
+
+--==============================================================
+--= Default theme ==============================================
+--==============================================================
+
+do
+local Gui    = _M
+defaultTheme = (function()  @insert "src/defaultTheme.luapart"  end)()
 end
 
 

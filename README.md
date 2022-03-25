@@ -6,8 +6,14 @@
 
 <p align="center">
 	<img src="https://img.shields.io/badge/beta-0.2-blue.svg">
+	<!-- <a href="https://github.com/ReFreezed/GuiLove/releases/latest">
+		<img src="https://img.shields.io/github/release/ReFreezed/GuiLove.svg" alt="">
+	</a> -->
 	<a href="https://love2d.org/">
 		<img src="https://img.shields.io/badge/LÖVE-0.10.2+-green.svg">
+	</a>
+	<a href="https://github.com/ReFreezed/GuiLove/blob/master/LICENSE.txt">
+		<img src="https://img.shields.io/github/license/ReFreezed/GuiLove.svg" alt="">
 	</a>
 </p>
 
@@ -19,12 +25,30 @@
 
 ## README
 
+**GuiLove** is a GUI library for the [LÖVE](https://love2d.org/) game framework.
+
+[The library](Gui.lua) is a single file with no external dependencies other than LÖVE.
+[MIT license](LICENSE.txt).
+
+**Note: The library is in beta, so many things (including documentation) are missing!**
+
+- [Features](#features)
 - [Basic Usage](#basic-usage)
 - [API](#api)
 	- [Gui Methods](#gui-methods)
 	- [Element Types, Methods and Events](#element-types-methods-and-events)
 	- [Includes](#includes)
 	- [Tools](#tools)
+- [Development and Repository](#development-and-repository)
+
+
+
+## Features
+
+- Retained-mode.
+- Fully automatic layout calculations.
+- Both mouse and keyboard support.
+- Allows custom themes for rendering.
 
 
 
@@ -33,7 +57,7 @@
 ```lua
 function love.load()
 	local Gui = require("Gui")
-	gui = Gui()
+	gui       = Gui()
 
 	local tree = {"root",
 		{"vbar", id="myContainer", width=200,
@@ -43,11 +67,11 @@ function love.load()
 	}
 	gui:load(tree)
 
-	local myButton = gui:find("myButton")
+	local myButton   = gui:find("myButton")
 	local pressCount = 0
-	myButton:on("press", function(myButton, event)
 
-		pressCount = pressCount+1
+	myButton:on("press", function(myButton, event)
+		pressCount = pressCount + 1
 
 		local myContainer = gui:find("myContainer")
 		myContainer:insert{ "text", text="Pressed button "..pressCount.." time(s)!" }
@@ -55,7 +79,6 @@ function love.load()
 	end)
 
 	gui:getRoot():setDimensions(love.graphics.getDimensions())
-
 end
 
 function love.mousepressed(x, y, mouseButton)
@@ -82,7 +105,6 @@ end
 ## API
 
 Check the source code for more info.
-
 
 
 ### Gui Methods
@@ -121,7 +143,6 @@ load
 ok, back
 updateLayout
 ```
-
 
 
 ### Element Types, Methods and Events
@@ -271,7 +292,6 @@ container
 ```
 
 
-
 ### Includes
 
 ```
@@ -285,7 +305,6 @@ imageMixin
 ```
 
 
-
 ### Tools
 
 ```
@@ -293,3 +312,27 @@ imageMixin
 - draw9PartScaled
 - newMonochromeImage, newImageUsingPalette
 ```
+
+
+
+## Development and Repository
+
+The library is build using a build system and a preprocessing step.
+To build GuiLove, [install Lua](https://www.lua.org/download.html) and run `build/Build.cmd` or this command from the root of the repository:
+
+```batch
+lua build/build.lua
+```
+
+
+### Repository
+
+| File/directory   | Description
+| ---------------- | -----------
+| build/           | Build system files.
+| src/             | Source files that will form `Gui.lua`.
+| Gui.lua          | The built library.
+| defaultTheme.lua | The built default theme file.
+| init.lua         | Helper file for projects cloning the repository into the project. `require"pathToGuiFolder"` can be used instead of `require"pathToGuiFolder.Gui"`.
+
+

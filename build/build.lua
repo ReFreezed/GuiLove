@@ -1,10 +1,17 @@
---
--- GuiLove build script
---
--- Run like this:
--- $ lua build/build.lua
---
+--[[============================================================
+--=
+--=  GuiLove build script
+--=
+--=  Run like this:
+--=  $ lua build/build.lua
+--=
+--============================================================]]
+
 local DEV = 1==0
+
+--
+-- Build library.
+--
 
 local pp = require"build.preprocess"
 
@@ -39,3 +46,52 @@ pp.processFile{
 		os.exit(1)
 	end,
 }
+
+--
+-- Write default theme file.
+--
+
+local header = [=[
+--[[============================================================
+--=
+--=  Default theme for GuiLove
+--=  - Written by Marcus 'ReFreezed' Thunström
+--=
+--=  You can use this as a template when making your own theme.
+--=  The library does not need this file to work.
+--=
+--==============================================================
+
+	The theme table returned from this module contains this:
+
+	{
+
+		basic parameters
+		(...)
+
+		special functions
+		(...)
+
+		size = {
+			element measuring functions
+			(...)
+		}
+
+		draw = {
+			element drawing functions
+			(...)
+		}
+
+	}
+
+--============================================================]]
+
+local Gui = require("Gui")
+]=]
+
+local lua       = assert(pp.getFileContents("src/defaultTheme.luapart", true))
+local file, err = assert(io.open("defaultTheme.lua", "w"))
+
+file:write(header)
+file:write(lua)
+file:close()
