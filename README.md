@@ -47,7 +47,6 @@
 
 - Retained-mode.
 - Fully automatic layout calculations.
-- Both mouse and keyboard support.
 - Allows custom themes for rendering.
 
 
@@ -62,6 +61,7 @@ function love.load()
 	local tree = {"root",
 		{"vbar", id="myContainer", width=200,
 			{"text", text="I'm just a text."},
+			{"input", value="foo bar"},
 			{"button", id="myButton", text="Press Me!"},
 		},
 	}
@@ -75,20 +75,29 @@ function love.load()
 
 		local myContainer = gui:find("myContainer")
 		myContainer:insert{ "text", text="Pressed button "..pressCount.." time(s)!" }
-
 	end)
 
 	gui:getRoot():setDimensions(love.graphics.getDimensions())
 end
 
-function love.mousepressed(x, y, mouseButton)
-	gui:mousepressed(x, y, mouseButton)
+function love.keypressed(key, scancode, isRepeat)
+	gui:keypressed(key, scancode, isRepeat)
 end
-function love.mousemoved(x, y)
-	gui:mousemoved(x, y)
+function love.keyreleased(key, scancode)
+	gui:keyreleased(key, scancode)
 end
-function love.mousereleased(x, y, mouseButton)
-	gui:mousereleased(x, y, mouseButton)
+function love.textinput(text)
+	gui:textinput(text)
+end
+
+function love.mousepressed(mx, my, mbutton, pressCount)
+	gui:mousepressed(mx, my, mbutton, pressCount)
+end
+function love.mousemoved(mx, my)
+	gui:mousemoved(mx, my)
+end
+function love.mousereleased(mx, my, mbutton)
+	gui:mousereleased(mx, my, mbutton)
 end
 
 function love.update(dt)

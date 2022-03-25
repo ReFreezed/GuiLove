@@ -386,10 +386,9 @@ return {
 
 			-- Selection.
 			if input:isKeyboardFocus() then
-				local x1, x2 = field:getSelectionOffset()
-				if x2 > x1 then
-					setColor(1, 1, 1, .4)
-					love.graphics.rectangle("fill", inputIndent+x1, textY, x2-x1, valueH)
+				setColor(1, 1, 1, .4)
+				for _, x, _, w, h in field:eachSelection() do
+					love.graphics.rectangle("fill", inputIndent+x, textY, w, h)
 				end
 			end
 
@@ -400,9 +399,10 @@ return {
 
 			-- Cursor.
 			if input:isKeyboardFocus() then
+				local x, _, h       = field:getCursorLayout()
 				local cursorOpacity = ((math.cos(5*field:getBlinkPhase()) + 1) / 2) ^ .5
 				setColor(1, 1, 1, cursorOpacity)
-				love.graphics.rectangle("fill", inputIndent+field:getCursorOffset()-1, textY, 1, valueH)
+				love.graphics.rectangle("fill", inputIndent+x-1, textY, 1, h)
 			end
 		end,
 

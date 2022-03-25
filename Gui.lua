@@ -40,14 +40,24 @@
 		gui:getRoot():setDimensions(love.graphics.getDimensions())
 	end
 
-	function love.mousepressed(x, y, mouseButton)
-		gui:mousepressed(x, y, mouseButton)
+	function love.keypressed(key, scancode, isRepeat)
+		gui:keypressed(key, scancode, isRepeat)
 	end
-	function love.mousemoved(x, y)
-		gui:mousemoved(x, y)
+	function love.keyreleased(key, scancode)
+		gui:keyreleased(key, scancode)
 	end
-	function love.mousereleased(x, y, mouseButton)
-		gui:mousereleased(x, y, mouseButton)
+	function love.textinput(text)
+		gui:textinput(text)
+	end
+
+	function love.mousepressed(mx, my, mbutton, pressCount)
+		gui:mousepressed(mx, my, mbutton, pressCount)
+	end
+	function love.mousemoved(mx, my)
+		gui:mousemoved(mx, my)
+	end
+	function love.mousereleased(mx, my, mbutton)
+		gui:mousereleased(mx, my, mbutton)
 	end
 
 	function love.update(dt)
@@ -10226,10 +10236,9 @@ defaultTheme = (function()
 
 				-- Selection.
 				if input:isKeyboardFocus() then
-					local x1, x2 = field:getSelectionOffset()
-					if x2 > x1 then
-						setColor(1, 1, 1, .4)
-						love.graphics.rectangle("fill", inputIndent+x1, textY, x2-x1, valueH)
+					setColor(1, 1, 1, .4)
+					for _, x, _, w, h in field:eachSelection() do
+						love.graphics.rectangle("fill", inputIndent+x, textY, w, h)
 					end
 				end
 
@@ -10240,9 +10249,10 @@ defaultTheme = (function()
 
 				-- Cursor.
 				if input:isKeyboardFocus() then
+					local x, _, h       = field:getCursorLayout()
 					local cursorOpacity = ((math.cos(5*field:getBlinkPhase()) + 1) / 2) ^ .5
 					setColor(1, 1, 1, cursorOpacity)
-					love.graphics.rectangle("fill", inputIndent+field:getCursorOffset()-1, textY, 1, valueH)
+					love.graphics.rectangle("fill", inputIndent+x-1, textY, 1, h)
 				end
 			end,
 
