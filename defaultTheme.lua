@@ -354,15 +354,9 @@ return {
 				setColor(1, 1, 1, opacity)
 				button:drawText(text1X, textY)
 
-				-- @Incomplete: Handle utf8 characters and kerning. (Maybe add a helper method to GuiLeaf for getting character bounds.)
-				local mnemonicPos = button:getMnemonicPosition()
-
-				if mnemonicPos then
-					local font       = button:getFont()
-					local text1      = button:getText()
-					local mnemonicX1 = text1X + font:getWidth(text1:sub(1, mnemonicPos-1))
-					local mnemonicX2 = text1X + font:getWidth(text1:sub(1, mnemonicPos  ))
-					love.graphics.rectangle("fill", mnemonicX1, textY+font:getBaseline(), mnemonicX2-mnemonicX1, 1)
+				local mnemonicX, mnemonicY, mnemonicW = button:getMnemonicOffset()
+				if mnemonicX then
+					love.graphics.rectangle("fill", text1X+mnemonicX, textY+mnemonicY+1, mnemonicW, 1)
 				end
 
 			-- Image and text.
@@ -385,15 +379,9 @@ return {
 				setColor(1, 1, 1, opacity)
 				button:drawText(text1X, textY)
 
-				-- @Incomplete: Handle utf8 characters and kerning. (Maybe add a helper method to GuiLeaf for getting character bounds.)
-				local mnemonicPos = button:getMnemonicPosition()
-
-				if mnemonicPos then
-					local font       = button:getFont()
-					local text1      = button:getText()
-					local mnemonicX1 = text1X + font:getWidth(text1:sub(1, mnemonicPos-1))
-					local mnemonicX2 = text1X + font:getWidth(text1:sub(1, mnemonicPos  ))
-					love.graphics.rectangle("fill", mnemonicX1, textY+font:getBaseline(), mnemonicX2-mnemonicX1, 1)
+				local mnemonicX, mnemonicY, mnemonicW = button:getMnemonicOffset()
+				if mnemonicX then
+					love.graphics.rectangle("fill", text1X+mnemonicX, textY+mnemonicY+1, mnemonicW, 1)
 				end
 			end
 		end,

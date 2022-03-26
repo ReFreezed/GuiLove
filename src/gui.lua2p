@@ -216,7 +216,7 @@
 	(leaf)
 	- getAlign, setAlign
 	- getFont, useFont
-	- getMnemonicPosition
+	- getMnemonicOffset
 	- getText, getUnprocessedText, setText, drawText, drawAlignedText
 	- getTextColor, setTextColor, hasTextColor, useTextColor
 	- isBold, setBold
@@ -290,7 +290,8 @@
 !local LG = `love.graphics`
 !local LM = `love.mouse`
 
-!local TAU = 2*math.pi
+!local TAU               = 2*math.pi
+!local UTF8_CHAR_PATTERN = "[%z\1-\127\194-\244][\128-\191]*" -- utf8.charpattern
 
 
 
@@ -4562,7 +4563,7 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 
 		-- Pressing the same letter over and over should just cycle through all items starting with that letter.
 		if #searchTerm > 1 then -- @Robustness: Use UTF-8 character length - not byte length!
-			local firstChar = searchTerm:match("^[%z\1-\127\194-\244][\128-\191]*") -- utf8.charpattern
+			local firstChar = searchTerm:match!("^"..UTF8_CHAR_PATTERN)
 			local reps      = #searchTerm / #firstChar
 
 			if reps == math.floor(reps) and searchTerm == firstChar:rep(reps) then
@@ -6003,9 +6004,9 @@ Cs.leaf = newElementClass("GuiLeaf", Cs.element, {}, {
 	_text      = "",
 	_textColor = nil,
 
-	_mnemonicPosition = nil,
-	_textWidth        = 0, _textHeight = 0,
-	_unprocessedText  = "",
+	_mnemonicBytePosition = nil,
+	_textWidth            = 0, _textHeight = 0,
+	_unprocessedText      = "",
 }, {
 	-- void
 })
@@ -6058,10 +6059,21 @@ end
 
 
 
--- position|nil = leaf:getMnemonicPosition( )
+-- offsetX, offsetY, width = leaf:getMnemonicOffset( )
 -- Returns nil if there's no mnemonic.
-function Cs.leaf:getMnemonicPosition()
-	return self._mnemonicPosition
+function Cs.leaf:getMnemonicOffset()
+	if not self._mnemonicBytePosition then  return nil  end
+
+	local font = self:getFont()
+	local text = self._text
+
+	-- @Incomplete: Handle kerning.
+	local    i1 = self._mnemonicBytePosition
+	local _, i2 = text:find(!("^"..UTF8_CHAR_PATTERN), i1)
+	local x1    = font:getWidth(text:sub(1, i1-1)) -- @Speed @Memory
+	local x2    = font:getWidth(text:sub(1, i2  ))
+
+	return x1, font:getBaseline(), math.max(x2-x1, 1)
 end
 
 
@@ -6085,7 +6097,7 @@ function Cs.leaf:setText(unprocessedText)
 	if self._text == text then  return  end
 
 	-- Check text for mnemonics (using "&").
-	self._mnemonicPosition = nil
+	self._mnemonicBytePosition = nil
 
 	if self._mnemonics then
 		local matchCount    = 0
@@ -6094,7 +6106,7 @@ function Cs.leaf:setText(unprocessedText)
 		local cleanText = text:gsub("()&(.)", function(pos, c)
 			if c ~= "&" then
 				if mnemonicCount == 0 then
-					self._mnemonicPosition = pos - matchCount
+					self._mnemonicBytePosition = pos - matchCount
 				end
 				mnemonicCount = mnemonicCount + 1
 			end

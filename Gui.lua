@@ -216,7 +216,7 @@
 	(leaf)
 	- getAlign, setAlign
 	- getFont, useFont
-	- getMnemonicPosition
+	- getMnemonicOffset
 	- getText, getUnprocessedText, setText, drawText, drawAlignedText
 	- getTextColor, setTextColor, hasTextColor, useTextColor
 	- isBold, setBold
@@ -7032,7 +7032,7 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 
 		-- Pressing the same letter over and over should just cycle through all items starting with that letter.
 		if #searchTerm > 1 then -- @Robustness: Use UTF-8 character length - not byte length!
-			local firstChar = searchTerm:match("^[%z\1-\127\194-\244][\128-\191]*") -- utf8.charpattern
+			local firstChar = searchTerm:match"^[%z\1-\127\194-\244][\128-\191]*"
 			local reps      = #searchTerm / #firstChar
 
 			if reps == math.floor(reps) and searchTerm == firstChar:rep(reps) then
@@ -8476,9 +8476,9 @@ Cs.leaf = newElementClass("GuiLeaf", Cs.element, {}, {
 	_text      = "",
 	_textColor = nil,
 
-	_mnemonicPosition = nil,
-	_textWidth        = 0, _textHeight = 0,
-	_unprocessedText  = "",
+	_mnemonicBytePosition = nil,
+	_textWidth            = 0, _textHeight = 0,
+	_unprocessedText      = "",
 }, {
 	-- void
 })
@@ -8531,10 +8531,21 @@ end
 
 
 
--- position|nil = leaf:getMnemonicPosition( )
+-- offsetX, offsetY, width = leaf:getMnemonicOffset( )
 -- Returns nil if there's no mnemonic.
-function Cs.leaf:getMnemonicPosition()
-	return self._mnemonicPosition
+function Cs.leaf:getMnemonicOffset()
+	if not self._mnemonicBytePosition then  return nil  end
+
+	local font = self:getFont()
+	local text = self._text
+
+	-- @Incomplete: Handle kerning.
+	local    i1 = self._mnemonicBytePosition
+	local _, i2 = text:find("^[%z\1-\127\194-\244][\128-\191]*", i1)
+	local x1    = font:getWidth(text:sub(1, i1-1)) -- @Speed @Memory
+	local x2    = font:getWidth(text:sub(1, i2  ))
+
+	return x1, font:getBaseline(), math.max(x2-x1, 1)
 end
 
 
@@ -8558,7 +8569,7 @@ function Cs.leaf:setText(unprocessedText)
 	if self._text == text then  return  end
 
 	-- Check text for mnemonics (using "&").
-	self._mnemonicPosition = nil
+	self._mnemonicBytePosition = nil
 
 	if self._mnemonics then
 		local matchCount    = 0
@@ -8567,7 +8578,7 @@ function Cs.leaf:setText(unprocessedText)
 		local cleanText = text:gsub("()&(.)", function(pos, c)
 			if c ~= "&" then
 				if mnemonicCount == 0 then
-					self._mnemonicPosition = pos - matchCount
+					self._mnemonicBytePosition = pos - matchCount
 				end
 				mnemonicCount = mnemonicCount + 1
 			end
@@ -9989,15 +10000,9 @@ defaultTheme = (function()
 					setColor(1, 1, 1, opacity)
 					button:drawText(text1X, textY)
 
-					-- @Incomplete: Handle utf8 characters and kerning. (Maybe add a helper method to GuiLeaf for getting character bounds.)
-					local mnemonicPos = button:getMnemonicPosition()
-
-					if mnemonicPos then
-						local font       = button:getFont()
-						local text1      = button:getText()
-						local mnemonicX1 = text1X + font:getWidth(text1:sub(1, mnemonicPos-1))
-						local mnemonicX2 = text1X + font:getWidth(text1:sub(1, mnemonicPos  ))
-						love.graphics.rectangle("fill", mnemonicX1, textY+font:getBaseline(), mnemonicX2-mnemonicX1, 1)
+					local mnemonicX, mnemonicY, mnemonicW = button:getMnemonicOffset()
+					if mnemonicX then
+						love.graphics.rectangle("fill", text1X+mnemonicX, textY+mnemonicY+1, mnemonicW, 1)
 					end
 
 				-- Image and text.
@@ -10020,15 +10025,9 @@ defaultTheme = (function()
 					setColor(1, 1, 1, opacity)
 					button:drawText(text1X, textY)
 
-					-- @Incomplete: Handle utf8 characters and kerning. (Maybe add a helper method to GuiLeaf for getting character bounds.)
-					local mnemonicPos = button:getMnemonicPosition()
-
-					if mnemonicPos then
-						local font       = button:getFont()
-						local text1      = button:getText()
-						local mnemonicX1 = text1X + font:getWidth(text1:sub(1, mnemonicPos-1))
-						local mnemonicX2 = text1X + font:getWidth(text1:sub(1, mnemonicPos  ))
-						love.graphics.rectangle("fill", mnemonicX1, textY+font:getBaseline(), mnemonicX2-mnemonicX1, 1)
+					local mnemonicX, mnemonicY, mnemonicW = button:getMnemonicOffset()
+					if mnemonicX then
+						love.graphics.rectangle("fill", text1X+mnemonicX, textY+mnemonicY+1, mnemonicW, 1)
 					end
 				end
 			end,
