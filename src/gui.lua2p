@@ -228,7 +228,7 @@
 		- Event: draw
 
 		image
-		- Includes: imageMixin
+		- Includes: imageInclude
 
 		text
 
@@ -239,7 +239,7 @@
 		- Event: navupdate
 
 			button
-			- Includes: imageMixin
+			- Includes: imageInclude
 			- getArrow
 			- getText2, getUnprocessedText2, setText2, drawText2, drawAlignedText2
 			- isPressable, setPressable
@@ -264,7 +264,7 @@
 	Includes
 	----------------------------------------------------------------
 
-	imageMixin
+	imageInclude
 	- drawImage
 	- getImageBackgroundColor, setImageBackgroundColor, hasImageBackgroundColor, useImageBackgroundColor
 	- getImageColor, setImageColor, hasImageColor, useImageColor
@@ -356,7 +356,7 @@ local Gui = class("Gui", {
 })
 
 local Cs = {} -- gui element Classes.
-local Ms = {} -- gui element Mixins.
+local Is = {} -- gui element Includes.
 
 local validSoundKeys = {
 	-- Generic
@@ -487,10 +487,10 @@ end
 local function newElementClass(className, parentClass, includes, classTable, events)
 	local C = parentClass and parentClass:extend(className, classTable) or class(className, classTable)
 
-	-- Include mixins.
-	for _, mixinName in ipairs(includes) do
-		for k, v in pairs(Ms[mixinName]) do
-			@@ASSERT(C[k] == nil, k) -- A mixin should only add new stuff to classes, not override anything.
+	-- Include includes.
+	for _, includeName in ipairs(includes) do
+		for k, v in pairs(Is[includeName]) do
+			@@ASSERT(C[k] == nil, k) -- An include should only add new stuff to classes, not override anything.
 			C[k] = v
 		end
 	end
@@ -1090,7 +1090,7 @@ end
 -- value = trigger( element, event, value1, ... )
 local function trigger(el, event, ...)
 	local cb = el._callbacks[event]
-	if not cb then  return nil   end
+	if not cb then  return nil  end
 
 	return cb(el, event, ...)
 end
@@ -1104,10 +1104,7 @@ local function triggerIncludingAnimations(el, event, ...)
 		if cb then  cb(el, event, (time-anim.startTime)/anim.duration, ...)  end
 	end
 
-	local cb = el._callbacks[event]
-	if not cb then  return nil  end
-
-	return cb(el, event, ...)
+	return trigger(el, event, ...)
 end
 
 
@@ -1564,7 +1561,7 @@ function Gui:update(dt)
 
 			if time >= anim.endTime then
 				local cb = anim.callbacks["update"]
-				if cb then  cb(el, "update", 1)  end -- Make sure 'update' gets progress=1
+				if cb then  cb(el, "update", 1)  end -- Make sure 'update' gets progress=1.
 
 				cb = anim.callbacks["done"]
 				if cb then  cb(el, "done")  end
@@ -1607,17 +1604,15 @@ function Gui:update(dt)
 	local nav = self._navigationTarget
 	if nav then  trigger(nav, "navupdate", dt)  end
 
-	-- Check if mouse is inside window
+	-- Check if mouse is inside window.
 	if self._mouseX and not love.window.hasMouseFocus() then
 		self:mousemoved(nil, nil)
 	end
 
-
-
+	--
 	-- Update mouse cursor.
-
+	--
 	local lastCursor = self._currentMouseCursor
-	self._currentMouseCursor = nil
 
 	local el = self._mouseFocus or self._hoveredElement
 	if el
@@ -1627,6 +1622,8 @@ function Gui:update(dt)
 		and (el:isHovered() or self._mouseFocusSet[1] or self._mouseFocusSet[2] or self._mouseFocusSet[3])
 	then
 		self._currentMouseCursor = el:getResultingMouseCursor()
+	else
+		self._currentMouseCursor = nil
 	end
 
 	if self._currentMouseCursor ~= lastCursor then
@@ -1636,8 +1633,6 @@ function Gui:update(dt)
 			$LM.setCursor()
 		end
 	end
-
-
 
 	self._ignoreKeyboardInputThisFrame = false
 end
@@ -2570,12 +2565,12 @@ end
 
 
 --==============================================================
---= Image mixin ================================================
+--= Image include ==============================================
 --==============================================================
 
 
 
-Ms.imageMixin = {
+Is.imageInclude = {
 	-- Parameters.
 	_imageBackgroundColor = nil,
 	_imageColor           = nil,
@@ -2585,7 +2580,7 @@ Ms.imageMixin = {
 	_spriteName = nil,
 }
 
-local function initImageMixin(self, elData)
+local function initImageInclude(self, elData)
 	retrieve(self, elData, "_imageBackgroundColor")
 	retrieve(self, elData, "_imageColor")
 	-- retrieve(self, elData, "_imageScaleX","_imageScaleY")
@@ -2599,8 +2594,8 @@ end
 
 
 
--- imageMixinElement:drawImage( x, y )
-function Ms.imageMixin:drawImage(x, y)
+-- imageIncludeElement:drawImage( x, y )
+function Is.imageInclude:drawImage(x, y)
 	if not self._sprite then  return  end
 	local image, quad = getCurrentViewOfSprite(self._sprite)
 	local padding = (self:is(Cs.button) and self._imagePadding or 0)
@@ -2609,24 +2604,24 @@ end
 
 
 
--- colorTable|nil = imageMixinElement:getImageBackgroundColor( )
-function Ms.imageMixin:getImageBackgroundColor()
+-- colorTable|nil = imageIncludeElement:getImageBackgroundColor( )
+function Is.imageInclude:getImageBackgroundColor()
 	return self._imageBackgroundColor
 end
 
--- imageMixinElement:setImageBackgroundColor( colorTable|nil )
-function Ms.imageMixin:setImageBackgroundColor(color)
+-- imageIncludeElement:setImageBackgroundColor( colorTable|nil )
+function Is.imageInclude:setImageBackgroundColor(color)
 	self._imageBackgroundColor = color
 end
 
--- bool = imageMixinElement:hasImageBackgroundColor( )
-function Ms.imageMixin:hasImageBackgroundColor()
+-- bool = imageIncludeElement:hasImageBackgroundColor( )
+function Is.imageInclude:hasImageBackgroundColor()
 	return (self._imageBackgroundColor ~= nil)
 end
 
--- hasImageBackgroundColor = imageMixinElement:useImageBackgroundColor( [ alphaMultiplier=1 ] )
+-- hasImageBackgroundColor = imageIncludeElement:useImageBackgroundColor( [ alphaMultiplier=1 ] )
 -- Tell LÖVE to use the image background color.
-function Ms.imageMixin:useImageBackgroundColor(opacity)
+function Is.imageInclude:useImageBackgroundColor(opacity)
 	local color = self._imageBackgroundColor
 	useColor((color or COLOR_TRANSPARENT), opacity)
 	return (color ~= nil)
@@ -2634,24 +2629,24 @@ end
 
 
 
--- colorTable|nil = imageMixinElement:getImageColor( )
-function Ms.imageMixin:getImageColor()
+-- colorTable|nil = imageIncludeElement:getImageColor( )
+function Is.imageInclude:getImageColor()
 	return self._imageColor
 end
 
--- imageMixinElement:setImageColor( colorTable|nil )
-function Ms.imageMixin:setImageColor(color)
+-- imageIncludeElement:setImageColor( colorTable|nil )
+function Is.imageInclude:setImageColor(color)
 	self._imageColor = color
 end
 
--- bool = imageMixinElement:hasImageColor( )
-function Ms.imageMixin:hasImageColor()
+-- bool = imageIncludeElement:hasImageColor( )
+function Is.imageInclude:hasImageColor()
 	return (self._imageColor ~= nil)
 end
 
--- hasImageColor = imageMixinElement:useImageColor( [ alphaMultiplier=1 ] )
+-- hasImageColor = imageIncludeElement:useImageColor( [ alphaMultiplier=1 ] )
 -- Tell LÖVE to use the image color.
-function Ms.imageMixin:useImageColor(opacity)
+function Is.imageInclude:useImageColor(opacity)
 	local color = self._imageColor
 	useColor((color or COLOR_WHITE), opacity)
 	return (color ~= nil)
@@ -2659,24 +2654,24 @@ end
 
 
 
--- width, height = imageMixinElement:getImageDimensions( )
-function Ms.imageMixin:getImageDimensions()
+-- width, height = imageIncludeElement:getImageDimensions( )
+function Is.imageInclude:getImageDimensions()
 	local sprite = self._sprite
 	if not sprite then  return 0, 0  end
 	return sprite.width, sprite.height
 end
 
 -- Sets the scale of the image by specifying a size. Does nothing if there's no image.
--- imageMixinElement:setImageSize( width, height )
-function Ms.imageMixin:setImageSize(w, h)
+-- imageIncludeElement:setImageSize( width, height )
+function Is.imageInclude:setImageSize(w, h)
 	local sprite = self._sprite
 	if not sprite then  return  end
 	self:setImageScale(w/sprite.width, h/sprite.height)
 end
 
 -- Scales the image so it fills the element. Does nothing if there's no image or if no dimensions are set.
--- imageMixinElement:maximizeImageSize( [ extraWidth=0, extraHeight=0 ] )
-function Ms.imageMixin:maximizeImageSize(extraWidth, extraHeight)
+-- imageIncludeElement:maximizeImageSize( [ extraWidth=0, extraHeight=0 ] )
+function Is.imageInclude:maximizeImageSize(extraWidth, extraHeight)
 	local sprite = self._sprite
 	if not sprite then  return  end
 
@@ -2689,23 +2684,23 @@ end
 
 
 
--- scaleX, scaleY = imageMixinElement:getImageScale( )
--- scale = imageMixinElement:getImageScaleX( )
--- scale = imageMixinElement:getImageScaleY( )
-function Ms.imageMixin:getImageScale()
+-- scaleX, scaleY = imageIncludeElement:getImageScale( )
+-- scale = imageIncludeElement:getImageScaleX( )
+-- scale = imageIncludeElement:getImageScaleY( )
+function Is.imageInclude:getImageScale()
 	return self._imageScaleX, self._imageScaleY
 end
-function Ms.imageMixin:getImageScaleX()
+function Is.imageInclude:getImageScaleX()
 	return self._imageScaleX
 end
-function Ms.imageMixin:getImageScaleY()
+function Is.imageInclude:getImageScaleY()
 	return self._imageScaleY
 end
 
--- imageMixinElement:setImageScale( scaleX [, scaleY=scaleX ] )
--- imageMixinElement:setImageScaleX( scale )
--- imageMixinElement:setImageScaleY( scale )
-function Ms.imageMixin:setImageScale(sx, sy)
+-- imageIncludeElement:setImageScale( scaleX [, scaleY=scaleX ] )
+-- imageIncludeElement:setImageScaleX( scale )
+-- imageIncludeElement:setImageScaleY( scale )
+function Is.imageInclude:setImageScale(sx, sy)
 	!ARGS"2 sx:number ? sy:number"
 
 	sy = sy or sx
@@ -2715,14 +2710,14 @@ function Ms.imageMixin:setImageScale(sx, sy)
 	self._imageScaleY = sy
 	if self._sprite then  scheduleLayoutUpdateIfDisplayed(self)  end
 end
-function Ms.imageMixin:setImageScaleX(sx)
+function Is.imageInclude:setImageScaleX(sx)
 	!ARGS"2 sx:number"
 	if self._imageScaleX == sx then  return  end
 
 	self:setImageScale(sx, self._imageScaleY)
 	if self._sprite then  scheduleLayoutUpdateIfDisplayed(self)  end
 end
-function Ms.imageMixin:setImageScaleY(sy)
+function Is.imageInclude:setImageScaleY(sy)
 	!ARGS"2 sy:number"
 	if self._imageScaleY == sy then  return  end
 
@@ -2732,18 +2727,18 @@ end
 
 
 
--- spriteName|nil = imageMixinElement:getSprite( )
-function Ms.imageMixin:getSprite()
+-- spriteName|nil = imageIncludeElement:getSprite( )
+function Is.imageInclude:getSprite()
 	return self._spriteName
 end
 
--- imageMixinElement:setSprite( image [, quad ] )
--- imageMixinElement:setSprite( image, frames )
--- imageMixinElement:setSprite( spriteName )
--- imageMixinElement:setSprite( nil ) -- Remove sprite.
+-- imageIncludeElement:setSprite( image [, quad ] )
+-- imageIncludeElement:setSprite( image, frames )
+-- imageIncludeElement:setSprite( spriteName )
+-- imageIncludeElement:setSprite( nil ) -- Remove sprite.
 -- frames = { frame1, ... }
 -- frame  = { duration=duration, quad=quad }
-function Ms.imageMixin:setSprite(imageOrName, framesOrQuad)
+function Is.imageInclude:setSprite(imageOrName, framesOrQuad)
 	!ARGS"2 imageOrName:userdata,string,nil"
 
 	local image      = nil
@@ -2788,15 +2783,15 @@ function Ms.imageMixin:setSprite(imageOrName, framesOrQuad)
 	end
 end
 
--- bool = imageMixinElement:hasSprite( )
-function Ms.imageMixin:hasSprite()
+-- bool = imageIncludeElement:hasSprite( )
+function Is.imageInclude:hasSprite()
 	return (self._sprite ~= nil)
 end
 
 
 
 --==============================================================
---= Element class (virtual) ====================================
+--= Element class (abstract) ===================================
 --==============================================================
 
 
@@ -2842,39 +2837,39 @@ Cs.element = newElementClass("GuiElement", nil, {}, {
 
 	data = nil,
 }, {
-	"beforedraw"   , --            function( self, event, x, y, w, h )
-	"afterdraw"    , --            function( self, event, x, y, w, h )
+	"beforedraw"   , --            function( element, event, x, y, w, h )
+	"afterdraw"    , --            function( element, event, x, y, w, h )
 
-	"close"        , -- suppress = function( self, event )
-	"closed"       , --            function( self, event )
+	"close"        , -- suppress = function( element, event )
+	"closed"       , --            function( element, event )
 
-	"focused"      , --            function( self, event )
-	"blurred"      , --            function( self, event )
+	"focused"      , --            function( element, event )
+	"blurred"      , --            function( element, event )
 
-	"init"         , --            function( self, event )
+	"init"         , --            function( element, event )
 
-	"keypressed"   , -- suppress = function( self, event, key, scancode, isRepeat )
+	"keypressed"   , -- suppress = function( element, event, key, scancode, isRepeat )
 
-	"layout"       , --            function( self, event )
+	"layout"       , --            function( element, event )
 
-	"mousepressed" , --            function( self, event, mx, my, mbutton, pressCount )
-	"mousemoved"   , --            function( self, event, mx, my )
-	"mousereleased", --            function( self, event, mx, my, mbutton )
+	"mousepressed" , --            function( element, event, mx, my, mbutton, pressCount )
+	"mousemoved"   , --            function( element, event, mx, my )
+	"mousereleased", --            function( element, event, mx, my, mbutton )
 
-	"navigated"    , --            function( self, event )
+	"navigated"    , --            function( element, event )
 
-	"pressed"      , --            function( self, event )
+	"pressed"      , --            function( element, event )
 
-	"refresh"      , --            function( self, event )
+	"refresh"      , --            function( element, event )
 
-	"show"         , --            function( self, event )
-	"hide"         , --            function( self, event )
+	"show"         , --            function( element, event )
+	"hide"         , --            function( element, event )
 
-	"textinput"    , -- suppress = function( self, event, text )
+	"textinput"    , -- suppress = function( element, event, text )
 
-	"update"       , --            function( self, event, dt )
+	"update"       , --            function( element, event, dt )
 
-	"wheelmoved"   , -- suppress = function( self, event, dx, dy )
+	"wheelmoved"   , -- suppress = function( element, event, dx, dy )
 })
 
 function Cs.element:init(gui, elData, parent)
@@ -3070,7 +3065,7 @@ end
 --
 -- element:animate( duration, [ lockInteraction=false, ] callbackTable )
 -- callbackTable = { [event1]=callback, ... }
--- callback      = function( element, event, progress, ... )
+-- callback      = function( element, event, progress, ... ) -- Unlike in normal event callbacks there's an extra 'progress' argument before the rest of the arguments.
 --
 -- Example:
 --     myGui:find("myButton"):animate(1, true, {
@@ -5669,7 +5664,7 @@ end
 
 
 --==============================================================
---= Bar element class (virtual) ================================
+--= Bar element class (abstract) ===============================
 --==============================================================
 
 
@@ -5991,7 +5986,7 @@ end
 
 
 --==============================================================
---= Leaf element class (virtual) ===============================
+--= Leaf element class (abstract) ==============================
 --==============================================================
 
 
@@ -6236,7 +6231,7 @@ Cs.canvas = newElementClass("GuiCanvas", Cs.leaf, {}, {
 	-- Parameters.
 	_canvasBackgroundColor = nil,
 }, {
-	"draw", -- function( self, event, drawAreaWidth, drawAreaHeight )
+	"draw", -- function( canvasElement, event, drawAreaWidth, drawAreaHeight )
 })
 
 function Cs.canvas:init(gui, elData, parent)
@@ -6325,7 +6320,7 @@ end
 
 
 
-Cs.image = newElementClass("GuiImage", Cs.leaf, {"imageMixin"}, {
+Cs.image = newElementClass("GuiImage", Cs.leaf, {"imageInclude"}, {
 	-- void
 }, {
 	-- void
@@ -6333,7 +6328,7 @@ Cs.image = newElementClass("GuiImage", Cs.leaf, {"imageMixin"}, {
 
 function Cs.image:init(gui, elData, parent)
 	Cs.image.super.init(self, gui, elData, parent)
-	initImageMixin(self, elData)
+	initImageInclude(self, elData)
 end
 
 
@@ -6480,7 +6475,7 @@ end
 
 
 --==============================================================
---= Widget element class =======================================
+--= Widget element class (abstract) ============================
 --==============================================================
 
 
@@ -6490,8 +6485,8 @@ Cs.widget = newElementClass("GuiWidget", Cs.leaf, {}, {
 	_active   = true,
 	_priority = 0, -- Navigation priority.
 }, {
-	"navigate" , -- suppress = function( self, event )
-	"navupdate", --            function( self, event, dt )
+	"navigate" , -- suppress = function( widgetElement, event )
+	"navupdate", --            function( widgetElement, event, dt )
 })
 
 function Cs.widget:init(gui, elData, parent)
@@ -6535,7 +6530,7 @@ end
 
 
 
-Cs.button = newElementClass("GuiButton", Cs.widget, {"imageMixin"}, {
+Cs.button = newElementClass("GuiButton", Cs.widget, {"imageInclude"}, {
 	-- Parameters.
 	_arrow         = nil, -- @Cleanup: We're not using this internally. Should it be removed in favor of element.data?
 	_canToggle     = false,
@@ -6550,13 +6545,13 @@ Cs.button = newElementClass("GuiButton", Cs.widget, {"imageMixin"}, {
 	_textWidth1       = 0, _textWidth2 = 0,
 	_unprocessedText2 = "",
 }, {
-	"press" , -- function( self, event )
-	"toggle", -- function( self, event )
+	"press" , -- function( buttonElement, event )
+	"toggle", -- function( buttonElement, event )
 })
 
 function Cs.button:init(gui, elData, parent)
 	Cs.button.super.init(self, gui, elData, parent)
-	initImageMixin(self, elData)
+	initImageInclude(self, elData)
 
 	retrieve(self, elData, "_arrow")
 	retrieve(self, elData, "_canToggle")
@@ -6865,9 +6860,9 @@ Cs.input = newElementClass("GuiInput", Cs.widget, {}, {
 	_savedKeyRepeat = false,
 	_savedValue     = "",
 }, {
-	"change"     , -- function( self, event )
-	"submit"     , -- function( self, event )
-	"valuechange", -- function( self, event )
+	"change"     , -- function( inputElement, event )
+	"submit"     , -- function( inputElement, event )
+	"valuechange", -- function( inputElement, event )
 })
 
 function Cs.input:init(gui, elData, parent)

@@ -234,7 +234,7 @@ container
 - getChildWithData
 - getElementAt
 - getInnerSpace, getInnerSpaceX, getInnerSpaceY
-- getMaxWidth, setMaxWidth, getMaxHeight, setMaxHeight
+- getMaxDimensions, setMaxDimensions, getMaxWidth, setMaxWidth, getMaxHeight, setMaxHeight
 - getPadding, setPadding
 - getScroll, getScrollX, getScrollY, setScroll, setScrollX, setScrollY, scroll, updateScroll
 - getScrollHandleX, getScrollHandleY
@@ -262,7 +262,7 @@ container
 (leaf)
 - getAlign, setAlign
 - getFont, useFont
-- getMnemonicPosition
+- getMnemonicOffset
 - getText, getUnprocessedText, setText, drawText, drawAlignedText
 - getTextColor, setTextColor, hasTextColor, useTextColor
 - isBold, setBold
@@ -274,7 +274,7 @@ container
 	- Event: draw
 
 	image
-	- Includes: imageMixin
+	- Includes: imageInclude
 
 	text
 
@@ -285,7 +285,7 @@ container
 	- Event: navupdate
 
 		button
-		- Includes: imageMixin
+		- Includes: imageInclude
 		- getArrow
 		- getText2, getUnprocessedText2, setText2, drawText2, drawAlignedText2
 		- isPressable, setPressable
@@ -296,18 +296,21 @@ container
 
 		input
 		- focus, blur, isFocused
+		- getBlinkPhase
 		- getField
-		- getValue, setValue, getVisibleValue, drawValue
+		- getSelectionOffset, getCursorOffset
+		- getValue, setValue, getVisibleValue, drawValue, drawPlaceholder
 		- isPasswordActive, setPasswordActive
 		- Event: change
 		- Event: submit
+		- Event: valuechange
 ```
 
 
 ### Includes
 
 ```
-imageMixin
+imageInclude
 - drawImage
 - getImageBackgroundColor, setImageBackgroundColor, hasImageBackgroundColor, useImageBackgroundColor
 - getImageColor, setImageColor, hasImageColor, useImageColor
