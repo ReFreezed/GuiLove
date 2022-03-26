@@ -534,15 +534,14 @@ end
 
 
 
--- ... = coroutineIterator( coroutine )
-local function coroutineIterator(co)
-	return select(2, assert(coroutine.resume(co)))
-end
-
--- @Speed: Don't use this, yo!
+-- @Memory: Don't use this, yo!
 -- iterator, coroutine = newIteratorCoroutine( callback, argument1, ... )
 local newIteratorCoroutine
 do
+	-- ... = coroutineIterator( coroutine )
+	local function coroutineIterator(co)
+		return select(2, assert(coroutine.resume(co)))
+	end
 	local function initiator(cb, ...)
 		coroutine.yield()
 		return cb(...)
@@ -606,7 +605,7 @@ end
 
 
 
--- for index, item in ipairsr( table ) do
+-- for index, item in ipairsr( table )
 local ipairsr
 do
 	local function iprev(t, i)
@@ -3660,7 +3659,7 @@ function Cs.element:getParents()
 		el = el._parent
 		if not el then  return parents  end
 
-		i = i+1
+		i          = i + 1
 		parents[i] = el
 	end
 end
@@ -3670,11 +3669,8 @@ end
 function Cs.element.hasParent(el, parent)
 	while true do
 		el = el._parent
-		if not el then
-			return false
-		elseif el == parent then
-			return true
-		end
+		if not el       then  return false  end
+		if el == parent then  return true   end
 	end
 	return false
 end
@@ -3683,58 +3679,50 @@ end
 function Cs.element.getParentWithId(el, id)
 	while true do
 		el = el._parent
-		if not el then
-			return nil
-		elseif el._id == id then
-			return el
-		end
+		if not el       then  return nil  end
+		if el._id == id then  return el   end
 	end
 	return nil
 end
 
 -- bool = element:hasParentWithId( id )
 function Cs.element:hasParentWithId(id)
-	return (self:getParentWithId() ~= nil)
+	return self:getParentWithId() ~= nil
 end
 
-do
-	local function traverseParents(el)
-		local i = 0
-		while true do
-			el = el._parent
-			if not el then  return  end
-			i = i+1
-			coroutine.yield(i, el)
-		end
-	end
+-- for index, container in element:parents( )
+function Cs.element.parents(el)
+	local i = 0
 
-	-- for index, container in element:parents( ) do
-	function Cs.element:parents()
-		return newIteratorCoroutine(traverseParents, self)
+	return function()
+		el = el._parent
+		if not el then  return  end
+
+		i = i + 1
+		return i, el
 	end
 end
 
--- for index, container in element:parentsr( ) do
+-- for index, container in element:parentsr( )
 -- Reverse iteration.
 function Cs.element:parentsr()
 	return ipairs(reverseArray(self:getParents())) -- @Memory
 end
 
-do
-	local function traverseLineage(el)
-		local i = 1
-		while true do
-			coroutine.yield(i, el)
-			el = el._parent
-			if not el then  return  end
-			i = i+1
-		end
-	end
+-- for index, element in element:lineageUp( )
+-- Traverse from self to the grandest parent.
+function Cs.element.lineageUp(el)
+	local i = 0
 
-	-- for index, element in element:lineageUp( ) do
-	-- Traverse from self to the grandest parent.
-	function Cs.element:lineageUp()
-		return newIteratorCoroutine(traverseLineage, self)
+	return function()
+		if not el then  return  end
+
+		local current = el
+
+		i  = i + 1
+		el = el._parent
+
+		return i, current
 	end
 end
 
@@ -5506,38 +5494,64 @@ end
 
 
 
-do
-	local function traverseChildren(el)
-		for _, child in ipairs(el) do
-			coroutine.yield(child)
-			if child:is(Cs.container) then
-				traverseChildren(child)
-			end
-		end
-	end
+-- for element in container:traverse( )
+function Cs.container:traverse()
+	local stack = {self, 0}
+	local len   = 2
 
-	-- for element in container:traverse( ) do
-	function Cs.container:traverse()
-		return newIteratorCoroutine(traverseChildren, self)
+	return function()
+		local child
+
+		repeat
+			local i    = stack[len] + 1
+			stack[len] = i
+			child      = stack[len-1][i]
+
+			if not child then
+				len = len - 2 -- Don't bother removing values from the stack.
+				if len == 0 then  return  end
+			end
+		until child
+
+		if child:is(Cs.container) then
+			len          = len + 2
+			stack[len-1] = child
+			stack[len  ] = 0
+		end
+
+		return child
 	end
 end
 
-do
-	local function traverseChildrenOfType(el, C)
-		for _, child in ipairs(el) do
-			if child:is(C) then
-				coroutine.yield(child)
-			end
-			if child:is(Cs.container) then
-				traverseChildrenOfType(child, C)
-			end
-		end
-	end
+-- for element in container:traverseType( elementType )
+function Cs.container:traverseType(elType)
+	local C     = requireElementClass(elType)
+	local stack = {self, 0}
+	local len   = 2
 
-	-- for element in container:traverseType( elementType ) do
-	function Cs.container:traverseType(elType)
-		local C = requireElementClass(elType)
-		return newIteratorCoroutine(traverseChildrenOfType, self, C)
+	return function()
+		local child
+
+		repeat
+			repeat
+				local i    = stack[len] + 1
+				stack[len] = i
+				child      = stack[len-1][i]
+
+				if not child then
+					len = len - 2 -- Don't bother removing values from the stack.
+					if len == 0 then  return  end
+				end
+			until child
+
+			if child:is(Cs.container) then
+				len          = len + 2
+				stack[len-1] = child
+				stack[len  ] = 0
+			end
+		until child:is(C)
+
+		return child
 	end
 end
 
@@ -5561,11 +5575,11 @@ do
 			local child = el[i]
 
 			if not child._hidden then
-				local isContainer = child:is(Cs.container)
-				local includeSelf, includeChildren = true, isContainer
+				local isContainer     = child:is(Cs.container)
+				local includeSelf     = true
+				local includeChildren = isContainer
 
 				if isContainer then
-
 					local x1, y1 = child:getPositionOnScreen()
 					local x2, y2 = x1+child._layoutWidth, y1+child._layoutHeight
 
@@ -5579,7 +5593,6 @@ do
 						includeChildren = false
 						includeSelf     = (y < y2)
 					end
-
 				end
 
 				if includeSelf then
@@ -5592,14 +5605,14 @@ do
 		end
 	end
 
-	-- for element in container:traverseVisible( [ x, y ] ) do
+	-- for element in container:traverseVisible( )
+	-- for element in container:traverseVisible( x, y )
 	function Cs.container:traverseVisible(x, y)
-		-- @Speed: Don't use newIteratorCoroutine, yo!
-		if x and y then
-			local sbW = themeGet(self._gui, "scrollbarWidth")
-			return newIteratorCoroutine(traverseVisibleChildrenUnderCoords, self, x, y, sbW)
+		if x then
+			return newIteratorCoroutine(traverseVisibleChildrenUnderCoords, self, x, y, themeGet(self._gui, "scrollbarWidth"))
+		else
+			return newIteratorCoroutine(traverseVisibleChildren, self)
 		end
-		return newIteratorCoroutine(traverseVisibleChildren, self)
 	end
 end
 
