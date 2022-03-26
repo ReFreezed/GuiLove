@@ -364,10 +364,9 @@ return {
 		end,
 
 		-- Input element.
-		-- draw.input( inputElement, elementWidth, elementHeight, inputIndentation, valueHeight )
-		["input"] = function(input, w, h, inputIndent, valueH)
-			local field   = input:getField()
-			local textY   = math.floor((h-valueH)/2)
+		-- draw.input( inputElement, elementWidth, elementHeight, inputIndentation, valueHeight, cursorOffset, selectionOffset, selectionWidth )
+		["input"] = function(input, w, h, inputIndent, valueH, curOffset, selOffset, selW)
+			local valueY  = math.floor((h-valueH)/2)
 			local opacity = input:isActive() and 1 or .3
 
 			-- Background.
@@ -385,24 +384,21 @@ return {
 			input:setScissor(2, 2, w-2*2, h-2*2) -- Make sure the contents does not render outside the element.
 
 			-- Selection.
-			if input:isKeyboardFocus() then
+			if input:isKeyboardFocus() and selW > 0 then
 				setColor(1, 1, 1, .4)
-				for _, x, _, w, h in field:eachSelection() do
-					love.graphics.rectangle("fill", inputIndent+x, textY, w, h)
-				end
+				love.graphics.rectangle("fill", inputIndent+selOffset, valueY, selW, valueH)
 			end
 
 			-- Value.
 			input:useFont()
 			setColor(1, 1, 1, opacity)
-			input:drawValue(inputIndent, textY)
+			input:drawValue(inputIndent, valueY)
 
 			-- Cursor.
 			if input:isKeyboardFocus() then
-				local x, _, h       = field:getCursorLayout()
-				local cursorOpacity = ((math.cos(5*field:getBlinkPhase()) + 1) / 2) ^ .5
+				local cursorOpacity = ((math.cos(5*input:getBlinkPhase()) + 1) / 2) ^ .5
 				setColor(1, 1, 1, cursorOpacity)
-				love.graphics.rectangle("fill", inputIndent+x-1, textY, 1, h)
+				love.graphics.rectangle("fill", inputIndent+curOffset-1, valueY, 1, valueH)
 			end
 		end,
 

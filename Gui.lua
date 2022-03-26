@@ -250,7 +250,9 @@
 
 			input
 			- focus, blur, isFocused
+			- getBlinkPhase
 			- getField
+			- getSelectionOffset, getCursorOffset
 			- getValue, setValue, getVisibleValue, drawValue, drawPlaceholder
 			- isPasswordActive, setPasswordActive
 			- Event: change
@@ -3046,10 +3048,10 @@ end
 
 
 
--- index = indexOf( table, value )
+-- index = indexOf( array, value )
 -- index = indexOf( container, element )
-local function indexOf(t, v)
-	for i, item in ipairs(t) do
+local function indexOf(arr, v)
+	for i, item in ipairs(arr) do
 		if item == v then  return i  end
 	end
 	return nil
@@ -3060,13 +3062,13 @@ end
 -- for index, item in ipairsr( table )
 local ipairsr
 do
-	local function iprev(t, i)
-		i = i-1
-		local v = t[i]
+	local function iprev(arr, i)
+		i       = i - 1
+		local v = arr[i]
 		if v ~= nil then  return i, v  end
 	end
-	function ipairsr(t)
-		return iprev, t, #t+1
+	function ipairsr(arr)
+		return iprev, arr, #arr+1
 	end
 end
 
@@ -3396,14 +3398,13 @@ end
 
 
 
--- array = reverseArray( array )
 local function reverseArray(arr)
-	local lenPlusOne, i2 = #arr+1
-	for i = 1, #arr/2 do
-		i2 = lenPlusOne-i
-		arr[i], arr[i2] = arr[i2], arr[i]
+	local lenPlusOne = #arr + 1
+
+	for i1 = 1, #arr/2 do
+		local i2         = lenPlusOne - i1
+		arr[i1], arr[i2] = arr[i2], arr[i1]
 	end
-	return arr
 end
 
 
@@ -6161,6 +6162,7 @@ function Cs.element:hasParentWithId(id)
 end
 
 -- for index, container in element:parents( )
+-- Iterate over parents, from parent to grandparent.
 function Cs.element.parents(el)
 	local i = 0
 
@@ -6174,9 +6176,9 @@ function Cs.element.parents(el)
 end
 
 -- for index, container in element:parentsr( )
--- Reverse iteration.
+-- Iterate over parents in reverse, from grandparent to parent.
 function Cs.element:parentsr()
-	return ipairs(reverseArray(self:getParents())) -- @Memory
+	return ipairsr(self:getParents())
 end
 
 -- for index, element in element:lineageUp( )
@@ -6198,18 +6200,21 @@ end
 
 
 
+local parts = {}
+
 -- description = element:getPathDescription( )
 function Cs.element.getPathDescription(el)
-	local parts = {} -- @Memory
+	for i = 1, #parts do  parts[i] = nil  end
 
 	while true do
+		-- Note that we construct the description in reverse.
 		if not el._automaticId then
 			table.insert(parts, ")")
 			table.insert(parts, el._id)
 			table.insert(parts, "(")
 		end
 
-		table.insert(parts, (el.class.__name:gsub("^Gui", "")))
+		table.insert(parts, el.__name:sub(4)) -- Remove the "Gui" prefix from the class name.
 
 		local i = el:getIndex()
 		if i then
@@ -6223,7 +6228,8 @@ function Cs.element.getPathDescription(el)
 		table.insert(parts, "/")
 	end
 
-	return table.concat(reverseArray(parts))
+	reverseArray(parts)
+	return table.concat(parts)
 end
 
 
@@ -9354,13 +9360,15 @@ function Cs.input:_draw()
 	if self._hidden    then  return  end
 	if self._gui.debug then  return self:_drawDebug(0, 180, 0)  end
 
-	local inputIndent = themeGet(self._gui, "inputIndentation")
-	local x, y, w, h  = xywh(self)
+	local inputIndent     = themeGet(self._gui, "inputIndentation")
+	local x, y, w, h      = xywh(self)
+	local curOffset       = self:getCursorOffset()
+	local selOffset, selW = self:getSelectionOffset()
 
 	triggerIncludingAnimations(self, "beforedraw", x, y, w, h)
 
 	drawLayoutBackground(self)
-	themeRender(self, "input", inputIndent, self:getFont():getHeight())
+	themeRender(self, "input", inputIndent, self:getFont():getHeight(), curOffset, selOffset, selW)
 
 	triggerIncludingAnimations(self, "afterdraw", x, y, w, h)
 end
@@ -9627,6 +9635,28 @@ function Cs.input:_expandLayout(expandW, expandH)
 	self._layoutInnerHeight = self._layoutHeight
 
 	self._field:setWidth(self._layoutInnerWidth)
+end
+
+
+
+-- offset, width = input:getSelectionOffset( )
+function Cs.input:getSelectionOffset()
+	for i, x, y, w, h in self._field:eachSelectionOptimized() do
+		return x, w
+	end
+	return 0, 0 -- We should never get here!
+end
+
+-- offset = input:getCursorOffset( )
+function Cs.input:getCursorOffset()
+	return (self._field:getCursorLayout())
+end
+
+
+
+-- phase = input:getBlinkPhase( )
+function Cs.input:getBlinkPhase()
+	return self._field:getBlinkPhase()
 end
 
 
@@ -10004,10 +10034,9 @@ defaultTheme = (function()
 			end,
 
 			-- Input element.
-			-- draw.input( inputElement, elementWidth, elementHeight, inputIndentation, valueHeight )
-			["input"] = function(input, w, h, inputIndent, valueH)
-				local field   = input:getField()
-				local textY   = math.floor((h-valueH)/2)
+			-- draw.input( inputElement, elementWidth, elementHeight, inputIndentation, valueHeight, cursorOffset, selectionOffset, selectionWidth )
+			["input"] = function(input, w, h, inputIndent, valueH, curOffset, selOffset, selW)
+				local valueY  = math.floor((h-valueH)/2)
 				local opacity = input:isActive() and 1 or .3
 
 				-- Background.
@@ -10025,24 +10054,21 @@ defaultTheme = (function()
 				input:setScissor(2, 2, w-2*2, h-2*2) -- Make sure the contents does not render outside the element.
 
 				-- Selection.
-				if input:isKeyboardFocus() then
+				if input:isKeyboardFocus() and selW > 0 then
 					setColor(1, 1, 1, .4)
-					for _, x, _, w, h in field:eachSelection() do
-						love.graphics.rectangle("fill", inputIndent+x, textY, w, h)
-					end
+					love.graphics.rectangle("fill", inputIndent+selOffset, valueY, selW, valueH)
 				end
 
 				-- Value.
 				input:useFont()
 				setColor(1, 1, 1, opacity)
-				input:drawValue(inputIndent, textY)
+				input:drawValue(inputIndent, valueY)
 
 				-- Cursor.
 				if input:isKeyboardFocus() then
-					local x, _, h       = field:getCursorLayout()
-					local cursorOpacity = ((math.cos(5*field:getBlinkPhase()) + 1) / 2) ^ .5
+					local cursorOpacity = ((math.cos(5*input:getBlinkPhase()) + 1) / 2) ^ .5
 					setColor(1, 1, 1, cursorOpacity)
-					love.graphics.rectangle("fill", inputIndent+x-1, textY, 1, h)
+					love.graphics.rectangle("fill", inputIndent+curOffset-1, valueY, 1, valueH)
 				end
 			end,
 
