@@ -297,268 +297,88 @@ end
 local class      = (function()
 	--[[============================================================
 	--=
-	--=  Class module v2.1
-	--=  - Written by Marcus 'ReFreezed' Thunström
-	--=  - MIT License (See the bottom of this file)
-	--=
-	--=  Changelog:
-	--=  v2.1: Added several functions to the class module object.
-	--=  v2.0: Renamed define/defineGet/defineSet to def/defget/defset.
-	--=  v1.0: First release.
+	--=  Simple class library
 	--=
 	--==============================================================
 
-		class = require("class") -- Get the class module.
+		classLib = require("class")
 
-		myClass = class( className, baseTable ) -- Create a new class.
+		myClass  = classLib( className, baseTable ) -- Create a new class.
 		subClass = myClass:extend( className, baseTable ) -- Create a subclass.
 
 		subClass.super -- Access the parent class.
 
-		instance = myClass(...) -- Create a new instance (which calls myClass:init() ).
-		result = instance:is( class ) -- Check if the instance inherits a class.
-		instance = instance:as( class ) -- Get the instance if it inherits a class.
+		instance = myClass(...) -- Create a new instance (which calls myClass:init(...)).
+		bool     = instance:is( class ) -- Check if the instance inherits a class.
 
 		instance.class -- Access the instance's class.
 
-		-- Shorthands.
-		myClass:def("myValue") -- Automatically define simple getter and setter (getMyValue() and setMyValue() ).
-		myClass:defget("myReadOnly") -- Define simple getter (instance:getMyReadOnly() returns instance.myReadOnly).
-		myClass:defset("myValue") -- Define simple setter (instance:setMyValue() updates instance.myValue).
-
 	--============================================================]]
 
-
-
-	local classes   = setmetatable({}, {__mode='k'})
-	local instances = setmetatable({}, {__mode='k'})
-
-
-
-	--==============================================================
-	--==============================================================
-	--==============================================================
-
-	local newClass
-	local extend
-	local def, defget, defset
-	local is, as
-
-
-
-	-- class = newClass( name, classTable )
 	local classMt = {
-
 		__call = function(C, ...)
+			local instance = {class=C, __id=""}
 
-			local instance = {class=C}
-			instances[instance] = tostring(instance):match'0x(%w+)'
+			local id      = tostring(instance)
+			instance.__id = id:match"0x(%x+)" or id:gsub("^table: ", "")
 
 			setmetatable(instance, C)
-
 			instance:init(...)
 
 			return instance
 		end,
 
 		__tostring = function(C)
-			return ('class(%s)'):format(C.__name)
+			return ("class(%s)"):format(C.__name)
 		end,
-
 	}
-	function newClass(name, C)
-		if type(name) ~= 'string' then
-			error('bad class name type (string expected, got '..type(name)..')', 2)
-		end
-		if type(C) ~= 'table' then
-			error('bad base table type (table expected, got '..type(C)..')', 2)
-		end
 
-		classes[C] = tostring(C):match'0x(%w+)'
-
+	-- class = newClass( name, classTable )
+	local function newClass(name, C)
 		-- Instances use their class as metatable.
 		C.__index = C
-		C.__name = name
-
+		C.__name  = name
 		return setmetatable(C, classMt)
 	end
 
-
-
-	-- subClass = class:extend( name, subClassTable )
-	function extend(C, name, SubC)
-		if type(name) ~= 'string' then
-			error('bad class name type (string expected, got '..type(name)..')', 2)
-		end
-		if type(SubC) ~= 'table' then
-			error('bad base table type (table expected, got '..type(SubC)..')', 2)
-		end
-
-		-- Subclasses do NOT use superclasses as metatables - we just copy everything over.
-		-- TODO: Confirm if this is actually faster than using a tree of metatables.
-		for k, v in pairs(C) do
-			if SubC[k] == nil then
-				SubC[k] = v
-			end
-		end
-
-		SubC.super = C
-
-		return newClass(name, SubC)
-	end
-
-
-
-	-- class:def( propertyName [, getterFunction, setterFunction ] )
-	function def(C, k, getter, setter)
-		defget(C, k, getter)
-		defset(C, k, setter)
-	end
-
-	-- class:defget( propertyName [, getterFunction ] )
-	function defget(C, k, getter)
-
-		local suffix = k
-			:gsub('^_', '') -- Allow the property name to be either '_myProp' or 'myProp'.
-			:gsub('^.', string.upper)
-
-		C['get'..suffix] = (getter or function(self)
-			return self[k]
-		end)
-
-	end
-
-	-- class:defset( propertyName [, setterFunction ] )
-	function defset(C, k, setter)
-
-		local suffix = k
-			:gsub('^_', '') -- Allow the property name to be either '_myProp' or 'myProp'.
-			:gsub('^.', string.upper)
-
-		C['set'..suffix] = (setter or function(self, v)
-			self[k] = v
-		end)
-
-	end
-
-
-
-	-- result = instance:is( class )
-	-- result = instance:is( classPath )
-	-- result = class:is( class )
-	-- result = class:is( classPath )
-	function is(obj, C)
-
-		if type(C) == 'string' then
-			C = require(C)
-		end
-
-		if not classes[C] then
-			return false -- No object can "be" a non-class.
-		end
-
-		local currentClass = (classes[obj] and obj) or (instances[obj] and obj.class) or (nil)
-		if not currentClass then return false end
-
-		-- Look through the whole inheritance.
-		repeat
-			if currentClass == C then return true end
-			currentClass = currentClass.super
-		until not currentClass
-
-		return false
-	end
-
-	-- instance = instance:as( class )
-	-- instance = instance:as( classPath )
-	function as(instance, C)
-		return (is(instance, C) and instance or nil)
-	end
-
-
-
-	--==============================================================
-	--==============================================================
-	--==============================================================
-
-
-
-	local BaseClass = newClass('Class', {
-
+	local BaseClass = newClass("Class", {
 		__tostring = function(self)
-			return ('%s(%s)'):format(self.class.__name, instances[self])
+			return ("%s(%s)"):format(self.class.__name, self.__id)
 		end,
 
-		extend = extend,
+		-- subClass = class:extend( name, subClassTable )
+		extend = function(C, name, SubC)
+			-- Subclasses do NOT use superclasses as metatables - we just copy everything over.
+			for k, v in pairs(C) do
+				if SubC[k] == nil then  SubC[k] = v  end
+			end
 
-		def = def,
-		defget = defget,
-		defset = defset,
+			SubC.super = C
 
-		is = is,
-		as = as,
+			return newClass(name, SubC)
+		end,
+
+		-- bool = instance:is( class )
+		is = function(obj, C)
+			local currentClass = obj.class
+
+			-- Look through the whole inheritance.
+			while currentClass do
+				if currentClass == C then  return true  end
+				currentClass = currentClass.super
+			end
+
+			return false
+		end,
 
 		init = function()end,
-
 	})
 
+	return function(...)
+		return BaseClass:extend(...)
+	end
 
-
-	--==============================================================
-
-
-
-	local class = {
-
-		base = BaseClass,
-
-		def = def,
-		defget = defget,
-		defset = defset,
-
-		is = is,
-		as = as,
-
-	}
-	setmetatable(class, {
-
-		__call = function(t, ...)
-			return BaseClass:extend(...)
-		end,
-
-	})
-
-	return class
-
-
-
-	--==============================================================
-	--=
-	--=  MIT License
-	--=
-	--=  Copyright © 2017 Marcus 'ReFreezed' Thunström
-	--=
-	--=  Permission is hereby granted, free of charge, to any person obtaining a copy
-	--=  of this software and associated documentation files (the "Software"), to deal
-	--=  in the Software without restriction, including without limitation the rights
-	--=  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-	--=  copies of the Software, and to permit persons to whom the Software is
-	--=  furnished to do so, subject to the following conditions:
-	--=
-	--=  The above copyright notice and this permission notice shall be included in all
-	--=  copies or substantial portions of the Software.
-	--=
-	--=  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-	--=  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-	--=  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-	--=  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-	--=  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-	--=  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-	--=  SOFTWARE.
-	--=
-	--==============================================================
-
-       end)() -- @Cleanup: Get rid of this.
+       end)()
 local InputField = (function()
 	--[[============================================================
 	--=
@@ -2992,7 +2812,9 @@ local InputField = (function()
 local COLOR_TRANSPARENT = {1,1,1,0}
 local COLOR_WHITE       = {1,1,1,1}
 
-local _M = {} -- The module.
+local _M = { -- The module.
+	_VERSION = "0.2.0",
+}
 
 local Gui = class("Gui", {
 	TOOLTIP_DELAY = 0.15,
@@ -3110,12 +2932,28 @@ end
 
 
 
--- applyMixin( class, mixin )
-local function applyMixin(C, mixin)
-	for fName, f in pairs(mixin) do
-		if not (C[fName] == nil) then  error((fName))  end -- A mixin should only add new methods to classes, not override anything.
-		C[fName] = f
+-- class = newElementClass( className, parentClass|nil, includes, classTable, events )
+local function newElementClass(className, parentClass, includes, classTable, events)
+	local C = parentClass and parentClass:extend(className, classTable) or class(className, classTable)
+
+	-- Include mixins.
+	for _, mixinName in ipairs(includes) do
+		for k, v in pairs(Ms[mixinName]) do
+			if not (C[k] == nil) then  error((k))  end -- A mixin should only add new stuff to classes, not override anything.
+			C[k] = v
+		end
 	end
+
+	-- Register events.
+	for i, event in ipairs(C._events) do
+		table.insert(events, i, event)
+	end
+	for i, event in ipairs(events) do
+		events[event] = true
+	end
+	C._events = events
+
+	return C
 end
 
 
@@ -3154,7 +2992,7 @@ local function coroutineIterator(co)
 end
 
 -- @Speed: Don't use this, yo!
--- iterator, coroutine = newIteratorCoroutine( callback, arguments... )
+-- iterator, coroutine = newIteratorCoroutine( callback, argument1, ... )
 local newIteratorCoroutine
 do
 	local function initiator(cb, ...)
@@ -3539,19 +3377,6 @@ end
 
 
 
--- registerEvents( class, events )
-local function registerEvents(C, events)
-	for i, event in ipairs(C._events) do
-		table.insert(events, i, event)
-	end
-	for i, event in ipairs(events) do
-		events[event] = true
-	end
-	C._events = events
-end
-
-
-
 -- class = requireElementClass( elType )
 local function requireElementClass(elType)
 	return Cs[elType] or errorf(2, "Unknown element type '%s'.", elType)
@@ -3559,7 +3384,7 @@ end
 
 
 
--- retrieve( element, elementData, property1... )
+-- retrieve( element, elementData, property1, ... )
 local function retrieve(el, elData, _k, ...)
 	local v = elData[_k:sub(2)]
 	if v ~= nil then
@@ -3660,7 +3485,7 @@ local function themeGet(gui, k)
 	return v
 end
 
--- themeRenderOnScreen( element, what, x, y, w, h, extraArgument... )
+-- themeRenderOnScreen( element, what, x, y, w, h, extraArgument1, ... )
 local function themeRenderOnScreen(el, what, x, y, w, h, ...)
 	local gui = el._gui
 	if x+w < 0 or y+h < 0 then  return  end
@@ -3677,19 +3502,19 @@ local function themeRenderOnScreen(el, what, x, y, w, h, ...)
 	love.graphics.pop()
 end
 
--- themeRenderArea( element, what, areaX, areaY, areaWidth, areaHeight, extraArgument... )
+-- themeRenderArea( element, what, areaX, areaY, areaWidth, areaHeight, extraArgument1, ... )
 local function themeRenderArea(el, what, areaX, areaY, areaW, areaH, ...)
 	local x = round(el:getXOnScreen()+areaX)
 	local y = round(el:getYOnScreen()+areaY)
 	return themeRenderOnScreen(el, what, x, y, areaW, areaH, ...)
 end
 
--- themeRender( element, what, extraArgument... )
+-- themeRender( element, what, extraArgument1, ... )
 local function themeRender(el, what, ...)
 	return themeRenderArea(el, what, 0, 0, el._layoutWidth, el._layoutHeight, ...)
 end
 
--- width, height = themeGetSize( element, what, extraArgument... )
+-- width, height = themeGetSize( element, what, extraArgument1, ... )
 local function themeGetSize(el, what, ...)
 	local w, h = themeCallBack(el._gui, "size", what, el, ...)
 	if not (type(w) == "number" and type(h) == "number") then
@@ -3714,7 +3539,7 @@ end
 
 
 
--- value = trigger( element, event, ... )
+-- value = trigger( element, event, value1, ... )
 local function trigger(el, event, ...)
 	local cb = el._callbacks[event]
 	if not cb then  return nil   end
@@ -3722,7 +3547,7 @@ local function trigger(el, event, ...)
 	return cb(el, event, ...)
 end
 
--- value = triggerIncludingAnimations( element, event, ... )
+-- value = triggerIncludingAnimations( element, event, value, ... )
 local function triggerIncludingAnimations(el, event, ...)
 	local time = el._gui._time
 
@@ -4400,12 +4225,12 @@ end
 
 
 
--- handled = gui:mousepressed( mouseX, mouseY, mouseButton [, pressCount=auto ] )
+-- handled = gui:mousepressed( mouseX, mouseY, mouseButton, pressCount )
 function Gui:mousepressed(mx, my, mbutton, pressCount)
 	if type(mx)~="number" then argerror(2,1,"mx",mx,"number") end
 	if type(my)~="number" then argerror(2,2,"my",my,"number") end
 	if type(mbutton)~="number" then argerror(2,3,"mbutton",mbutton,"number") end
-	if not(type(pressCount)=="number" or pressCount==nil) then argerror(2,4,"pressCount",pressCount,"number","nil") end
+	if type(pressCount)~="number" then argerror(2,4,"pressCount",pressCount,"number") end
 
 	self._mouseX = mx
 	self._mouseY = my
@@ -4429,7 +4254,7 @@ function Gui:mousepressed(mx, my, mbutton, pressCount)
 		-- Trigger any custom mousepressed event handler.
 		-- Returning true from the handler suppresses the default built-in behavior.
 		local screenX, screenY = el:getPositionOnScreen()
-		if el:trigger("mousepressed", mx-screenX, my-screenY, mbutton) then
+		if el:trigger("mousepressed", mx-screenX, my-screenY, mbutton, pressCount) then
 			return true
 		end
 
@@ -5215,15 +5040,26 @@ end
 
 
 Ms.imageMixin = {
-	--[[
-	spriteName = "",
-
+	-- Parameters.
 	_imageBackgroundColor = nil,
 	_imageColor           = nil,
 	_imageScaleX          = 1.0, _imageScaleY = 1.0,
 	_sprite               = nil,
-	]]
+
+	_spriteName = nil,
 }
+
+local function initImageMixin(self, elData)
+	retrieve(self, elData, "_imageBackgroundColor")
+	retrieve(self, elData, "_imageColor")
+	-- retrieve(self, elData, "_imageScaleX","_imageScaleY")
+	-- retrieve(self, elData, "_sprite")
+
+	self._imageScaleX = elData.imageScaleX or elData.imageScale or self._imageScaleX
+	self._imageScaleY = elData.imageScaleY or elData.imageScale or self._imageScaleY
+
+	self:setSprite(elData.sprite)
+end
 
 
 
@@ -5397,7 +5233,6 @@ function Ms.imageMixin:setSprite(imageOrName, framesOrQuad)
 	elseif imageOrName then
 		if not(type(framesOrQuad)=="userdata" or type(framesOrQuad)=="table" or framesOrQuad==nil) then argerror(2,2,"framesOrQuad",framesOrQuad,"userdata","table","nil") end
 		image = imageOrName
-
 	end
 
 	local oldIw, oldIh = 0, 0
@@ -5405,7 +5240,7 @@ function Ms.imageMixin:setSprite(imageOrName, framesOrQuad)
 		oldIw, oldIh = self._sprite.width, self._sprite.height
 	end
 
-	self._sprite     = (image and newSprite(image, framesOrQuad))
+	self._sprite     = image and newSprite(image, framesOrQuad)
 	self._spriteName = spriteName
 
 	local iw, ih = 0, 0
@@ -5431,24 +5266,10 @@ end
 
 
 
-Cs.element = class("GuiElement", {
-	--[[STATIC]] _events = {},
+Cs.element = newElementClass("GuiElement", nil, {}, {
+	--[[STATIC]] _events = {--[[ event1, [event1]=true, ... ]]},
 
-	_animations             = nil,
-	_automaticId            = false,
-	_callbacks              = nil,
-	_gui                    = nil,
-	_layoutExpandablesX     = 0,   _layoutExpandablesY      = 0,
-	_layoutImmediateOffsetX = 0,   _layoutImmediateOffsetY  = 0, -- Sum of parents' scrolling, excluding smooth scrolling.
-	_layoutInnerSpacingsX   = 0,   _layoutInnerSpacingsY    = 0,
-	_layoutInnerStaticWidth = 0,   _layoutInnerStaticHeight = 0,
-	_layoutInnerWidth       = 0,   _layoutInnerHeight       = 0,
-	_layoutOffsetX          = 0.0, _layoutOffsetY           = 0.0, -- Sum of parents' scrolling.
-	_layoutWidth            = 0,   _layoutHeight            = 0,
-	_layoutX                = 0,   _layoutY                 = 0,
-	_parent                 = nil,
-	_timeBecomingVisible    = 0.00,
-
+	-- Parameters.
 	_anchorX      = 0.0, _anchorY = 0.0, -- where in self to base off x and y
 	_background   = nil,
 	_captureInput = false, --[[all input]] _captureGuiInput = false, --[[all input affecting GUI]]
@@ -5469,23 +5290,56 @@ Cs.element = class("GuiElement", {
 	_width        = nil, _height = nil,
 	_x            = 0, _y = 0, -- offset from origin
 
+	_animations             = nil,
+	_automaticId            = false,
+	_callbacks              = nil,
+	_gui                    = nil,
+	_layoutExpandablesX     = 0,   _layoutExpandablesY      = 0,
+	_layoutImmediateOffsetX = 0,   _layoutImmediateOffsetY  = 0, -- Sum of parents' scrolling, excluding smooth scrolling.
+	_layoutInnerSpacingsX   = 0,   _layoutInnerSpacingsY    = 0,
+	_layoutInnerStaticWidth = 0,   _layoutInnerStaticHeight = 0,
+	_layoutInnerWidth       = 0,   _layoutInnerHeight       = 0,
+	_layoutOffsetX          = 0.0, _layoutOffsetY           = 0.0, -- Sum of parents' scrolling.
+	_layoutWidth            = 0,   _layoutHeight            = 0,
+	_layoutX                = 0,   _layoutY                 = 0,
+	_parent                 = nil,
+	_timeBecomingVisible    = 0.00,
+
 	data = nil,
-})
-registerEvents(Cs.element, {
-	"beforedraw","afterdraw",
-	"close","closed",
-	"focused","blurred",
-	"init",
-	"keypressed",
-	"layout",
-	"mousepressed","mousemoved","mousereleased",
-	"navigated",
-	"pressed",
-	"refresh",
-	"show","hide",
-	"textinput",
-	"update",
-	"wheelmoved",
+}, {
+	"beforedraw"   , --            function( self, event, x, y, w, h )
+	"afterdraw"    , --            function( self, event, x, y, w, h )
+
+	"close"        , -- suppress = function( self, event )
+	"closed"       , --            function( self, event )
+
+	"focused"      , --            function( self, event )
+	"blurred"      , --            function( self, event )
+
+	"init"         , --            function( self, event )
+
+	"keypressed"   , -- suppress = function( self, event, key, scancode, isRepeat )
+
+	"layout"       , --            function( self, event )
+
+	"mousepressed" , --            function( self, event, mx, my, mbutton, pressCount )
+	"mousemoved"   , --            function( self, event, mx, my )
+	"mousereleased", --            function( self, event, mx, my, mbutton )
+
+	"navigated"    , --            function( self, event )
+
+	"pressed"      , --            function( self, event )
+
+	"refresh"      , --            function( self, event )
+
+	"show"         , --            function( self, event )
+	"hide"         , --            function( self, event )
+
+	"textinput"    , -- suppress = function( self, event, text )
+
+	"update"       , --            function( self, event, dt )
+
+	"wheelmoved"   , -- suppress = function( self, event, dx, dy )
 })
 
 function Cs.element:init(gui, elData, parent)
@@ -5680,7 +5534,7 @@ end
 
 --
 -- element:animate( duration, [ lockInteraction=false, ] callbackTable )
--- callbackTable = { [event]=callback... }
+-- callbackTable = { [event1]=callback, ... }
 -- callback      = function( element, event, progress, ... )
 --
 -- Example:
@@ -6638,7 +6492,7 @@ end
 
 
 
--- handled, grabFocus = element:_mousepressed( mouseX, mouseY, mouseButton [, pressCount=auto ] )
+-- handled, grabFocus = element:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
 function Cs.element:_mousepressed(mx, my, mbutton, pressCount)
 	return false, false
 end
@@ -7096,7 +6950,7 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 		if _cb then  _cb(0, "")  end
 	end)
 
-	menu:on("mousepressed", function(button, event, mx, my, mbutton)
+	menu:on("mousepressed", function(button, event, mx, my, mbutton, pressCount)
 		menu:close()
 	end)
 
@@ -7110,7 +6964,7 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 		local isToggled = (hlIndices ~= nil and indexOf(hlIndices, i) ~= nil)
 		local button = buttons:insert{ type="button", text=text, text2=text2, align="left", toggled=isToggled }
 
-		button:on("mousepressed", function(button, event, mx, my, mbutton)
+		button:on("mousepressed", function(button, event, mx, my, mbutton, pressCount)
 			if mbutton == 1 then  button:press()  end
 			return true -- Prevent the menu from receiving the mousepressed event.
 		end)
@@ -7278,22 +7132,21 @@ end
 
 
 
-Cs.container = Cs.element:extend("GuiContainer", {
+Cs.container = newElementClass("GuiContainer", Cs.element, {}, {
 	SCROLL_SMOOTHNESS = 0.65,
 	SCROLL_SPEED_X    = 30, SCROLL_SPEED_Y = 50,
 
-	_mouseScrollDirection = nil, _mouseScrollOffset = 0,
-	_scrollX              = 0.0, _scrollY           = 0.0,
-	_visualScrollX        = 0.0, _visualScrollY     = 0.0,
-
+	-- Parameters.
 	_confineNavigation = false,
 	_expandX           = false, _expandY   = false,
 	_maxWidth          = nil,   _maxHeight = nil,
 	_padding           = 0,
 	_solid             = false,
 
-})
-registerEvents(Cs.container, {
+	_mouseScrollDirection = nil, _mouseScrollOffset = 0,
+	_scrollX              = 0.0, _scrollY           = 0.0,
+	_visualScrollX        = 0.0, _visualScrollY     = 0.0,
+}, {
 	-- void
 })
 
@@ -7929,7 +7782,7 @@ end
 
 
 
--- INTERNAL REPLACE  handled, grabFocus = container:_mousepressed( mouseX, mouseY, mouseButton [, pressCount=auto ] )
+-- INTERNAL REPLACE  handled, grabFocus = container:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
 function Cs.container:_mousepressed(mx, my, mbutton, pressCount)
 	if mbutton == 1 then
 		local x0        , y0         = self:getPositionOnScreen()
@@ -8273,11 +8126,11 @@ end
 
 
 
-Cs.bar = Cs.container:extend("GuiBar", {
+Cs.bar = newElementClass("GuiBar", Cs.container, {}, {
+	-- Parameters.
 	_expandChildren = true,
 	_homogeneous    = false,
-})
-registerEvents(Cs.bar, {
+}, {
 	-- void
 })
 
@@ -8296,16 +8149,14 @@ end
 
 
 
-Cs.hbar = Cs.bar:extend("GuiHorizontalBar", {
+Cs.hbar = newElementClass("GuiHorizontalBar", Cs.bar, {}, {
+	-- void
+}, {
 	-- void
 })
-Cs.vbar = Cs.bar:extend("GuiVerticalBar", {
+Cs.vbar = newElementClass("GuiVerticalBar", Cs.bar, {}, {
 	-- void
-})
-registerEvents(Cs.hbar, {
-	-- void
-})
-registerEvents(Cs.vbar, {
+}, {
 	-- void
 })
 
@@ -8525,10 +8376,9 @@ end
 
 
 
-Cs.root = Cs.container:extend("GuiRoot", {
+Cs.root = newElementClass("GuiRoot", Cs.container, {}, {
 	--[[REPLACE]] _width = 0, _height = 0, -- The root always has a fixed size.
-})
-registerEvents(Cs.root, {
+}, {
 	-- void
 })
 
@@ -8599,19 +8449,18 @@ end
 
 
 
-Cs.leaf = Cs.element:extend("GuiLeaf", {
-	_mnemonicPosition = nil,
-	_textWidth        = 0, _textHeight = 0,
-	_unprocessedText  = "",
-
+Cs.leaf = newElementClass("GuiLeaf", Cs.element, {}, {
+	-- Parameters.
 	_align     = "center", -- "left" | "right" | "center"
 	_bold      = false, _small = false, _large = false,
 	_mnemonics = false,
 	_text      = "",
 	_textColor = nil,
 
-})
-registerEvents(Cs.leaf, {
+	_mnemonicPosition = nil,
+	_textWidth        = 0, _textHeight = 0,
+	_unprocessedText  = "",
+}, {
 	-- void
 })
 
@@ -8825,11 +8674,11 @@ end
 
 
 
-Cs.canvas = Cs.leaf:extend("GuiCanvas", {
+Cs.canvas = newElementClass("GuiCanvas", Cs.leaf, {}, {
+	-- Parameters.
 	_canvasBackgroundColor = nil,
-})
-registerEvents(Cs.canvas, {
-	"draw",
+}, {
+	"draw", -- function( self, event, drawAreaWidth, drawAreaHeight )
 })
 
 function Cs.canvas:init(gui, elData, parent)
@@ -8895,7 +8744,7 @@ end
 
 
 
--- INTERNAL REPLACE  handled, grabFocus = canvas:_mousepressed( mouseX, mouseY, mouseButton [, pressCount=auto ] )
+-- INTERNAL REPLACE  handled, grabFocus = canvas:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
 function Cs.canvas:_mousepressed(mx, my, mbutton, pressCount)
 	return true, true
 end
@@ -8918,33 +8767,15 @@ end
 
 
 
-Cs.image = Cs.leaf:extend("GuiImage", {
-	-- imageMixin
-	_spriteName = nil,
-
-	-- imageMixin
-	_imageBackgroundColor = nil,
-	_imageColor           = nil,
-	_imageScaleX          = 1.0, _imageScaleY = 1.0,
-	_sprite               = nil,
-})
-applyMixin(Cs.image, Ms.imageMixin)
-registerEvents(Cs.image, {
+Cs.image = newElementClass("GuiImage", Cs.leaf, {"imageMixin"}, {
+	-- void
+}, {
 	-- void
 })
 
 function Cs.image:init(gui, elData, parent)
 	Cs.image.super.init(self, gui, elData, parent)
-
-	retrieve(self, elData, "_imageBackgroundColor")
-	retrieve(self, elData, "_imageColor")
-	-- retrieve(self, elData, "_imageScaleX","_imageScaleY")
-	-- retrieve(self, elData, "_sprite")
-
-	self._imageScaleX = (elData.imageScaleX or elData.imageScale or self._imageScaleX)
-	self._imageScaleY = (elData.imageScaleY or elData.imageScale or self._imageScaleY)
-
-	self:setSprite(elData.sprite)
+	initImageMixin(self, elData)
 end
 
 
@@ -9003,10 +8834,10 @@ end
 
 
 
-Cs.text = Cs.leaf:extend("GuiText", {
+Cs.text = newElementClass("GuiText", Cs.leaf, {}, {
+	-- Parameters.
 	_wrapText = false, _textWrapLimit = nil,
-})
-registerEvents(Cs.text, {
+}, {
 	-- void
 })
 
@@ -9096,13 +8927,13 @@ end
 
 
 
-Cs.widget = Cs.leaf:extend("GuiWidget", {
+Cs.widget = newElementClass("GuiWidget", Cs.leaf, {}, {
+	-- Parameters.
 	_active   = true,
 	_priority = 0, -- Navigation priority.
-})
-registerEvents(Cs.widget, {
-	"navigate",
-	"navupdate",
+}, {
+	"navigate" , -- suppress = function( self, event )
+	"navupdate", --            function( self, event, dt )
 })
 
 function Cs.widget:init(gui, elData, parent)
@@ -9146,20 +8977,8 @@ end
 
 
 
-Cs.button = Cs.widget:extend("GuiButton", {
-	-- imageMixin
-	_spriteName = nil,
-
-	_isPressed        = false,
-	_textWidth1       = 0, _textWidth2 = 0,
-	_unprocessedText2 = "",
-
-	-- imageMixin
-	_imageBackgroundColor = nil,
-	_imageColor           = nil,
-	_imageScaleX          = 1.0, _imageScaleY = 1.0,
-	_sprite               = nil,
-
+Cs.button = newElementClass("GuiButton", Cs.widget, {"imageMixin"}, {
+	-- Parameters.
 	_arrow         = nil, -- @Cleanup: We're not using this internally. Should it be removed in favor of element.data?
 	_canToggle     = false,
 	_close         = false,
@@ -9169,34 +8988,29 @@ Cs.button = Cs.widget:extend("GuiButton", {
 	_toggled       = false,
 	_toggledSprite = nil, _untoggledSprite = nil,
 
-})
-applyMixin(Cs.button, Ms.imageMixin)
-registerEvents(Cs.button, {
-	"press",
-	"toggle",
+	_isPressed        = false,
+	_textWidth1       = 0, _textWidth2 = 0,
+	_unprocessedText2 = "",
+}, {
+	"press" , -- function( self, event )
+	"toggle", -- function( self, event )
 })
 
 function Cs.button:init(gui, elData, parent)
 	Cs.button.super.init(self, gui, elData, parent)
+	initImageMixin(self, elData)
 
 	retrieve(self, elData, "_arrow")
 	retrieve(self, elData, "_canToggle")
 	retrieve(self, elData, "_close")
-	retrieve(self, elData, "_imageBackgroundColor")
-	retrieve(self, elData, "_imageColor")
-	-- retrieve(self, elData, "_imageScaleX","_imageScaleY")
 	retrieve(self, elData, "_imagePadding")
 	retrieve(self, elData, "_pressable")
-	-- retrieve(self, elData, "_sprite")
 	-- retrieve(self, elData, "_text2")
 	retrieve(self, elData, "_toggled")
 	retrieve(self, elData, "_toggledSprite","_untoggledSprite")
 
-	self._imageScaleX = (elData.imageScaleX or elData.imageScale or self._imageScaleX)
-	self._imageScaleY = (elData.imageScaleY or elData.imageScale or self._imageScaleY)
-
 	if elData.sprite then
-		self:setSprite(elData.sprite)
+		-- void
 	elseif self._toggledSprite and self._toggled then
 		self:setSprite(self._toggledSprite)
 	elseif self._untoggledSprite and not self._toggled then
@@ -9351,7 +9165,7 @@ end
 
 
 
--- INTERNAL REPLACE  handled, grabFocus = button:_mousepressed( mouseX, mouseY, mouseButton [, pressCount=auto ] )
+-- INTERNAL REPLACE  handled, grabFocus = button:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
 function Cs.button:_mousepressed(mx, my, mbutton, pressCount)
 	if mbutton == 1 then
 		if not self._active then
@@ -9480,22 +9294,22 @@ end
 
 
 
-Cs.input = Cs.widget:extend("GuiInput", {
-	_field          = nil,
-	_savedKeyRepeat = false,
-	_savedValue     = "",
-
+Cs.input = newElementClass("GuiInput", Cs.widget, {}, {
+	-- Parameters.
 	--[[OVERRIDE]] _mouseCursor = "ibeam",
-	--[[REPLACE ]] _minWidth = 10,
+	--[[REPLACE ]] _minWidth    = 10,
 	_mask        = "",
 	_placeholder = "",
 	_spin        = 0,
 	_spinMin     = -1/0, _spinMax = 1/0,
-})
-registerEvents(Cs.input, {
-	"change",
-	"submit",
-	"valuechange",
+
+	_field          = nil,
+	_savedKeyRepeat = false,
+	_savedValue     = "",
+}, {
+	"change"     , -- function( self, event )
+	"submit"     , -- function( self, event )
+	"valuechange", -- function( self, event )
 })
 
 function Cs.input:init(gui, elData, parent)
@@ -9726,7 +9540,7 @@ end
 
 
 
--- INTERNAL REPLACE  handled, grabFocus = input:_mousepressed( mouseX, mouseY, mouseButton [, pressCount=auto ] )
+-- INTERNAL REPLACE  handled, grabFocus = input:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
 function Cs.input:_mousepressed(mx, my, mbutton, pressCount)
 	if not self._active then
 		return true, false
