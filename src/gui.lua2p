@@ -97,7 +97,7 @@
 	getScrollSpeed, setScrollSpeed
 	getSoundPlayer, setSoundPlayer
 	getSpriteLoader, setSpriteLoader
-	getTarget, parseTargetAndEvent, getTargetCallback, setTargetCallback
+	getTarget, getTargetCallback, setTargetCallback
 	getTextPreprocessor, setTextPreprocessor, reprocessTexts
 	getTheme, setTheme
 	getTime, getTimeSinceNavigation
@@ -136,7 +136,7 @@
 	- getMouseCursor, getResultingMouseCursor, setMouseCursor
 	- getMousePosition, getMouseX, getMouseY
 	- getOrigin, setOrigin, getOriginX, setOriginX, getOriginY, setOriginY
-	- getParent, getParents, hasParent, getParentWithId, hasParentWithId, parents, parentsr, lineageUp
+	- getParent, getAllParents, hasParent, getParentWithId, hasParentWithId, parents, parentsr, lineageUp
 	- getPathDescription
 	- getPosition, setPosition, getX, setX, getY, setY
 	- getPositionOnScreen, getXOnScreen, getYOnScreen
@@ -197,7 +197,7 @@
 	- getToggledChild, setToggledChild
 	- getVisibleChild, getVisibleChildNumber, getVisibleChildCount, setVisibleChild
 	- getVisualScroll, getVisualScrollX, getVisualScrollY
-	- hasScrollbars, hasScrollbarOnRight, hasScrollbarOnBottom
+	- hasAnyScrollbar, hasScrollbarOnRight, hasScrollbarOnBottom
 	- indexOf
 	- insert, removeAt, empty
 	- setChildrenActive
@@ -281,6 +281,7 @@
 	create9PartQuads
 	draw9PartScaled
 	newMonochromeImage, newImageUsingPalette
+	parseTargetAndEvent
 
 
 
@@ -1552,6 +1553,19 @@ end
 
 
 
+-- target, event  = Gui.parseTargetAndEvent( targetAndEvent )
+-- targetAndEvent = "ID.subID.anotherSubID.event" -- Sequence of dot-separated IDs followed by a dot and an event name.
+-- Returns nil and a message on error.
+function _M.parseTargetAndEvent(targetAndEvent)
+	local target, event = targetAndEvent:match"^(.-)%.?([^.]+)$"
+	if not target then
+		return nil, F("Bad targetAndEvent format '%s'.", targetAndEvent)
+	end
+	return target, event
+end
+
+
+
 --==============================================================
 --= GUI class ==================================================
 --==============================================================
@@ -2283,12 +2297,18 @@ end
 
 
 
--- converter = gui:getScissorCoordsConverter( )
+-- converter|nil = gui:getScissorCoordsConverter( )
 function Gui:getScissorCoordsConverter()
 	return self._scissorCoordsConverter
 end
 
+--
 -- gui:setScissorCoordsConverter( converter|nil )
+-- x, y, width, height = converter( x, y, width, height )
+--
+-- If the graphics transform is changed outside the GUI system then a scissor
+-- coordinate converter is needed for scissoring to work properly.
+--
 function Gui:setScissorCoordsConverter(converter)
 	self._scissorCoordsConverter = converter
 end
@@ -2360,24 +2380,12 @@ function Gui:getTarget(target)
 	return el
 end
 
--- target, event  = gui:parseTargetAndEvent( targetAndEvent )
--- targetAndEvent = "ID.subID.anotherSubID.event" -- Sequence of dot-separated IDs followed by a dot and an event name.
--- Returns nil and a message on error.
-function Gui:parseTargetAndEvent(targetAndEvent) -- @Cleanup: This shouldn't be a method!
-	local target, event = targetAndEvent:match"^(.-)%.?([^.]+)$"
-	if not target then
-		return nil, F("Bad targetAndEvent format '%s'.", targetAndEvent)
-	end
-
-	return target, event
-end
-
 -- callback       = gui:getTargetCallback( targetAndEvent )
 -- targetAndEvent = "ID.subID.anotherSubID.event" -- Sequence of dot-separated IDs followed by a dot and an event name.
 -- Returns nil and a message on error.
 -- Returns nil (and no message) if there's no callback.
 function Gui:getTargetCallback(targetAndEvent)
-	local target, eventOrErr = self:parseTargetAndEvent(targetAndEvent)
+	local target, eventOrErr = _M.parseTargetAndEvent(targetAndEvent)
 	if not target then  return nil, eventOrErr  end
 
 	local el, err = self:getTarget(target)
@@ -2390,7 +2398,7 @@ end
 -- targetAndEvent = "ID.subID.anotherSubID.event" -- Sequence of dot-separated IDs followed by a dot and an event name.
 -- Returns nil and a message on error.
 function Gui:setTargetCallback(targetAndEvent, cb)
-	local target, eventOrErr = self:parseTargetAndEvent(targetAndEvent)
+	local target, eventOrErr = _M.parseTargetAndEvent(targetAndEvent)
 	if not target then  return nil, eventOrErr  end
 
 	local el, err = self:getTarget(target)
@@ -3654,11 +3662,9 @@ function Cs.element:getParent()
 	return self._parent
 end
 
--- containers = element:getParents( )
+-- containers = element:getAllParents( )
 -- Returns an array of parents, with the closest parent first.
--- @Cleanup: Rename to getAllParents().
-function Cs.element:getParents()
-	local el      = self
+function Cs.element.getAllParents(el)
 	local parents = {} -- @Memory
 	local i       = 0
 
@@ -3714,7 +3720,7 @@ end
 -- for index, container in element:parentsr( )
 -- Iterate over parents in reverse, from grandparent to parent.
 function Cs.element:parentsr()
-	return ipairsr(self:getParents())
+	return ipairsr(self:getAllParents())
 end
 
 -- for index, element in element:lineageUp( )
@@ -4392,7 +4398,7 @@ function Cs.element:setScissor(x, y, w, h, ignoreScrollables)
 
 			if not parent then  break  end
 
-			if parent:hasScrollbars() then
+			if parent:hasAnyScrollbar() then
 				local parentX, parentY = parent:getPositionOnScreen()
 
 				if not gui._elementScissorIsSet then
@@ -5116,7 +5122,7 @@ end
 
 -- visibleChild = container:setVisibleChild( id )
 -- If multiple children have the specified ID then the last one is returned.
--- @Cleanup: Rename to setVisibleChildById()?
+-- @Cleanup: Rename to setVisibleChildById()? Maybe more functions should be changed too.
 function Cs.container:setVisibleChild(id)
 	local visibleChild = nil
 	for _, child in ipairs(self) do
@@ -5147,17 +5153,17 @@ end
 
 
 
--- bool = hasScrollbars( ) -- @Cleanup: Rename to hasAnyScrollbar().
+-- bool = hasAnyScrollbar( )
 -- bool = hasScrollbarOnRight( )
 -- bool = hasScrollbarOnBottom( )
-function Cs.container:hasScrollbars()
-	return (self:hasScrollbarOnRight() or self:hasScrollbarOnBottom())
+function Cs.container:hasAnyScrollbar()
+	return self:hasScrollbarOnRight() or self:hasScrollbarOnBottom()
 end
 function Cs.container:hasScrollbarOnRight()
-	return (self._maxHeight ~= nil)
+	return self._maxHeight ~= nil
 end
 function Cs.container:hasScrollbarOnBottom()
-	return (self._maxWidth ~= nil)
+	return self._maxWidth ~= nil
 end
 
 
