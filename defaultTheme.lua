@@ -293,7 +293,7 @@ return {
 
 			local opacity = button:isActive() and 1 or .3
 
-			local isHovered = button:isActive() and button:isHovered(true)
+			local isHovered = button:isActive() and button:isHovered()
 
 			-- Background.
 			local r, g, b = 1, 1, 1
@@ -399,8 +399,8 @@ return {
 			end
 
 			-- Border.
-			local isHovered = (input:isKeyboardFocus() or input:isActive() and input:isHovered(true))
-			local a         = (isHovered and 1 or .4)*opacity
+			local isHighlighted = (input:isActive() and input:isHovered()) or input:isKeyboardFocus()
+			local a             = (isHighlighted and 1 or .4) * opacity
 			setColor(1, 1, 1, a)
 			love.graphics.rectangle("line", 1+.5, 1+.5, w-2-1, h-2-1)
 

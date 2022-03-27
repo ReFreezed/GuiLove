@@ -21,6 +21,7 @@
 		local tree = {"root",
 			{"vbar", id="myContainer", width=200,
 				{"text", text="I'm just a text."},
+				{"input", value="foo bar"},
 				{"button", id="myButton", text="Press Me!"},
 			},
 		}
@@ -33,8 +34,8 @@
 			pressCount = pressCount + 1
 
 			local myContainer = gui:find("myContainer")
-			myContainer:insert{ "text", text="Pressed button "..pressCount.." time(s)!" }
-
+			local text        = "Pressed button " .. pressCount .. " " .. (pressCount == 1 and "time" or "times") .. "!"
+			myContainer:insert{ "text", text=text }
 		end)
 
 		gui:getRoot():setDimensions(love.graphics.getDimensions())
@@ -57,7 +58,7 @@
 		gui:mousemoved(mx, my)
 	end
 	function love.mousereleased(mx, my, mbutton, isTouch, pressCount)
-		gui:mousereleased(mx, my, mbutton)
+		gui:mousereleased(mx, my, mbutton, pressCount)
 	end
 	function love.wheelmoved(dx, dy)
 		gui:wheelmoved(dx, dy)
@@ -2826,33 +2827,56 @@ local Gui = class("Gui", {
 	VALUE_MASK_FLOAT  =  "^%-?%d+%.?%d*$", -- Floating point number.
 	VALUE_MASK_UFLOAT =  "^%d+%.?%d*$",    -- Unsigned floating point number.
 
-	_allAnimations                = nil, _animationLockCount = 0,
-	_currentMouseCursor           = nil,
-	_defaultSounds                = nil,
-	_elementScissorIsSet          = false,
-	_font                         = nil, _fontBold = nil, _fontSmall = nil, _fontLarge = nil, _fontTooltip = nil,
-	_heres                        = nil,
-	_hoveredElement               = nil,
-	_ignoreKeyboardInputThisFrame = false,
+	_allAnimations      = nil,
+	_animationLockCount = 0,
+
+	_font        = nil,
+	_fontBold    = nil,
+	_fontSmall   = nil,
+	_fontLarge   = nil,
+	_fontTooltip = nil,
+
+	_defaultSounds = nil,
+	_soundPlayer   = nil,
+
+	_scissorCoordsConverter = nil,
+	_elementScissorIsSet    = false,
+
+	_mouseX                 =  -999999,
+	_mouseY                 =  -999999,
+	_mouseFocus             = nil,
+	_mouseFocusButtonStates = nil,
+	_mouseIsGrabbed         = false,
+	_currentMouseCursor     = nil,
+
 	_keyboardFocus                = nil,
-	_lastAutomaticId              = 0,
-	_layoutNeedsUpdate            = false,
-	_lockNavigation               = false,
-	_mouseFocus                   = nil, _mouseFocusSet = nil,
-	_mouseIsGrabbed               = false,
-	_mouseX                       = nil, _mouseY = nil,
-	_navigationTarget             = nil, _timeSinceNavigation = 0.0,
-	_root                         = nil,
-	_scissorCoordsConverter       = nil,
-	_scrollSpeedX                 = 1.0, _scrollSpeedY = 1.0,
-	_soundPlayer                  = nil,
-	_spriteLoader                 = nil,
+	_ignoreKeyboardInputThisFrame = false,
 	_standardKeysAreActive        = true,
-	_styles                       = nil,
-	_textPreprocessor             = nil,
-	_theme                        = nil,
-	_time                         = 0.0,
-	_tooltipTime                  = 0.0,
+
+	_navigationTarget    = nil,
+	_timeSinceNavigation = 0.0,
+	_lockNavigation      = false,
+
+	_scrollSpeedX = 1.0,
+	_scrollSpeedY = 1.0,
+
+	_time        = 0.0,
+	_tooltipTime = 0.0,
+
+	_theme  = nil,
+	_styles = nil,
+
+	_root           = nil,
+	_hoveredElement = nil,
+
+	_lastAutomaticId = 0,
+
+	_layoutNeedsUpdate = false,
+
+	_textPreprocessor = nil,
+	_spriteLoader     = nil,
+
+	_heres = nil,
 
 	debug = false,
 })
@@ -2893,20 +2917,7 @@ local function printerr(depth, s, ...)
 	local time    = require"socket".gettime()
 	local timeStr = os.date("%H:%M:%S", time)
 	local msStr   = F("%.3f", time%1):sub(2)
-
-	printf("[%s%s] ERROR: "..s, timeStr, msStr, ...)
-
-	-- Traceback.
-	for line in debug.traceback("", 1+depth):gmatch"[^\n]+" do
-		local fileAndLine, inside = line:match"\t(%w.-): in (.+)"
-
-		if fileAndLine then
-			inside = inside:gsub("^function ", ""):gsub("^['<](.+)['>]$", "%1")
-			printf("\t%s  (%s)", fileAndLine, inside)
-		end
-	end
-
-	print()
+	io.stderr:write(debug.traceback(F("[%s%s] ERROR: "..s, timeStr, msStr, ...), 1+depth), "\n")
 end
 
 
@@ -3164,11 +3175,11 @@ local function updateSprite(sprite, dt)
 	local frames = sprite.frames
 
 	local i      = sprite.currentFrame
-	local time   = sprite.currentTime+dt
+	local time   = sprite.currentTime + dt
 
 	while time >= frames[i].duration do
-		time = time-frames[i].duration
-		i    = i%sprite.length+1
+		time = time - frames[i].duration
+		i    = i % sprite.length + 1
 	end
 
 	sprite.currentFrame = i
@@ -3416,26 +3427,43 @@ end
 
 
 
--- setMouseFocus( gui, element, mouseButton )
--- setMouseFocus( gui, nil ) -- Blur.
-local function setMouseFocus(gui, el, mbutton)
-	if el then
-		if next(gui._mouseFocusSet) then
-			error("mouseFocusSet must be empty for mouse focus to change.")
-		end
-		gui._mouseFocus             = el
-		gui._mouseFocusSet[mbutton] = true
-		love.mouse.setGrabbed(true)
+local function setMouseFocus(gui, mbutton, el)
+	if gui._mouseFocus and el ~= gui._mouseFocus then
+		printerr(1, "Changing mouse focus without blurring the old focus first.")
+		gui._mouseFocusButtonStates[1] = false
+		gui._mouseFocusButtonStates[2] = false
+		gui._mouseFocusButtonStates[3] = false
+	end
+
+	gui._mouseFocus                      = el
+	gui._mouseFocusButtonStates[mbutton] = true
+	love.mouse.setGrabbed(true)
+end
+
+-- blurMouseFocus( gui, mbutton=all )
+local function blurMouseFocus(gui, mbutton)
+	if mbutton then
+		gui._mouseFocusButtonStates[mbutton] = false
 	else
-		gui._mouseFocus    = nil
-		gui._mouseFocusSet = {}
+		gui._mouseFocusButtonStates[1] = false
+		gui._mouseFocusButtonStates[2] = false
+		gui._mouseFocusButtonStates[3] = false
+	end
+
+	if not (gui._mouseFocusButtonStates[1] or gui._mouseFocusButtonStates[2] or gui._mouseFocusButtonStates[3]) then
+		gui._mouseFocus = nil
 		love.mouse.setGrabbed(gui._mouseIsGrabbed)
 	end
 end
 
--- setKeyboardFocus( gui, element|nil )
+
+
 local function setKeyboardFocus(gui, el)
 	gui._keyboardFocus = el
+end
+
+local function blurKeyboardFocus(gui)
+	gui._keyboardFocus = nil
 end
 
 
@@ -3561,16 +3589,15 @@ end
 
 
 
--- updateHoveredElement( gui )
 local function updateHoveredElement(gui)
-	local el = (gui._mouseX and gui:getElementAt(gui._mouseX, gui._mouseY))
-	if gui._hoveredElement == el then
-		return
-	end
-	local oldEl = gui._hoveredElement
+	local el = (gui._mouseX ~=  -999999) and gui:getElementAt(gui._mouseX, gui._mouseY, false) or nil
+	if gui._hoveredElement == el then  return  end
+
+	local oldEl         = gui._hoveredElement
 	gui._hoveredElement = el
-	if not (el and el._tooltip ~= "" and oldEl and oldEl._tooltip ~= "" and gui._tooltipTime >= gui.TOOLTIP_DELAY) then
-		-- @Incomplete: Don't reset tooltip time instantly - add a delay.
+
+	if not (el and oldEl and el._tooltip ~= "" and oldEl._tooltip ~= "" and gui._tooltipTime >= gui.TOOLTIP_DELAY) then
+		-- @UX: Don't reset tooltip time instantly - add a delay.
 		gui._tooltipTime = 0
 	end
 end
@@ -3592,7 +3619,7 @@ local function updateLayout(el)
 		print("Gui: Updating layout.")
 	end
 
-	local container = el:getRoot() -- @Incomplete: Make any element able to update it's layout.
+	local container = el:getRoot() -- @Incomplete @Speed: Make any element able to update it's layout.
 	if container._hidden then  return false  end
 
 	container:_updateLayoutSize()
@@ -3612,14 +3639,12 @@ end
 
 -- didUpdate = updateLayoutIfNeeded( gui )
 local function updateLayoutIfNeeded(gui)
-	if not gui._layoutNeedsUpdate then
-		return false
-	end
+	if not gui._layoutNeedsUpdate then  return false  end
 	gui._layoutNeedsUpdate = false
+
 	local root = gui._root
-	if not root then
-		return false
-	end
+	if not root then  return false  end
+
 	return updateLayout(root)
 end
 
@@ -3636,26 +3661,26 @@ end
 
 
 local function setVisualScroll(container, scrollX, scrollY)
-	local dx = scrollX-container._visualScrollX
-	local dy = scrollY-container._visualScrollY
+	local dx = scrollX - container._visualScrollX
+	local dy = scrollY - container._visualScrollY
 
 	local didScroll = false
 
 	if dx ~= 0 then
-		container._visualScrollX = container._visualScrollX+dx
-		didScroll = true
+		container._visualScrollX = container._visualScrollX + dx
+		didScroll                = true
 	end
 
 	if dy ~= 0 then
-		container._visualScrollY = container._visualScrollY+dy
-		didScroll = true
+		container._visualScrollY = container._visualScrollY + dy
+		didScroll                = true
 	end
 
 	if not didScroll then  return  end
 
 	for el in container:traverse() do
-		el._layoutOffsetX = el._layoutOffsetX+dx
-		el._layoutOffsetY = el._layoutOffsetY+dy
+		el._layoutOffsetX = el._layoutOffsetX + dx
+		el._layoutOffsetY = el._layoutOffsetY + dy
 	end
 
 	updateHoveredElement(container._gui)
@@ -3986,10 +4011,10 @@ end
 
 -- Gui( )
 function Gui:init()
-	self._allAnimations = {}
-	self._defaultSounds = {}
-	self._heres         = {}
-	self._mouseFocusSet = {}
+	self._allAnimations          = {}
+	self._defaultSounds          = {}
+	self._heres                  = {}
+	self._mouseFocusButtonStates = {false, false, false} -- We only handle mouse button 1-3.
 
 	self._styles = {
 		["_MENU"] = {},
@@ -4057,33 +4082,19 @@ function Gui:update(dt)
 	if nav then  trigger(nav, "navupdate", dt)  end
 
 	-- Check if mouse is inside window.
-	if self._mouseX and not love.window.hasMouseFocus() then
-		self:mousemoved(nil, nil)
+	if self._mouseX ~=  -999999 and not love.window.hasMouseFocus() then
+		self:mousemoved( -999999,  -999999)
 	end
 
 	--
 	-- Update mouse cursor.
 	--
-	local lastCursor = self._currentMouseCursor
+	local el  = self._mouseFocus or self._hoveredElement
+	local cur = el and el:getResultingMouseCursor()
 
-	local el = self._mouseFocus or self._hoveredElement
-	if el
-		and not (el:isType"widget"   and not el:isActive())
-		and not (self._keyboardFocus and not el:isKeyboardFocus())
-		and not (self._mouseFocus    and not el:isMouseFocus())
-		and (el:isHovered() or self._mouseFocusSet[1] or self._mouseFocusSet[2] or self._mouseFocusSet[3])
-	then
-		self._currentMouseCursor = el:getResultingMouseCursor()
-	else
-		self._currentMouseCursor = nil
-	end
-
-	if self._currentMouseCursor ~= lastCursor then
-		if self._currentMouseCursor then
-			love.mouse.setCursor(self._currentMouseCursor)
-		else
-			love.mouse.setCursor()
-		end
+	if self._currentMouseCursor ~= cur then
+		self._currentMouseCursor = cur
+		love.mouse.setCursor(cur)
 	end
 
 	self._ignoreKeyboardInputThisFrame = false
@@ -4096,16 +4107,16 @@ function Gui:draw()
 	if self._root and not self._root._hidden then
 		updateLayoutIfNeeded(self)
 
-		-- Elements
+		-- Elements.
 		self._root:_draw()
 
-		-- Navigation target
+		-- Navigation target.
 		if not self.debug then
 			local nav = self._navigationTarget
 			if nav then  themeRender(nav, "navigation", self._timeSinceNavigation)  end
 		end
 
-		-- Tooltip
+		-- Tooltip.
 		local el = self._hoveredElement
 		if el and not self._mouseFocus then
 			el:_drawTooltip()
@@ -4142,11 +4153,9 @@ function Gui:keypressed(key, scancode, isRepeat)
 		else
 			if el:triggerBubbling("keypressed", key, scancode, isRepeat) then  return true  end
 		end
-		local handled, grabFocus = el:_keypressed(key, scancode, isRepeat)
+		local handled, grabKbFocus = el:_keypressed(key, scancode, isRepeat)
 		if handled then
-			if grabFocus then
-				setKeyboardFocus(self, el)
-			end
+			if grabKbFocus then  setKeyboardFocus(self, el)  end
 			return true
 		end
 	end
@@ -4226,47 +4235,48 @@ function Gui:mousepressed(mx, my, mbutton, pressCount)
 	if type(my)~="number" then argerror(2,2,"my",my,"number") end
 	if type(mbutton)~="number" then argerror(2,3,"mbutton",mbutton,"number") end
 	if type(pressCount)~="number" then argerror(2,4,"pressCount",pressCount,"number") end
+	if mbutton > 3 then  return false  end
 
 	self._mouseX = mx
 	self._mouseY = my
 
 	if self._animationLockCount > 0 then  return true  end
 
-	if self._mouseFocusSet[mbutton] then
+	if self._mouseFocusButtonStates[mbutton] then
 		-- The mouse button got pressed twice or more with no release inbetween.
 		-- Should be an error, but it's not really an issue.
 		return true
 	end
 
-	local focus = self._mouseFocus
-	if focus then  self._mouseFocusSet[mbutton] = true  end
-
 	updateLayoutIfNeeded(self) -- Updates hovered element.
 
-	local el = (focus or self._hoveredElement)
-	while el do
+	local mouseFocus = self._mouseFocus
+	local currentEl  = mouseFocus or self._hoveredElement
 
+	if self._keyboardFocus and currentEl ~= self._keyboardFocus then
+		self._keyboardFocus:blur() -- We assume this is a GuiInput. @Volatile
+	end
+
+	while currentEl do
 		-- Trigger any custom mousepressed event handler.
-		-- Returning true from the handler suppresses the default built-in behavior.
-		local screenX, screenY = el:getPositionOnScreen()
-		if el:trigger("mousepressed", mx-screenX, my-screenY, mbutton, pressCount) then
+		-- Returning true from the handler suppresses the default behavior.
+		local screenX, screenY = currentEl:getPositionOnScreen()
+		if currentEl:trigger("mousepressed", mx-screenX, my-screenY, mbutton, pressCount) then
 			return true
 		end
 
 		-- Trigger the internal mousepressed event handler.
-		local handled, grabFocus = el:_mousepressed(mx, my, mbutton, pressCount)
+		local handled, grabMouseFocus = currentEl:_mousepressed(mx, my, mbutton, pressCount)
 		if handled then
-			if grabFocus and not next(self._mouseFocusSet) then
-				setMouseFocus(self, el, mbutton)
-			end
+			if grabMouseFocus then  setMouseFocus(self, mbutton, currentEl)  end
 			return true
 		end
 
-		if focus or el._captureInput or el._captureGuiInput or el:isSolid() then
+		if mouseFocus or currentEl._captureInput or currentEl._captureGuiInput or currentEl:isSolid() then
 			return true
 		end
 
-		el = el._parent
+		currentEl = currentEl._parent
 	end
 
 	return false
@@ -4274,8 +4284,8 @@ end
 
 -- handled = gui:mousemoved( mouseX, mouseY )
 function Gui:mousemoved(mx, my)
-	if not(type(mx)=="number" or mx==nil) then argerror(2,1,"mx",mx,"number","nil") end
-	if not(type(my)=="number" or my==nil) then argerror(2,2,"my",my,"number","nil") end
+	if type(mx)~="number" then argerror(2,1,"mx",mx,"number") end
+	if type(my)~="number" then argerror(2,2,"my",my,"number") end
 
 	self._mouseX = mx
 	self._mouseY = my
@@ -4298,35 +4308,32 @@ function Gui:mousemoved(mx, my)
 	return true
 end
 
--- handled = gui:mousereleased( mouseX, mouseY, mouseButton )
-function Gui:mousereleased(mx, my, mbutton)
+-- handled = gui:mousereleased( mouseX, mouseY, mouseButton, pressCount )
+function Gui:mousereleased(mx, my, mbutton, pressCount)
 	if type(mx)~="number" then argerror(2,1,"mx",mx,"number") end
 	if type(my)~="number" then argerror(2,2,"my",my,"number") end
 	if type(mbutton)~="number" then argerror(2,3,"mbutton",mbutton,"number") end
+	if type(pressCount)~="number" then argerror(2,4,"pressCount",pressCount,"number") end
+	if mbutton > 3 then  return false  end
 
 	self._mouseX = mx
 	self._mouseY = my
 
 	local focus = self._mouseFocus
-	if not (focus and self._mouseFocusSet[mbutton]) then
+	if not (focus and self._mouseFocusButtonStates[mbutton]) then
 		return false
 	end
 
-	self._mouseFocusSet[mbutton] = nil
-
+	blurMouseFocus(self, mbutton)
 	updateLayoutIfNeeded(self) -- Updates hovered element.
 
-	local el = (focus or self._hoveredElement)
+	local el = focus or self._hoveredElement
 	if el then
-		el:_mousereleased(mx, my, mbutton)
-	end
-
-	if not next(self._mouseFocusSet) then
-		setMouseFocus(self, nil)
+		el:_mousereleased(mx, my, mbutton, pressCount)
 	end
 
 	if el then
-		trigger(el, "mousereleased", mx-el:getXOnScreen(), my-el:getYOnScreen(), mbutton)
+		trigger(el, "mousereleased", mx-el:getXOnScreen(), my-el:getYOnScreen(), mbutton, pressCount)
 	end
 
 	return true
@@ -4359,7 +4366,7 @@ function Gui:wheelmoved(dx, dy)
 	while el do
 		if isScroll then
 			-- Trigger any custom wheelmoved event handler.
-			-- Returning true from the handler suppresses the default built-in behavior.
+			-- Returning true from the handler suppresses the default behavior.
 			if el:trigger("wheelmoved", dx, dy) then  return true  end
 
 			if el:_wheelmoved(dx, dy) then  return true  end
@@ -4395,16 +4402,18 @@ end
 -- gui:blur( )
 function Gui:blur()
 	if self._mouseFocus then
-		for mbutton in pairs(self._mouseFocusSet) do
-			self:mousereleased(-99999, -99999, mbutton)
+		for mbutton, state in ipairs(self._mouseFocusButtonStates) do
+			if state then
+				self:mousereleased(self._mouseX, self._mouseY, mbutton, 1--[[ @Polish: Keep track of pressCount. ]])
+			end
 		end
 	end
 
-	setMouseFocus(self, nil)
+	blurMouseFocus(self, nil)
 
-	self._hoveredElement = nil
-	self._mouseX         = nil
-	self._mouseY         = nil
+	if self._keyboardFocus then
+		self._keyboardFocus:blur() -- We assume this is a GuiInput. @Volatile
+	end
 end
 
 
@@ -4418,6 +4427,8 @@ end
 --     gui:defineStyle("dialogHeader", {background="header",
 --         [2] = {bold=true, textColor={1,1,1,.86}}, -- Style data for the second child.
 --     })
+--
+-- @Incomplete: A way to specify style for a child (or grandchild?) by ID.
 --
 function Gui:defineStyle(styleName, styleData)
 	if type(styleName)~="string" then argerror(2,1,"styleName",styleName,"string") end
@@ -4520,7 +4531,7 @@ end
 -- gui:setFont( font )
 function Gui:setFont(font)
 	if self._font == font then  return  end
-	self._font = font
+	self._font              = font
 	self._layoutNeedsUpdate = true
 end
 
@@ -4532,7 +4543,7 @@ end
 -- gui:setBoldFont( font )
 function Gui:setBoldFont(font)
 	if self._fontBold == font then  return  end
-	self._fontBold = font
+	self._fontBold          = font
 	self._layoutNeedsUpdate = true
 end
 
@@ -4544,7 +4555,7 @@ end
 -- gui:setSmallFont( font )
 function Gui:setSmallFont(font)
 	if self._fontSmall == font then  return  end
-	self._fontSmall = font
+	self._fontSmall         = font
 	self._layoutNeedsUpdate = true
 end
 
@@ -4556,7 +4567,7 @@ end
 -- gui:setLargeFont( font )
 function Gui:setLargeFont(font)
 	if self._fontLarge == font then  return  end
-	self._fontLarge = font
+	self._fontLarge         = font
 	self._layoutNeedsUpdate = true
 end
 
@@ -4907,17 +4918,17 @@ end
 
 -- bool = gui:isBusy( )
 function Gui:isBusy()
-	return (self:isKeyboardBusy() or self:isMouseBusy())
+	return self:isKeyboardBusy() or self:isMouseBusy()
 end
 
 -- bool = gui:isKeyboardBusy( )
 function Gui:isKeyboardBusy()
-	return (self._keyboardFocus ~= nil)
+	return self._keyboardFocus ~= nil
 end
 
 -- bool = gui:isMouseBusy( )
 function Gui:isMouseBusy()
-	return (self._mouseFocus ~= nil)
+	return self._mouseFocus ~= nil
 end
 
 
@@ -5319,7 +5330,7 @@ Cs.element = newElementClass("GuiElement", nil, {}, {
 
 	"mousepressed" , --            function( element, event, mx, my, mbutton, pressCount )
 	"mousemoved"   , --            function( element, event, mx, my )
-	"mousereleased", --            function( element, event, mx, my, mbutton )
+	"mousereleased", --            function( element, event, mx, my, mbutton, pressCount )
 
 	"navigated"    , --            function( element, event )
 
@@ -5332,7 +5343,7 @@ Cs.element = newElementClass("GuiElement", nil, {}, {
 
 	"textinput"    , -- suppress = function( element, event, text )
 
-	"update"       , --            function( element, event, dt )
+	"update"       , --            function( element, event, deltaTime )
 
 	"wheelmoved"   , -- suppress = function( element, event, dx, dy )
 })
@@ -6058,18 +6069,17 @@ end
 -- Returns nil if the mouse position is unknown.
 function Cs.element:getMousePosition()
 	local gui = self._gui
-	if not gui._mouseX then  return nil  end
-
+	if gui._mouseX ==  -999999 then  return nil  end
 	local x, y = self:getPositionOnScreen()
 	return gui._mouseX-x, gui._mouseY-y
 end
 function Cs.element:getMouseX()
 	local x = self._gui._mouseX
-	return x and x-self:getXOnScreen()
+	return x ~=  -999999 and x-self:getXOnScreen() or nil
 end
 function Cs.element:getMouseY()
 	local y = self._gui._mouseY
-	return y and y-self:getYOnScreen()
+	return y ~=  -999999 and y-self:getYOnScreen() or nil
 end
 
 
@@ -6464,7 +6474,7 @@ end
 
 
 
--- handled, grabFocus = element:_keypressed( key, scancode, isRepeat )
+-- handled, grabKeyboardFocus = element:_keypressed( key, scancode, isRepeat )
 function Cs.element:_keypressed(key, scancode, isRepeat)
 	return false, false
 end
@@ -6481,7 +6491,7 @@ end
 
 
 
--- handled, grabFocus = element:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
+-- handled, grabMouseFocus = element:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
 function Cs.element:_mousepressed(mx, my, mbutton, pressCount)
 	return false, false
 end
@@ -6491,8 +6501,8 @@ function Cs.element:_mousemoved(mx, my)
 	-- void
 end
 
--- INTERNAL  element:_mousereleased( mouseX, mouseY, mouseButton )
-function Cs.element:_mousereleased(mx, my, mbutton)
+-- INTERNAL  element:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
+function Cs.element:_mousereleased(mx, my, mbutton, pressCount)
 	-- void
 end
 
@@ -6609,11 +6619,11 @@ end
 
 
 
--- bool = element:isHovered( [ checkMouseFocus=false ] )
-function Cs.element:isHovered(checkMouseFocus)
+-- bool = element:isHovered( [ ignoreMouseFocus=false ] )
+function Cs.element:isHovered(ignoreMouseFocus)
 	local gui = self._gui
 	updateLayoutIfNeeded(gui) -- Updates hovered element.
-	return (self == gui._hoveredElement) and not (checkMouseFocus and self ~= (gui._mouseFocus or self))
+	return self == gui._hoveredElement and (ignoreMouseFocus or self == (gui._mouseFocus or self))
 end
 
 
@@ -6621,10 +6631,10 @@ end
 -- bool = element:isMouseFocus( )
 -- bool = element:isKeyboardFocus( )
 function Cs.element:isMouseFocus()
-	return (self == self._gui._mouseFocus)
+	return self == self._gui._mouseFocus
 end
 function Cs.element:isKeyboardFocus()
-	return (self == self._gui._keyboardFocus)
+	return self == self._gui._keyboardFocus
 end
 
 
@@ -6639,24 +6649,24 @@ end
 -- bool = element:isScrollbarXHovered( )
 -- bool = element:isScrollbarYHovered( )
 function Cs.element:isScrollbarXHovered()
-	local gui = self._gui
+	local gui  = self._gui
 	local x, y = gui._mouseX, gui._mouseY
-	if not x then  return false  end
+	if x ==  -999999 then  return false  end
 
 	local x1, y1 = self:getPositionOnScreen()
 	local x2, y2 = x1+self:getChildAreaWidth(), y1+self._layoutHeight
-	y1 = y2-themeGet(self._gui, "scrollbarWidth")
+	y1           = y2 - themeGet(self._gui, "scrollbarWidth")
 
 	return (x >= x1 and x < x2 and y >= y1 and y < y2)
 end
 function Cs.element:isScrollbarYHovered()
-	local gui = self._gui
+	local gui  = self._gui
 	local x, y = gui._mouseX, gui._mouseY
-	if not x then  return false  end
+	if x ==  -999999 then  return false  end
 
 	local x1, y1 = self:getPositionOnScreen()
 	local x2, y2 = x1+self._layoutWidth, y1+self:getChildAreaHeight()
-	x1 = x2-themeGet(self._gui, "scrollbarWidth")
+	x1           = x2 - themeGet(self._gui, "scrollbarWidth")
 
 	return (x >= x1 and x < x2 and y >= y1 and y < y2)
 end
@@ -6664,36 +6674,36 @@ end
 -- bool = element:isScrollbarXHandleHovered( )
 -- bool = element:isScrollbarYHandleHovered( )
 function Cs.element:isScrollbarXHandleHovered()
-	local gui = self._gui
+	local gui  = self._gui
 	local x, y = gui._mouseX, gui._mouseY
-	if not x then  return false  end
+	if x ==  -999999 then  return false  end
 
 	local handlePos, handleLen = self:getScrollHandleX()
-	local x1, y1 = self:getPositionOnScreen()
+	local x1, y1               = self:getPositionOnScreen()
 
-	x1 = x1+handlePos
-	local x2 = x1+handleLen
+	x1       = x1 + handlePos
+	local x2 = x1 + handleLen
 
-	local y2 = y1+self._layoutHeight
-	y1 = y2-themeGet(self._gui, "scrollbarWidth")
+	local y2 = y1 + self._layoutHeight
+	y1       = y2 - themeGet(self._gui, "scrollbarWidth")
 
-	return (x >= x1 and x < x2 and y >= y1 and y < y2)
+	return x >= x1 and x < x2 and y >= y1 and y < y2
 end
 function Cs.element:isScrollbarYHandleHovered()
-	local gui = self._gui
+	local gui  = self._gui
 	local x, y = gui._mouseX, gui._mouseY
-	if not x then  return false  end
+	if x ==  -999999 then  return false  end
 
 	local handlePos, handleLen = self:getScrollHandleY()
-	local x1, y1 = self:getPositionOnScreen()
+	local x1, y1               = self:getPositionOnScreen()
 
-	local x2 = x1+self._layoutWidth
-	x1 = x2-themeGet(self._gui, "scrollbarWidth")
+	local x2 = x1 + self._layoutWidth
+	x1       = x2 - themeGet(self._gui, "scrollbarWidth")
 
-	y1 = y1+handlePos
-	local y2 = y1+handleLen
+	y1       = y1 + handlePos
+	local y2 = y1 + handleLen
 
-	return (x >= x1 and x < x2 and y >= y1 and y < y2)
+	return x >= x1 and x < x2 and y >= y1 and y < y2
 end
 
 
@@ -7771,7 +7781,7 @@ end
 
 
 
--- INTERNAL REPLACE  handled, grabFocus = container:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
+-- INTERNAL REPLACE  handled, grabMouseFocus = container:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
 function Cs.container:_mousepressed(mx, my, mbutton, pressCount)
 	if mbutton == 1 then
 		local x0        , y0         = self:getPositionOnScreen()
@@ -7852,11 +7862,11 @@ function Cs.container:_mousemoved(mx, my)
 	end
 end
 
--- INTERNAL REPLACE  container:_mousereleased( mouseX, mouseY, mouseButton )
-function Cs.container:_mousereleased(mx, my, mbutton)
+-- INTERNAL REPLACE  container:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
+function Cs.container:_mousereleased(mx, my, mbutton, pressCount)
 	if mbutton == 1 then
 		self._mouseScrollDirection = nil
-		self._mouseScrollOffset = 0
+		self._mouseScrollOffset    = 0
 	end
 end
 
@@ -8513,7 +8523,13 @@ function Cs.leaf:getFont()
 	       or (self._bold  and "_fontBold" )
 	       or                  "_font"
 
-	return self._gui[k] or getDefaultFont()
+	local font = self._gui[k] or getDefaultFont()
+
+	-- if self:isType"input" then
+	-- 	self._field:setFont(font) -- @Robustness: Do this in appropriate places. (Maybe not here...)
+	-- end
+
+	return font
 end
 
 -- Tell LÖVE to use the font.
@@ -8769,7 +8785,7 @@ end
 
 
 
--- INTERNAL REPLACE  handled, grabFocus = canvas:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
+-- INTERNAL REPLACE  handled, grabMouseFocus = canvas:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
 function Cs.canvas:_mousepressed(mx, my, mbutton, pressCount)
 	return true, true
 end
@@ -8954,11 +8970,11 @@ end
 
 Cs.widget = newElementClass("GuiWidget", Cs.leaf, {}, {
 	-- Parameters.
-	_active   = true,
-	_priority = 0, -- Navigation priority.
+	_active   = true, -- If the widget can be interacted with or is grayed out.
+	_priority = 0,    -- Navigation priority.
 }, {
 	"navigate" , -- suppress = function( widgetElement, event )
-	"navupdate", --            function( widgetElement, event, dt )
+	"navupdate", --            function( widgetElement, event, deltaTime )
 })
 
 function Cs.widget:init(gui, elData, parent)
@@ -9190,15 +9206,15 @@ end
 
 
 
--- INTERNAL REPLACE  handled, grabFocus = button:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
+-- INTERNAL REPLACE  handled, grabMouseFocus = button:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
 function Cs.button:_mousepressed(mx, my, mbutton, pressCount)
 	if mbutton == 1 then
-		if not self._active then
-			return true, false
-		end
+		if not self._active then  return true, false  end
+
 		self._isPressed = true
 		return true, true
 	end
+
 	return false, false
 end
 
@@ -9206,11 +9222,11 @@ end
 -- function Cs.button:_mousemoved(mx, my)
 -- end
 
--- INTERNAL REPLACE  button:_mousereleased( mouseX, mouseY, mouseButton )
-function Cs.button:_mousereleased(mx, my, mbutton)
+-- INTERNAL REPLACE  button:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
+function Cs.button:_mousereleased(mx, my, mbutton, pressCount)
 	if mbutton == 1 then
 		self._isPressed = false
-		if mx and self:isHovered() then  self:press()  end
+		if self:isHovered() then  self:press()  end
 	end
 end
 
@@ -9384,18 +9400,15 @@ end
 -- input:focus( )
 function Cs.input:focus()
 	local gui = self._gui
-	if gui._keyboardFocus == self then
-		return
-	end
+	if gui._keyboardFocus == self then  return  end
 
-	self._savedValue = self:getValue()
+	self._savedValue     = self:getValue()
 	self._savedKeyRepeat = love.keyboard.hasKeyRepeat()
 
 	gui:navigateTo(gui._navigationTarget and self or nil)
 	gui._lockNavigation = true
 
 	setKeyboardFocus(gui, self)
-	setMouseFocus(gui, self, 0)
 
 	love.keyboard.setKeyRepeat(true)
 	self._field:resetBlinking()
@@ -9407,13 +9420,9 @@ end
 -- success = input:blur( )
 function Cs.input:blur()
 	local gui = self._gui
-	if gui._keyboardFocus ~= self then
-		return false
-	end
+	if gui._keyboardFocus ~= self then  return false  end
 
-	setKeyboardFocus(gui, nil)
-	setMouseFocus(gui, nil)
-
+	blurKeyboardFocus(gui)
 	gui._lockNavigation = false
 
 	love.keyboard.setKeyRepeat(self._savedKeyRepeat)
@@ -9487,7 +9496,7 @@ end
 
 
 
--- INTERNAL REPLACE  handled, grabFocus = input:_keypressed( key, scancode, isRepeat )
+-- INTERNAL REPLACE  handled, grabKeyboardFocus = input:_keypressed( key, scancode, isRepeat )
 function Cs.input:_keypressed(key, scancode, isRepeat)
 	if not self:isKeyboardFocus() then  return false, false  end
 
@@ -9567,19 +9576,20 @@ end
 
 
 
--- INTERNAL REPLACE  handled, grabFocus = input:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
+-- INTERNAL REPLACE  handled, grabMouseFocus = input:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
 function Cs.input:_mousepressed(mx, my, mbutton, pressCount)
 	if not self._active then
 		return true, false
 	end
-	if not self:isHovered() then
-		self:blur()
+
+	self:focus()
+
+	if mbutton == 1 then
+		self._field:mousepressed(mx-self._layoutX-themeGet(self._gui, "inputIndentation"), 0, mbutton, pressCount)
+		return true, true
+	else
 		return true, false
 	end
-	self:focus()
-	self._gui._mouseFocusSet[mbutton] = true
-	self._field:mousepressed(mx-self._layoutX-themeGet(self._gui, "inputIndentation"), 0, mbutton, pressCount)
-	return true, false -- Note: We've set the focus ourselves.
 end
 
 -- INTERNAL REPLACE  input:_mousemoved( mouseX, mouseY )
@@ -9587,8 +9597,8 @@ function Cs.input:_mousemoved(mx, my)
 	self._field:mousemoved(mx-self._layoutX-themeGet(self._gui, "inputIndentation"), 0)
 end
 
--- INTERNAL REPLACE  input:_mousereleased( mouseX, mouseY, mouseButton )
-function Cs.input:_mousereleased(mx, my, mbutton)
+-- INTERNAL REPLACE  input:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
+function Cs.input:_mousereleased(mx, my, mbutton, pressCount)
 	self._field:mousereleased(mx-self._layoutX-themeGet(self._gui, "inputIndentation"), 0, mbutton)
 end
 
@@ -9934,7 +9944,7 @@ defaultTheme = (function()
 
 				local opacity = button:isActive() and 1 or .3
 
-				local isHovered = button:isActive() and button:isHovered(true)
+				local isHovered = button:isActive() and button:isHovered()
 
 				-- Background.
 				local r, g, b = 1, 1, 1
@@ -10040,8 +10050,8 @@ defaultTheme = (function()
 				end
 
 				-- Border.
-				local isHovered = (input:isKeyboardFocus() or input:isActive() and input:isHovered(true))
-				local a         = (isHovered and 1 or .4)*opacity
+				local isHighlighted = (input:isActive() and input:isHovered()) or input:isKeyboardFocus()
+				local a             = (isHighlighted and 1 or .4) * opacity
 				setColor(1, 1, 1, a)
 				love.graphics.rectangle("line", 1+.5, 1+.5, w-2-1, h-2-1)
 

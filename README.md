@@ -97,7 +97,7 @@ function love.mousemoved(mx, my, dx, dy, isTouch)
 	gui:mousemoved(mx, my)
 end
 function love.mousereleased(mx, my, mbutton, isTouch, pressCount)
-	gui:mousereleased(mx, my, mbutton)
+	gui:mousereleased(mx, my, mbutton, pressCount)
 end
 function love.wheelmoved(dx, dy)
 	gui:wheelmoved(dx, dy)
