@@ -5,9 +5,11 @@ local Gui = require("Gui")
 local gui = Gui()
 
 local tree = {"root",
-	{"hbar",
-		{"text", text="Left text goes here."},
-		{"vbar", id="myContainer", width=200,
+	{"hbar", expandChildren=false,
+		{"hbar", expandY=true,
+			{"text", text="Left text goes here."},
+		},
+		{"vbar", id="myContainer", width=200, minHeight=120, maxHeight=120,
 			{"text", text="I'm just a text."},
 			{"input", value="foo"},
 			{"input", value="bar"},
@@ -69,6 +71,7 @@ end
 
 
 function love.update(dt)
+	gui.debug = love.keyboard.isScancodeDown"`"
 	gui:update(dt)
 end
 

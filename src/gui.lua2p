@@ -591,9 +591,9 @@ end
 
 
 
--- width, height = getTextDimensions( font, text [, wrapLimit=none ] )
+-- width, height = getTextDimensions( font, text, wrapLimit )
 local function getTextDimensions(font, text, wrapLimit)
-	local w, lines = font:getWrap(text, (wrapLimit or 1/0))
+	local w, lines = font:getWrap(text, wrapLimit)
 	local h        = font:getHeight()
 	return w, h + math.floor(h*font:getLineHeight()) * (math.max(#lines, 1)-1)
 end
@@ -946,7 +946,7 @@ end
 
 
 
--- retrieve( element, elementData, property1, ... )
+-- retrieve( element, elementData, property1, ... ) -- @Cleanup: Remove function.
 local function retrieve(el, elData, _k, ...)
 	local v = elData[_k:sub(2)]
 	if v ~= nil then
@@ -1104,14 +1104,13 @@ end
 
 
 local function drawLayoutBackground(el)
-	local bg = el._background
-	if bg then
-		if el._gui.debug then
-			setColor(.27, .27, .27, .86)
-			$LG.rectangle("fill", xywh(el))
-		else
-			themeRender(el, "background", bg)
-		end
+	if el._background == "" then  return  end
+
+	if el._gui.debug then
+		setColor(.27, .27, .27, .86)
+		$LG.rectangle("fill", xywh(el))
+	else
+		themeRender(el, "background", el._background)
 	end
 end
 
@@ -1169,11 +1168,11 @@ local function updateLayout(el)
 		print("Gui: Updating layout.")
 	end
 
-	local container = el:getRoot() -- @Incomplete @Speed: Make any element able to update it's layout.
+	local container = el:getRoot() -- @Incomplete @Speed: Make any element able to update it's layout. (See comment below.)
 	if container._hidden then  return false  end
 
 	container:_updateLayoutSize()
-	container:_expandLayout(nil, nil) -- (Currently, most likely only works correctly if 'container' is the root.)
+	container:_expandLayout(nil, nil) -- (Currently, most likely only works correctly if 'container' is the root.) (I think we need to save the last arguments to _expandLayout(). 2022-03-28)
 	container:_updateLayoutPosition()
 
 	gui._layoutNeedsUpdate = false
@@ -1278,26 +1277,26 @@ local function getContainerLayoutSizeValues(bar)
 
 	for _, child in ipairs(bar) do
 		if not (child._hidden or child._floating) then
-
-			-- Dimensions
+			-- Dimensions.
 			highestW = math.max(highestW, child._layoutWidth)
 			highestH = math.max(highestH, child._layoutHeight)
-			if child._width then
-				staticW = staticW+child._width
+
+			if child._width >= 0 then
+				staticW = staticW + child._width
 			else
-				dynamicW = dynamicW+child._layoutWidth
+				dynamicW        = dynamicW + child._layoutWidth
 				highestDynamicW = math.max(highestDynamicW, child._layoutWidth)
-				expandablesX = expandablesX+1
+				expandablesX    = expandablesX + 1
 			end
-			if child._height then
-				staticH = staticH+child._height
+			if child._height >= 0 then
+				staticH = staticH + child._height
 			else
-				dynamicH = dynamicH+child._layoutHeight
+				dynamicH        = dynamicH + child._layoutHeight
 				highestDynamicH = math.max(highestDynamicH, child._layoutHeight)
-				expandablesY = expandablesY+1
+				expandablesY    = expandablesY + 1
 			end
 
-			-- Spacing
+			-- Spacing.
 			if not first then
 				currentSx = math.max(currentSx, (child._spacingLeft or child._spacingHorizontal or child._spacing))
 				currentSy = math.max(currentSy, (child._spacingTop  or child._spacingVertical   or child._spacing))
@@ -1306,9 +1305,9 @@ local function getContainerLayoutSizeValues(bar)
 			currentSx = (child._spacingRight  or child._spacingHorizontal or child._spacing)
 			currentSy = (child._spacingBottom or child._spacingVertical   or child._spacing)
 			first = false
-
 		end
 	end
+
 	return staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentSx, sumSx,
 	       staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy
 end
@@ -1318,44 +1317,42 @@ end
 -- updateContainerLayoutSize( container )
 local function updateContainerLayoutSize(container)
 	local w = container._width
-	if not w then
-		w = math.min(
-			math.max(container._layoutInnerWidth+container:getInnerSpaceX(), container._minWidth),
-			(container._maxWidth or 1/0)
-		)
+	if w < 0 then
+		w = math.max(container._layoutInnerWidth+container:getInnerSpaceX(), container._minWidth)
+		if container._maxWidth >= 0 then  w = math.min(w, container._maxWidth)  end
 	end
-	container._layoutWidth = w
-	-- container._layoutInnerWidth = w-container:getInnerSpaceX() -- No! The inner size is the size of the contents.
+	container._layoutWidth          = w
+	-- container._layoutInnerWidth  = w - container:getInnerSpaceX() -- No! The inner size is the size of the contents.
 
 	local h = container._height
-	if not h then
-		h = math.min(
-			math.max(container._layoutInnerHeight+container:getInnerSpaceY(), container._minHeight),
-			(container._maxHeight or 1/0)
-		)
+	if h < 0 then
+		h = math.max(container._layoutInnerHeight+container:getInnerSpaceY(), container._minHeight)
+		if container._maxHeight >= 0 then  h = math.min(h, container._maxHeight)  end
 	end
-	container._layoutHeight = h
-	-- container._layoutInnerHeight = h-container:getInnerSpaceY() -- No! The inner size is the size of the contents.
+	container._layoutHeight         = h
+	-- container._layoutInnerHeight = h - container:getInnerSpaceY() -- No! The inner size is the size of the contents.
 end
 
--- expandContainer( container [, expandWidth, expandHeight ] )
+-- expandContainer( container, expandWidth|nil, expandHeight|nil )
 local function expandContainer(container, expandW, expandH)
 	local parent = container._parent
 
-	if (expandW or container._expandX) and not container._width then
-		container._layoutWidth = math.max(
-			math.min((expandW or parent._layoutInnerWidth+container:getInnerSpaceX()), (container._maxWidth or 1/0)),
-			container._minWidth
-		)
-		container._layoutInnerWidth = container._layoutWidth-container:getInnerSpaceX()
+	if (expandW or container._expandX) and container._width < 0 then
+		local w = expandW or parent._layoutInnerWidth+container:getInnerSpaceX()
+		if container._maxWidth >= 0  then  w = math.min(w, container._maxWidth)  end
+
+		w                           = math.max(w, container._minWidth)
+		container._layoutWidth      = w
+		container._layoutInnerWidth = w - container:getInnerSpaceX()
 	end
 
-	if (expandH or container._expandY) and not container._height then
-		container._layoutHeight = math.max(
-			math.min((expandH or parent._layoutInnerHeight+container:getInnerSpaceY()), (container._maxHeight or 1/0)),
-			container._minHeight
-		)
-		container._layoutInnerHeight = container._layoutHeight-container:getInnerSpaceY()
+	if (expandH or container._expandY) and container._height < 0 then
+		local h = expandH or parent._layoutInnerHeight+container:getInnerSpaceY()
+		if container._maxHeight >= 0 then  h = math.min(h, container._maxHeight)  end
+
+		h                            = math.max(h, container._minHeight)
+		container._layoutHeight      = h
+		container._layoutInnerHeight = h - container:getInnerSpaceY()
 	end
 end
 
@@ -1368,17 +1365,17 @@ local function updateFloatingElementPosition(child)
 	child._layoutX = round(0
 		+ parent._layoutX
 		+ parent._padding
-		+ child._originX*parent._layoutInnerWidth
+		+ child._originX * parent._layoutInnerWidth
 		+ child._x
-		- child._anchorX*child._layoutWidth
+		- child._anchorX * child._layoutWidth
 	)
 
 	child._layoutY = round(0
 		+ parent._layoutY
 		+ parent._padding
-		+ child._originY*parent._layoutInnerHeight
+		+ child._originY * parent._layoutInnerHeight
 		+ child._y
-		- child._anchorY*child._layoutHeight
+		- child._anchorY * child._layoutHeight
 	)
 
 	child:_updateLayoutPosition()
@@ -2690,14 +2687,14 @@ end
 
 -- Scales the image so it fills the element. Does nothing if there's no image or if no dimensions are set.
 -- imageIncludeElement:maximizeImageSize( [ extraWidth=0, extraHeight=0 ] )
-function Is.imageInclude:maximizeImageSize(extraWidth, extraHeight)
+function Is.imageInclude:maximizeImageSize(extraW, extraH)
 	local sprite = self._sprite
 	if not sprite then  return  end
 
 	local paddingSum = (self:is(Cs.button) and 2*self._imagePadding or 0)
 
-	local scaleX = (self._width  and (self._width -paddingSum+(extraHeight or 0))/sprite.width  or self._imageScaleX)
-	local scaleY = (self._height and (self._height-paddingSum+(extraWidth  or 0))/sprite.height or self._imageScaleY)
+	local scaleX = (self._width  >= 0) and (self._width  - paddingSum + (extraH or 0)) / sprite.width  or self._imageScaleX
+	local scaleY = (self._height >= 0) and (self._height - paddingSum + (extraW or 0)) / sprite.height or self._imageScaleY
 	self:setImageScale(scaleX, scaleY)
 end
 
@@ -2819,42 +2816,75 @@ Cs.element = newElementClass("GuiElement", nil, {}, {
 	--[[STATIC]] _events = {--[[ event1, [event1]=true, ... ]]},
 
 	-- Parameters.
-	_anchorX      = 0.0, _anchorY = 0.0, -- where in self to base off x and y
-	_background   = nil,
-	_captureInput = false, --[[all input]] _captureGuiInput = false, --[[all input affecting GUI]]
-	_closable     = false,
-	_data         = nil,
-	_floating     = false, -- disables natural positioning in certain parents (e.g. bars)
-	_hidden       = false,
-	_id           = "",
-	_minWidth     = 0, _minHeight = 0,
-	_mouseCursor  = nil,
-	_originX      = 0.0, _originY = 0.0, -- where in the parent to base x and y off
-	_sounds       = nil,
-	_spacing      = 0,   _spacingVertical = nil, _spacingHorizontal = nil,
-	_spacingTop   = nil, _spacingRight    = nil, _spacingBottom     = nil, _spacingLeft = nil,
-	_style        = "",
-	_tags         = nil,
-	_tooltip      = "", _unprocessedTooltip = "",
-	_width        = nil, _height = nil,
-	_x            = 0, _y = 0, -- offset from origin
+	_id   = "",
+	_data = nil,
 
-	_animations             = nil,
-	_automaticId            = false,
-	_callbacks              = nil,
-	_gui                    = nil,
-	_layoutExpandablesX     = 0,   _layoutExpandablesY      = 0,
-	_layoutImmediateOffsetX = 0,   _layoutImmediateOffsetY  = 0, -- Sum of parents' scrolling, excluding smooth scrolling.
-	_layoutInnerSpacingsX   = 0,   _layoutInnerSpacingsY    = 0,
-	_layoutInnerStaticWidth = 0,   _layoutInnerStaticHeight = 0,
-	_layoutInnerWidth       = 0,   _layoutInnerHeight       = 0,
-	_layoutOffsetX          = 0.0, _layoutOffsetY           = 0.0, -- Sum of parents' scrolling.
-	_layoutWidth            = 0,   _layoutHeight            = 0,
-	_layoutX                = 0,   _layoutY                 = 0,
-	_parent                 = nil,
-	_timeBecomingVisible    = 0.00,
+	_hidden   = false,
+	_floating = false, -- Disables natural positioning in certain parents (e.g. bars).
+	_closable = false,
 
-	data = nil,
+	_captureInput    = false, -- All input.
+	_captureGuiInput = false, -- All input affecting GUI.
+
+	_width  = -1, -- Negative means dynamic.
+	_height = -1,
+
+	_minWidth  = 0,
+	_minHeight = 0,
+
+	_x = 0, -- Offset from the origin.
+	_y = 0,
+
+	_originX = 0.0, -- Where in the parent to base x and y off.
+	_originY = 0.0,
+
+	_anchorX = 0.0, -- Where in self to base off x and y.
+	_anchorY = 0.0,
+
+	_spacing           = 0,
+	_spacingVertical   = nil, -- Falls back to _spacing.
+	_spacingHorizontal = nil, -- Falls back to _spacing.
+	_spacingTop        = nil, -- Falls back to _spacingVertical.
+	_spacingRight      = nil, -- Falls back to _spacingHorizontal.
+	_spacingBottom     = nil, -- Falls back to _spacingVertical.
+	_spacingLeft       = nil, -- Falls back to _spacingHorizontal.
+
+	_background = "",
+	_style      = "",
+	_tags       = nil,
+
+	_mouseCursor = nil, -- cursor|systemCursorType|nil
+	_sounds      = nil,
+
+	_tooltip            = "",
+	_unprocessedTooltip = "",
+	--
+
+	_automaticId = false,
+
+	_timeBecomingVisible = 0.00,
+
+	_callbacks  = nil,
+	_animations = nil,
+
+	_gui    = nil,
+	_parent = nil,
+
+	_layoutInnerWidth  = 0,
+	_layoutInnerHeight = 0,
+
+	_layoutOffsetX          = 0.0, -- Sum of parents' scrolling.
+	_layoutOffsetY          = 0.0,
+	_layoutImmediateOffsetX = 0, -- Sum of parents' scrolling, excluding smooth scrolling.
+	_layoutImmediateOffsetY = 0,
+
+	_layoutWidth  = 0,
+	_layoutHeight = 0,
+
+	_layoutX = 0,
+	_layoutY = 0,
+
+	data = nil, -- Alias for _data.
 }, {
 	"beforedraw"   , --            function( element, event, x, y, w, h )
 	"afterdraw"    , --            function( element, event, x, y, w, h )
@@ -2965,10 +2995,10 @@ function Cs.element:init(gui, elData, parent)
 
 	-- Set initial offset.
 	if parent then
-		self._layoutImmediateOffsetX = parent._layoutImmediateOffsetX+parent._scrollX
-		self._layoutImmediateOffsetY = parent._layoutImmediateOffsetY+parent._scrollY
-		self._layoutOffsetX = parent._layoutOffsetX+parent._visualScrollX
-		self._layoutOffsetY = parent._layoutOffsetY+parent._visualScrollY
+		self._layoutImmediateOffsetX = parent._layoutImmediateOffsetX + parent._scrollX
+		self._layoutImmediateOffsetY = parent._layoutImmediateOffsetY + parent._scrollY
+		self._layoutOffsetX          = parent._layoutOffsetX          + parent._visualScrollX
+		self._layoutOffsetY          = parent._layoutOffsetY          + parent._visualScrollY
 	end
 
 	-- The 'here' debug attribute prints the path to the element.
@@ -3065,7 +3095,7 @@ function Cs.element:_drawTooltip()
 	local root = gui._root
 
 	local font         = gui._font or getDefaultFont()
-	local textW, textH = getTextDimensions(font, text)
+	local textW, textH = getTextDimensions(font, text, 1/0)
 
 	local w, h = themeGetSize(self, "tooltip", textW, textH) -- @Speed: Get tooltip size when tooltip text changes.
 
@@ -3420,16 +3450,19 @@ end
 -- element:setWidth( width )
 -- element:setHeight( height )
 function Cs.element:setDimensions(w, h)
+	!ARGS"2 w,h:number"
 	if self._width == w and self._height == h then  return  end
 	self._width, self._height = w, h
 	scheduleLayoutUpdateIfDisplayed(self)
 end
 function Cs.element:setWidth(w)
+	!ARGS"2 w:number"
 	if self._width == w then  return  end
 	self._width = w
 	scheduleLayoutUpdateIfDisplayed(self)
 end
 function Cs.element:setHeight(h)
+	!ARGS"2 h:number"
 	if self._height == h then  return  end
 	self._height = h
 	scheduleLayoutUpdateIfDisplayed(self)
@@ -4248,10 +4281,10 @@ end
 -- bool = element:isScrollingX( )
 -- bool = element:isScrollingY( )
 function Cs.element:isScrollingX()
-	return (self._mouseScrollDirection == "x")
+	return self._mouseScrollDirection == "x"
 end
 function Cs.element:isScrollingY()
-	return (self._mouseScrollDirection == "y")
+	return self._mouseScrollDirection == "y"
 end
 
 
@@ -4336,37 +4369,35 @@ function Cs.element.scrollIntoView(el)
 
 	repeat
 		local parent = el._parent
-		local maxW, maxH = parent._maxWidth, parent._maxHeight
+		local maxW   = parent._maxWidth
+		local maxH   = parent._maxHeight
 
-		if maxW or maxH then
-			local scrollX, scrollY = parent._scrollX, parent._scrollY
+		if maxW >= 0 or maxH >= 0 then
+			local scrollX = parent._scrollX
+			local scrollY = parent._scrollY
 
-			if maxW then
-				local distOutside = parent:getXOnScreen(true)-x1
+			if maxW >= 0 then
+				local distOutside = parent:getXOnScreen(true) - x1
 				if distOutside >= 0 then
-					scrollX = scrollX+distOutside
+					scrollX = scrollX + distOutside
 				else
-					distOutside = x2-(parent:getXOnScreen(true)+maxW-(maxH and sbW or 0))
-					if distOutside > 0 then
-						scrollX = scrollX-distOutside
-					end
+					distOutside = x2 - (parent:getXOnScreen(true) + maxW - (maxH >= 0 and sbW or 0))
+					if distOutside > 0 then  scrollX = scrollX - distOutside  end
 				end
 				x1 = el:getXOnScreen(true)
-				x2 = x1+el._layoutWidth
+				x2 = x1 + el._layoutWidth
 			end
 
-			if maxH then
-				local distOutside = parent:getYOnScreen(true)-y1
+			if maxH >= 0 then
+				local distOutside = parent:getYOnScreen(true) - y1
 				if distOutside >= 0 then
-					scrollY = scrollY+distOutside
+					scrollY = scrollY + distOutside
 				else
-					distOutside = y2-(parent:getYOnScreen(true)+maxH-(maxW and sbW or 0))
-					if distOutside > 0 then
-						scrollY = scrollY-distOutside
-					end
+					distOutside = y2 - (parent:getYOnScreen(true) + maxH - (maxW >= 0 and sbW or 0))
+					if distOutside > 0 then  scrollY = scrollY - distOutside  end
 				end
 				y1 = el:getYOnScreen(true)
-				y2 = y1+el._layoutHeight
+				y2 = y1 + el._layoutHeight
 			end
 
 			parent:setScroll(scrollX, scrollY)
@@ -4619,7 +4650,7 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 	menu:_updateLayoutSize() -- Expanding and positioning of the whole menu isn't necessary right here.
 
 	buttons:setPosition(
-		math.max(math.min(self:getXOnScreen()+offsetX, root._width -buttons._layoutWidth),  0),
+		math.max(math.min(self:getXOnScreen()+offsetX, root._width -buttons._layoutWidth ), 0),
 		math.max(math.min(self:getYOnScreen()+offsetY, root._height-buttons._layoutHeight), 0)
 	)
 
@@ -4643,7 +4674,7 @@ function Cs.element:_updateLayoutSize()
 	-- void (subclasses should replace this method)
 end
 
--- INTERNAL  element:_expandLayout( [ expandWidth, expandHeight ] )
+-- INTERNAL  element:_expandLayout( expandWidth|nil, expandHeight|nil )
 function Cs.element:_expandLayout(expandW, expandH)
 	if expandW then
 		self._layoutWidth = expandW
@@ -4670,18 +4701,31 @@ end
 
 Cs.container = newElementClass("GuiContainer", Cs.element, {}, {
 	SCROLL_SMOOTHNESS = 0.65,
-	SCROLL_SPEED_X    = 30, SCROLL_SPEED_Y = 50,
+
+	SCROLL_SPEED_X = 30,
+	SCROLL_SPEED_Y = 50,
 
 	-- Parameters.
 	_confineNavigation = false,
-	_expandX           = false, _expandY   = false,
-	_maxWidth          = nil,   _maxHeight = nil,
-	_padding           = 0,
 	_solid             = false,
 
-	_mouseScrollDirection = nil, _mouseScrollOffset = 0,
-	_scrollX              = 0.0, _scrollY           = 0.0,
-	_visualScrollX        = 0.0, _visualScrollY     = 0.0,
+	_padding = 0,
+
+	_maxWidth  = -1, -- Negative means no limit.
+	_maxHeight = -1,
+
+	_expandX = false,
+	_expandY = false,
+	--
+
+	_mouseScrollDirection = "", -- "" | "x" | "y"
+	_mouseScrollOffset    = 0,
+
+	_scrollX = 0.0,
+	_scrollY = 0.0,
+
+	_visualScrollX = 0.0,
+	_visualScrollY = 0.0,
 }, {
 	-- void
 })
@@ -4750,7 +4794,7 @@ function Cs.container:_draw()
 	local gui        = self._gui
 	local x, y, w, h = xywh(self)
 
-	local maxW,       maxH       = self._maxWidth, self._maxHeight
+	local maxW      , maxH       = self._maxWidth, self._maxHeight
 	local childAreaW, childAreaH = self:getChildAreaDimensions()
 
 	local sbW    = themeGet(gui, "scrollbarWidth")
@@ -4763,26 +4807,30 @@ function Cs.container:_draw()
 	drawLayoutBackground(self)
 	self:_drawDebug(0, 0, 1)
 
-	if maxW or maxH then  setScissor(gui, x, y, childAreaW, childAreaH)  end
+	if maxW >= 0 or maxH >= 0 then
+		setScissor(gui, x, y, childAreaW, childAreaH)
+	end
 	for _, child in ipairs(self) do
 		child:_draw()
 	end
-	if maxW or maxH then  setScissor(gui, nil)  end
+	if maxW >= 0 or maxH >= 0 then
+		setScissor(gui, nil)
+	end
 
 	if not self._gui.debug then
 		-- Horizontal scrollbar.
-		if maxW then
+		if maxW >= 0 then
 			local handlePos, handleLen = self:getScrollHandleX()
 			themeRenderArea(self, "scrollbar", 0, h-sbW, childAreaW, sbW, "x", round(handlePos), handleLen)
 		end
 
 		-- Vertical scrollbar.
-		if maxH then
+		if maxH >= 0 then
 			local handlePos, handleLen = self:getScrollHandleY()
 			themeRenderArea(self, "scrollbar", w-sbW, 0, sbW, childAreaH, "y", round(handlePos), handleLen)
 		end
 
-		if maxW and maxH then
+		if maxW >= 0 and maxH >= 0 then
 			themeRenderArea(self, "scrollbardeadzone", w-sbW, h-sbW, sbW, sbW)
 		end
 
@@ -4922,6 +4970,9 @@ end
 function Cs.container:getMaxDimensions()
 	return self._maxWidth, self._maxHeight
 end
+function Cs.container:getMaxWidth()
+	return self._maxWidth
+end
 function Cs.container:getMaxHeight()
 	return self._maxHeight
 end
@@ -4929,24 +4980,26 @@ end
 -- container:setMaxDimensions( width, height )
 -- container:setMaxWidth( width )
 -- container:setMaxHeight( height )
--- Nil removes restrictions.
+-- Negative values remove restrictions.
 function Cs.container:setMaxDimensions(w, h)
-	w = (w and math.max(w, 0) or nil)
-	h = (h and math.max(h, 0) or nil)
+	!ARGS"2 w,h:number"
 	if self._maxWidth == w and self._maxHeight == h then  return  end
+
 	self._maxWidth  = w
 	self._maxHeight = h
 	scheduleLayoutUpdateIfDisplayed(self)
 end
 function Cs.container:setMaxWidth(w)
-	w = (w and math.max(w, 0) or nil)
+	!ARGS"2 w:number"
 	if self._maxWidth == w then  return  end
+
 	self._maxWidth = w
 	scheduleLayoutUpdateIfDisplayed(self)
 end
 function Cs.container:setMaxHeight(h)
-	h = (h and math.max(h, 0) or nil)
+	!ARGS"2 h:number"
 	if self._maxHeight == h then  return  end
+
 	self._maxHeight = h
 	scheduleLayoutUpdateIfDisplayed(self)
 end
@@ -5160,10 +5213,10 @@ function Cs.container:hasAnyScrollbar()
 	return self:hasScrollbarOnRight() or self:hasScrollbarOnBottom()
 end
 function Cs.container:hasScrollbarOnRight()
-	return self._maxHeight ~= nil
+	return self._maxHeight >= 0
 end
 function Cs.container:hasScrollbarOnBottom()
-	return self._maxWidth ~= nil
+	return self._maxWidth >= 0
 end
 
 
@@ -5176,7 +5229,7 @@ Cs.container.indexOf = indexOf
 
 -- REPLACE  bool = container:isSolid( )
 function Cs.container:isSolid()
-	return (self._solid or self._background ~= nil or self._maxWidth ~= nil or self._maxHeight ~= nil)
+	return self._solid or self._background ~= "" or self._maxWidth >= 0 or self._maxHeight >= 0
 end
 
 
@@ -5211,8 +5264,8 @@ function Cs.container:getChildAreaDimensions()
 	updateLayoutIfNeeded(self._gui)
 	local sbW = themeGet(self._gui, "scrollbarWidth")
 	return
-		(self._maxHeight and self._layoutWidth -sbW or self._layoutWidth),
-		(self._maxWidth  and self._layoutHeight-sbW or self._layoutHeight)
+		(self._maxHeight >= 0 and self._layoutWidth -sbW or self._layoutWidth),
+		(self._maxWidth  >= 0 and self._layoutHeight-sbW or self._layoutHeight)
 end
 function Cs.container:getChildAreaWidth()
 	updateLayoutIfNeeded(self._gui)
@@ -5243,8 +5296,8 @@ end
 function Cs.container:getElementAt(x, y, nonSolid)
 	updateLayoutIfNeeded(self._gui)
 
-	if self._maxWidth  and (x < self._layoutX or x >= self._layoutX+self._layoutWidth ) then  return nil  end
-	if self._maxHeight and (y < self._layoutY or y >= self._layoutY+self._layoutHeight) then  return nil  end
+	if self._maxWidth  >= 0 and (x < self._layoutX or x >= self._layoutX+self._layoutWidth ) then  return nil  end
+	if self._maxHeight >= 0 and (y < self._layoutY or y >= self._layoutY+self._layoutHeight) then  return nil  end
 
 	for el in self:traverseVisible(x, y) do
 		if ((nonSolid or el:isSolid()) and el:isAt(x, y)) or (el._captureInput or el._captureGuiInput) then
@@ -5377,40 +5430,32 @@ end
 
 -- INTERNAL REPLACE  container:_mousemoved( mouseX, mouseY )
 function Cs.container:_mousemoved(mx, my)
-
 	-- Horizontal scrolling.
 	if self._mouseScrollDirection == "x" then
-		local handleMaxPos = select(3, self:getScrollHandleX())
-		self:setScrollX(
-			(mx-self:getXOnScreen()-self._mouseScrollOffset)
-			*self:getScrollLimitX()/handleMaxPos, true
-		)
+		local _, _, handleMaxPos = self:getScrollHandleX()
+		self:setScrollX((mx - self:getXOnScreen() - self._mouseScrollOffset) * self:getScrollLimitX() / handleMaxPos, true)
 
 	-- Vertical scrolling.
 	elseif self._mouseScrollDirection == "y" then
-		local handleMaxPos = select(3, self:getScrollHandleY())
-		self:setScrollY(
-			(my-self:getYOnScreen()-self._mouseScrollOffset)
-			*self:getScrollLimitY()/handleMaxPos, true
-		)
-
+		local _, _, handleMaxPos = self:getScrollHandleY()
+		self:setScrollY((my - self:getYOnScreen() - self._mouseScrollOffset) * self:getScrollLimitY() / handleMaxPos, true)
 	end
 end
 
 -- INTERNAL REPLACE  container:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
 function Cs.container:_mousereleased(mx, my, mbutton, pressCount)
 	if mbutton == 1 then
-		self._mouseScrollDirection = nil
+		self._mouseScrollDirection = ""
 		self._mouseScrollOffset    = 0
 	end
 end
 
 -- INTERNAL REPLACE  handled = container:_wheelmoved( deltaX, deltaY )
 function Cs.container:_wheelmoved(dx, dy)
-	if (dx ~= 0 and self._maxWidth) or (dy ~= 0 and self._maxHeight) then
+	if (dx ~= 0 and self._maxWidth >= 0) or (dy ~= 0 and self._maxHeight >= 0) then
 		if self:scroll(
-			self._gui._scrollSpeedX*self.SCROLL_SPEED_X*dx,
-			self._gui._scrollSpeedY*self.SCROLL_SPEED_Y*dy
+			self._gui._scrollSpeedX * self.SCROLL_SPEED_X * dx, -- @Incomplete: Scroll relative to font size instead of SCROLL_SPEED_*.
+			self._gui._scrollSpeedY * self.SCROLL_SPEED_Y * dy
 		) then
 			return true
 		end
@@ -5604,10 +5649,10 @@ do
 					local maxW = child._maxWidth
 					local maxH = child._maxHeight
 
-					if maxW and (x < x1 or x >= x2-(maxH and sbW or 0)) then
+					if maxW >= 0 and (x < x1 or x >= x2-(maxH >= 0 and sbW or 0)) then
 						includeChildren = false
 						includeSelf     = (x < x2)
-					elseif maxH and (y < y1 or y >= y2-(maxW and sbW or 0)) then
+					elseif maxH >= 0 and (y < y1 or y >= y2-(maxW >= 0 and sbW or 0)) then
 						includeChildren = false
 						includeSelf     = (y < y2)
 					end
@@ -5653,13 +5698,13 @@ function Cs.container:_updateLayoutSize()
 		end
 	end
 
-	self._layoutInnerWidth  = (self._width  and self._width -self:getInnerSpaceX() or maxX)
-	self._layoutInnerHeight = (self._height and self._height-self:getInnerSpaceY() or maxY)
+	self._layoutInnerWidth  = (self._width  >= 0 and self._width -self:getInnerSpaceX() or maxX)
+	self._layoutInnerHeight = (self._height >= 0 and self._height-self:getInnerSpaceY() or maxY)
 
 	updateContainerLayoutSize(self)
 end
 
--- INTERNAL REPLACE  container:_expandLayout( )
+-- INTERNAL REPLACE  container:_expandLayout( expandWidth|nil, expandHeight|nil )
 function Cs.container:_expandLayout(expandW, expandH)
 	expandContainer(self, expandW, expandH)
 
@@ -5687,8 +5732,16 @@ end
 
 Cs.bar = newElementClass("GuiBar", Cs.container, {}, {
 	-- Parameters.
-	_expandChildren = true,
-	_homogeneous    = false,
+	_expandChildren = true,  -- Perpendicular to the layout direction of the bar.
+	_homogeneous    = false, -- If children should be the same size.
+	--
+
+	_layoutInnerStaticWidth  = 0,
+	_layoutInnerStaticHeight = 0,
+	_layoutInnerSpacingsX    = 0,
+	_layoutInnerSpacingsY    = 0,
+	_layoutExpandablesX      = 0,
+	_layoutExpandablesY      = 0,
 }, {
 	-- void
 })
@@ -5742,8 +5795,8 @@ function Cs.hbar:_updateLayoutSize()
 	innerW   = math.max(innerW,   self._minWidth -self:getInnerSpaceX())
 	highestH = math.max(highestH, self._minHeight-self:getInnerSpaceY())
 
-	self._layoutInnerWidth  = (self._width  and self._width -self:getInnerSpaceX() or innerW)
-	self._layoutInnerHeight = (self._height and self._height-self:getInnerSpaceY() or highestH)
+	self._layoutInnerWidth  = (self._width  >= 0 and self._width -self:getInnerSpaceX() or innerW)
+	self._layoutInnerHeight = (self._height >= 0 and self._height-self:getInnerSpaceY() or highestH)
 
 	self._layoutInnerStaticWidth, self._layoutInnerStaticHeight = staticW, 0
 	self._layoutInnerSpacingsX,   self._layoutInnerSpacingsY    = sumSx, 0
@@ -5763,8 +5816,8 @@ function Cs.vbar:_updateLayoutSize()
 	highestW = math.max(highestW, self._minWidth -self:getInnerSpaceX())
 	innerH   = math.max(innerH,   self._minHeight-self:getInnerSpaceY())
 
-	self._layoutInnerWidth  = (self._width  and self._width -self:getInnerSpaceX() or highestW)
-	self._layoutInnerHeight = (self._height and self._height-self:getInnerSpaceY() or innerH)
+	self._layoutInnerWidth  = (self._width  >= 0 and self._width -self:getInnerSpaceX() or highestW)
+	self._layoutInnerHeight = (self._height >= 0 and self._height-self:getInnerSpaceY() or innerH)
 
 	self._layoutInnerStaticWidth, self._layoutInnerStaticHeight = 0, staticH
 	self._layoutInnerSpacingsX,   self._layoutInnerSpacingsY    = 0, sumSy
@@ -5773,8 +5826,8 @@ function Cs.vbar:_updateLayoutSize()
 	updateContainerLayoutSize(self)
 end
 
--- INTERNAL REPLACE  hbar:_expandLayout( [ expandWidth, expandHeight ] )
--- INTERNAL REPLACE  vbar:_expandLayout( [ expandWidth, expandHeight ] )
+-- INTERNAL REPLACE  hbar:_expandLayout( expandWidth|nil, expandHeight|nil )
+-- INTERNAL REPLACE  vbar:_expandLayout( expandWidth|nil, expandHeight|nil )
 function Cs.hbar:_expandLayout(expandW, expandH)
 	-- Expand self
 	expandContainer(self, expandW, expandH)
@@ -5782,13 +5835,13 @@ function Cs.hbar:_expandLayout(expandW, expandH)
 	-- Calculate amount of space for children to expand into (total or extra, whether homogeneous or not).
 	local totalSpaceX = 0
 	if expandW then
-		totalSpaceX = self._layoutInnerWidth-self._layoutInnerSpacingsX
+		totalSpaceX = self._layoutInnerWidth - self._layoutInnerSpacingsX
 		if self._homogeneous then
-			totalSpaceX = totalSpaceX-self._layoutInnerStaticWidth
+			totalSpaceX = totalSpaceX - self._layoutInnerStaticWidth
 		else
 			for _, child in ipairs(self) do
 				if not (child._hidden or child._floating) then
-					totalSpaceX = totalSpaceX-child._layoutWidth
+					totalSpaceX = totalSpaceX - child._layoutWidth
 				end
 			end
 		end
@@ -5802,16 +5855,16 @@ function Cs.hbar:_expandLayout(expandW, expandH)
 			if child._floating then
 				child:_expandLayout(nil, nil)
 			else
-				if not child._width then
+				if child._width < 0 then
 					if expandW then
-						local spaceX = round(totalSpaceX/expandablesX)
-						totalSpaceX = totalSpaceX-spaceX
-						expandW = (self._homogeneous and 0 or child._layoutWidth)+spaceX
+						local spaceX = round(totalSpaceX / expandablesX)
+						totalSpaceX  = totalSpaceX - spaceX
+						expandW      = (self._homogeneous and 0 or child._layoutWidth) + spaceX
 					end
-					expandablesX = expandablesX-1
+					expandablesX = expandablesX - 1
 				end
 				child:_expandLayout(
-					(not child._width and expandW or nil),
+					(child._width < 0     and expandW                 or nil),
 					(self._expandChildren and self._layoutInnerHeight or nil)
 				)
 			end
@@ -5827,13 +5880,13 @@ function Cs.vbar:_expandLayout(expandW, expandH)
 	-- Calculate amount of space for children to expand into (total or extra, whether homogeneous or not).
 	local totalSpaceY = 0
 	if expandH then
-		totalSpaceY = self._layoutInnerHeight-self._layoutInnerSpacingsY
+		totalSpaceY = self._layoutInnerHeight - self._layoutInnerSpacingsY
 		if self._homogeneous then
-			totalSpaceY = totalSpaceY-self._layoutInnerStaticHeight
+			totalSpaceY = totalSpaceY - self._layoutInnerStaticHeight
 		else
 			for _, child in ipairs(self) do
 				if not (child._hidden or child._floating) then
-					totalSpaceY = totalSpaceY-child._layoutHeight
+					totalSpaceY = totalSpaceY - child._layoutHeight
 				end
 			end
 		end
@@ -5847,17 +5900,17 @@ function Cs.vbar:_expandLayout(expandW, expandH)
 			if child._floating then
 				child:_expandLayout(nil, nil)
 			else
-				if not child._height then
+				if child._height < 0 then
 					if expandH then
-						local spaceY = round(totalSpaceY/expandablesY)
-						totalSpaceY = totalSpaceY-spaceY
-						expandH = (self._homogeneous and 0 or child._layoutHeight)+spaceY
+						local spaceY = round(totalSpaceY / expandablesY)
+						totalSpaceY  = totalSpaceY - spaceY
+						expandH      = (self._homogeneous and 0 or child._layoutHeight) + spaceY
 					end
-					expandablesY = expandablesY-1
+					expandablesY = expandablesY - 1
 				end
 				child:_expandLayout(
 					(self._expandChildren and self._layoutInnerWidth or nil),
-					(not child._height and expandH or nil)
+					(child._height < 0    and expandH                or nil)
 				)
 			end
 		end
@@ -5936,7 +5989,8 @@ end
 
 
 Cs.root = newElementClass("GuiRoot", Cs.container, {}, {
-	--[[REPLACE]] _width = 0, _height = 0, -- The root always has a fixed size.
+	--[[REPLACE]] _width  = 0, -- The root always has a fixed size (i.e. not dynamic).
+	--[[REPLACE]] _height = 0,
 }, {
 	-- void
 })
@@ -5972,12 +6026,19 @@ end
 
 
 -- REPLACE  root:setDimensions( width, height )
+-- REPLACE  root:setWidth( width )
+-- REPLACE  root:setHeight( height )
 function Cs.root:setDimensions(w, h)
 	!ARGS"2 w,h:number"
-	if self._width == w and self._height == h then  return  end
-
-	self._width, self._height = w, h
-	scheduleLayoutUpdateIfDisplayed(self)
+	Cs.root.super.setDimensions(self, math.max(w, 0), math.max(h, 0))
+end
+function Cs.root:setWidth(w)
+	!ARGS"2 w:number"
+	Cs.root.super.setWidth(self, math.max(w, 0))
+end
+function Cs.root:setHeight(h)
+	!ARGS"2 h:number"
+	Cs.root.super.setHeight(self, math.max(h, 0))
 end
 
 
@@ -5991,7 +6052,7 @@ function Cs.root:_updateLayoutSize()
 	updateContainerChildLayoutSizes(self)
 end
 
--- INTERNAL REPLACE  root:_expandLayout( [ expandWidth, expandHeight ] )
+-- INTERNAL REPLACE  root:_expandLayout( expandWidth|nil, expandHeight|nil )
 -- expandWidth and expandHeight are ignored as the root always has a fixed non-expanding size.
 function Cs.root:_expandLayout(expandW, expandH)
 	for _, child in ipairs(self) do
@@ -6009,11 +6070,18 @@ end
 
 Cs.leaf = newElementClass("GuiLeaf", Cs.element, {}, {
 	-- Parameters.
-	_align     = "center", -- "left" | "right" | "center"
-	_bold      = false, _small = false, _large = false,
+	_align = "center", -- "left" | "right" | "center"
+
+	_bold  = false,
+	_large = false,
+	_small = false,
+
 	_mnemonics = false,
-	_text      = "",
+
+	_text = "",
+
 	_textColor = nil,
+	--
 
 	_mnemonicBytePosition = nil,
 	_textWidth            = 0, _textHeight = 0,
@@ -6278,8 +6346,8 @@ function Cs.canvas:_draw()
 
 	-- Draw canvas.
 	-- We don't call themeRender() for canvases as they should only draw things through the "draw" event.
-	local cw = self._width  or w
-	local ch = self._height or h
+	local cw = (self._width  >= 0) and self._width  or w
+	local ch = (self._height >= 0) and self._height or h
 
 	if cw > 0 and ch > 0 then
 		$LG.push("all")
@@ -6329,7 +6397,9 @@ end
 -- INTERNAL REPLACE  canvas:_updateLayoutSize( )
 function Cs.canvas:_updateLayoutSize()
 	-- We don't call themeGetSize() for canvases as they always have their own private "theme".
-	local w, h = (self._width or 0), (self._height or 0)
+	local w = math.max(self._width , 0)
+	local h = math.max(self._height, 0)
+
 	self._layoutWidth,      self._layoutHeight      = w, h
 	self._layoutInnerWidth, self._layoutInnerHeight = w, h
 end
@@ -6388,14 +6458,14 @@ end
 
 -- INTERNAL REPLACE  image:_updateLayoutSize( )
 function Cs.image:_updateLayoutSize()
-	local w, h = nil, nil
-	if not (self._width and self._height) then
+	local w, h
+	if self._width < 0 or self._height < 0 then
 		local iw, ih = self:getImageDimensions()
-		w, h = themeGetSize(self, "image", iw*self._imageScaleX, ih*self._imageScaleX)
+		w, h         = themeGetSize(self, "image", iw*self._imageScaleX, ih*self._imageScaleX)
 	end
 
-	w = (self._width  or math.max(w, self._minWidth))
-	h = (self._height or math.max(h, self._minHeight))
+	w = (self._width  >= 0) and self._width  or math.max(w, self._minWidth )
+	h = (self._height >= 0) and self._height or math.max(h, self._minHeight)
 
 	self._layoutWidth     , self._layoutHeight      = w, h
 	self._layoutInnerWidth, self._layoutInnerHeight = w, h
@@ -6411,7 +6481,8 @@ end
 
 Cs.text = newElementClass("GuiText", Cs.leaf, {}, {
 	-- Parameters.
-	_wrapText = false, _textWrapLimit = nil,
+	_wrapText      = false,
+	_textWrapLimit = -1, -- Negative means no limit.
 }, {
 	-- void
 })
@@ -6446,20 +6517,21 @@ end
 -- INTERNAL REPLACE  text:_updateLayoutSize( )
 function Cs.text:_updateLayoutSize()
 	local wrapLimit = self._textWrapLimit
+	if wrapLimit < 0 then  wrapLimit = 1/0  end
 
-	if not wrapLimit and self._wrapText then
+	if wrapLimit == 1/0 and self._wrapText then
 		local innerSpaceSum = 0
 
 		for _, parent in self:parents() do
 			innerSpaceSum = innerSpaceSum + parent:getInnerSpaceX()
 
 			-- At most this will be the root, as the root always has a defined size.
-			if parent._width then
+			if parent._width >= 0 then
 				wrapLimit = parent._width - innerSpaceSum - 2*themeGet(self._gui, "textIndentation")
 
 				if wrapLimit <= 0 then
 					-- Maybe the root's size is 0x0?
-					wrapLimit = nil
+					wrapLimit = 1/0
 				end
 
 				break
@@ -6470,14 +6542,14 @@ function Cs.text:_updateLayoutSize()
 	local textW    , textH            = getTextDimensions(self:getFont(), self._text, wrapLimit)
 	self._textWidth, self._textHeight = textW, textH
 
-	local w, h = nil
-	if not (self._width and self._height) then
+	local w, h
+	if self._width < 0 or self._height < 0 then
 		local textIndent = themeGet(self._gui, "textIndentation")
 		w, h             = themeGetSize(self, "text", textIndent, textW, textH)
 	end
 
-	w = (self._width  or math.max(w, self._minWidth))
-	h = (self._height or math.max(h, self._minHeight))
+	w = (self._width  >= 0) and self._width  or math.max(w, self._minWidth )
+	h = (self._height >= 0) and self._height or math.max(h, self._minHeight)
 
 	self._layoutWidth     , self._layoutHeight      = w, h
 	self._layoutInnerWidth, self._layoutInnerHeight = w, h
@@ -6487,7 +6559,7 @@ end
 
 -- REPLACE  text:drawText( x, y )
 function Cs.text:drawText(x, y)
-	if self._wrapText or self._textWrapLimit then
+	if self._wrapText or self._textWrapLimit >= 0 then
 		$LG.printf(self._text, x, y, self._textWidth, self._align)
 	else
 		$LG.print(self._text, x, y)
@@ -6554,17 +6626,27 @@ end
 
 Cs.button = newElementClass("GuiButton", Cs.widget, {"imageInclude"}, {
 	-- Parameters.
-	_arrow         = nil, -- @Cleanup: We're not using this internally. Should it be removed in favor of element.data?
-	_canToggle     = false,
-	_close         = false,
-	_imagePadding  = 0,
-	_pressable     = true,
-	_text2         = "",
-	_toggled       = false,
-	_toggledSprite = nil, _untoggledSprite = nil,
+	_pressable = true,
+	_canToggle = false,
+	_close     = false,
 
-	_isPressed        = false,
-	_textWidth1       = 0, _textWidth2 = 0,
+	_toggled = false,
+
+	_text2 = "",
+
+	_imagePadding = 0,
+
+	_toggledSprite   = nil,
+	_untoggledSprite = nil,
+
+	_arrow = nil, -- @Cleanup: We're not using this internally. Should it be removed in favor of element.data?
+	--
+
+	_isPressed = false,
+
+	_textWidth1 = 0,
+	_textWidth2 = 0,
+
 	_unprocessedText2 = "",
 }, {
 	"press" , -- function( buttonElement, event )
@@ -6846,16 +6928,17 @@ function Cs.button:_updateLayoutSize()
 	self._textWidth  = self._textWidth1 + self._textWidth2 -- This value is pretty useless...
 	self._textHeight = font:getHeight()
 
-	local w, h = nil, nil
-	if not (self._width and self._height) then
+	local w, h
+	if self._width < 0 or self._height < 0 then
 		local iw, ih = self:getImageDimensions()
 		w, h = themeGetSize(
 			self, "button", self._textWidth1, self._textWidth2, self._textHeight,
-			iw*self._imageScaleX+2*self._imagePadding, ih*self._imageScaleX+2*self._imagePadding)
+			iw*self._imageScaleX+2*self._imagePadding, ih*self._imageScaleX+2*self._imagePadding
+		)
 	end
 
-	w = (self._width  or math.max(w, self._minWidth))
-	h = (self._height or math.max(h, self._minHeight))
+	w = (self._width  >= 0) and self._width  or math.max(w, self._minWidth )
+	h = (self._height >= 0) and self._height or math.max(h, self._minHeight)
 
 	self._layoutWidth     , self._layoutHeight      = w, h
 	self._layoutInnerWidth, self._layoutInnerHeight = w, h
@@ -6872,13 +6955,21 @@ end
 Cs.input = newElementClass("GuiInput", Cs.widget, {}, {
 	-- Parameters.
 	--[[OVERRIDE]] _mouseCursor = "ibeam",
-	--[[REPLACE ]] _minWidth    = 10,
-	_mask        = "",
-	_placeholder = "",
-	_spin        = 0,
-	_spinMin     = -1/0, _spinMax = 1/0,
 
-	_field          = nil,
+	--[[REPLACE]] _minWidth = 10,
+
+	_placeholder = "",
+
+	_mask = "",
+
+	_spin = 0, -- Non-zero enables number value spinning.
+
+	_spinMin = -1/0,
+	_spinMax = 1/0,
+	--
+
+	_field = nil,
+
 	_savedKeyRepeat = false,
 	_savedValue     = "",
 }, {
@@ -7053,12 +7144,12 @@ function Cs.input:_keypressed(key, scancode, isRepeat)
 
 	elseif self._spin ~= 0 and (key == "up" or key == "down") then
 		local oldValue = self:getValue()
-		local n = tonumber(oldValue) or 0
+		local n        = tonumber(oldValue) or 0
 
 		if key == "up" then
-			n = n+self._spin
+			n = n + self._spin
 		elseif key == "down" then
-			n = n-self._spin
+			n = n - self._spin
 		end
 		n = math.min(math.max(n, self._spinMin), self._spinMax)
 
@@ -7163,19 +7254,19 @@ end
 function Cs.input:_updateLayoutSize()
 	local inputIndent = themeGet(self._gui, "inputIndentation")
 
-	local w, h = nil, nil
-	if not (self._width and self._height) then
+	local w, h
+	if self._width < 0 or self._height < 0 then
 		w, h = themeGetSize(self, "input", inputIndent, self:getFont():getHeight())
 	end
 
-	w = (self._width  or math.max(w, self._minWidth))
-	h = (self._height or math.max(h, self._minHeight))
+	w = (self._width  >= 0) and self._width  or math.max(w, self._minWidth )
+	h = (self._height >= 0) and self._height or math.max(h, self._minHeight)
 
-	self._layoutWidth,      self._layoutHeight      = w,               h
+	self._layoutWidth,      self._layoutHeight      = w              , h
 	self._layoutInnerWidth, self._layoutInnerHeight = w-2*inputIndent, h
 end
 
--- INTERNAL OVERRIDE  input:_expandLayout( [ expandWidth, expandHeight ] )
+-- INTERNAL OVERRIDE  input:_expandLayout( expandWidth|nil, expandHeight|nil )
 function Cs.input:_expandLayout(expandW, expandH)
 	Cs.input.super._expandLayout(self, expandW, expandH)
 
