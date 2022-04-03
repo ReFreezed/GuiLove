@@ -143,6 +143,7 @@
 	- getRoot, getNavigationRoot
 	- getSibling
 	- getSound, getResultingSound, setSound
+	- getSpacing, getSpacingLeft, getSpacingRight, getSpacingTop, getSpacingBottom, setSpacing
 	- getStyle
 	- getTimeSinceBecomingVisible
 	- getTooltip, setTooltip, drawTooltip
@@ -6008,6 +6009,78 @@ end
 
 
 
+-- spacingLeft, spacingRight, spacingTop, spacingBottom = element:getSpacing( )
+-- spacing = element:getSpacingLeft( )
+-- spacing = element:getSpacingRight( )
+-- spacing = element:getSpacingTop( )
+-- spacing = element:getSpacingBottom( )
+function Cs.element:getSpacing()
+	return self._spacingLeft, self._spacingRight, self._spacingTop, self._spacingBottom
+end
+function Cs.element:getSpacingLeft  ()  return self._spacingLeft    end
+function Cs.element:getSpacingRight ()  return self._spacingRight   end
+function Cs.element:getSpacingTop   ()  return self._spacingTop     end
+function Cs.element:getSpacingBottom()  return self._spacingBottom  end
+
+-- element:setSpacing( spacing )
+-- element:setSpacing( spacingHorizontal, spacingVertical )
+-- element:setSpacing( spacingLeft, spacingRight, spacingTop, spacingBottom )
+-- element:setSpacingLeft( spacing )
+-- element:setSpacingRight( spacing )
+-- element:setSpacingTop( spacing )
+-- element:setSpacingBottom( spacing )
+function Cs.element:setSpacing(spacingL, spacingR, spacingT, spacingB)
+	if type(spacingL)~="number" then argerror(2,1,"spacingL",spacingL,"number") end
+
+	if not spacingR then
+		spacingL, spacingR, spacingT, spacingB = spacingL, spacingL, spacingL, spacingL
+	elseif not spacingB then
+		spacingL, spacingR, spacingT, spacingB = spacingL, spacingL, spacingR, spacingR
+	end
+
+	if
+		self._spacingLeft   == spacingL and
+		self._spacingRight  == spacingR and
+		self._spacingTop    == spacingT and
+		self._spacingBottom == spacingB
+	then
+		return
+	end
+
+	self._spacingLeft   = spacingL
+	self._spacingRight  = spacingR
+	self._spacingTop    = spacingT
+	self._spacingBottom = spacingB
+
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+function Cs.element:setSpacingLeft(spacing)
+	if type(spacing)~="number" then argerror(2,1,"spacing",spacing,"number") end
+	if self._spacingLeft == spacing then  return  end
+	self._spacingLeft = spacing
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+function Cs.element:setSpacingRight(spacing)
+	if type(spacing)~="number" then argerror(2,1,"spacing",spacing,"number") end
+	if self._spacingRight == spacing then  return  end
+	self._spacingRight = spacing
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+function Cs.element:setSpacingTop(spacing)
+	if type(spacing)~="number" then argerror(2,1,"spacing",spacing,"number") end
+	if self._spacingTop == spacing then  return  end
+	self._spacingTop = spacing
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+function Cs.element:setSpacingBottom(spacing)
+	if type(spacing)~="number" then argerror(2,1,"spacing",spacing,"number") end
+	if self._spacingBottom == spacing then  return  end
+	self._spacingBottom = spacing
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+
+
+
 -- gui = element:getGui( )
 function Cs.element:getGui()
 	return self._gui
@@ -7485,18 +7558,18 @@ function Cs.container:getInnerSpace()
 	return spaceX, spaceY
 end
 function Cs.container:getInnerSpaceX()
-	local spaceX = self._paddingLeft + self._paddingRight
+	local space = self._paddingLeft + self._paddingRight
 	if self:hasScrollbarOnRight() then
-		spaceX = spaceX + themeGet(self._gui, "scrollbarWidth")
+		space = space + themeGet(self._gui, "scrollbarWidth")
 	end
-	return spaceX
+	return space
 end
 function Cs.container:getInnerSpaceY()
-	local spaceY = self._paddingTop + self._paddingBottom
+	local space = self._paddingTop + self._paddingBottom
 	if self:hasScrollbarOnBottom() then
-		spaceY = spaceY + themeGet(self._gui, "scrollbarWidth")
+		space = space + themeGet(self._gui, "scrollbarWidth")
 	end
-	return spaceY
+	return space
 end
 
 
@@ -7560,11 +7633,17 @@ function Cs.container:getPaddingBottom()  return self._paddingBottom  end
 -- container:setPadding( padding )
 -- container:setPadding( paddingHorizontal, paddingVertical )
 -- container:setPadding( paddingLeft, paddingRight, paddingTop, paddingBottom )
-function Cs.container:setPadding(paddingL, paddingR, paddingU, paddingB)
+-- container:setPaddingLeft( padding )
+-- container:setPaddingRight( padding )
+-- container:setPaddingTop( padding )
+-- container:setPaddingBottom( padding )
+function Cs.container:setPadding(paddingL, paddingR, paddingT, paddingB)
+	if type(paddingL)~="number" then argerror(2,1,"paddingL",paddingL,"number") end
+
 	if not paddingR then
-		paddingL, paddingR, paddingU, paddingB = paddingL, paddingL, paddingL, paddingL
+		paddingL, paddingR, paddingT, paddingB = paddingL, paddingL, paddingL, paddingL
 	elseif not paddingB then
-		paddingL, paddingR, paddingU, paddingB = paddingL, paddingL, paddingR, paddingR
+		paddingL, paddingR, paddingT, paddingB = paddingL, paddingL, paddingR, paddingR
 	end
 
 	if
@@ -7581,6 +7660,30 @@ function Cs.container:setPadding(paddingL, paddingR, paddingU, paddingB)
 	self._paddingTop    = paddingT
 	self._paddingBottom = paddingB
 
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+function Cs.container:setPaddingLeft(padding)
+	if type(padding)~="number" then argerror(2,1,"padding",padding,"number") end
+	if self._paddingLeft == padding then  return  end
+	self._paddingLeft = padding
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+function Cs.container:setPaddingRight(padding)
+	if type(padding)~="number" then argerror(2,1,"padding",padding,"number") end
+	if self._paddingRight == padding then  return  end
+	self._paddingRight = padding
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+function Cs.container:setPaddingTop(padding)
+	if type(padding)~="number" then argerror(2,1,"padding",padding,"number") end
+	if self._paddingTop == padding then  return  end
+	self._paddingTop = padding
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+function Cs.container:setPaddingBottom(padding)
+	if type(padding)~="number" then argerror(2,1,"padding",padding,"number") end
+	if self._paddingBottom == padding then  return  end
+	self._paddingBottom = padding
 	scheduleLayoutUpdateIfDisplayed(self)
 end
 
