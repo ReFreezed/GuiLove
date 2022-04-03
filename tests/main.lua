@@ -34,7 +34,8 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 			{"button", text="[2]"},
 		},
 		{"hbar",
-			{"button", text="untitled.txt"},
+			{"button", text="untitled (1).txt"},
+			{"button", text="untitled (2).txt"},
 		},
 		{"input", weight=1},
 		{"hbar",
@@ -46,7 +47,12 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 		{"hbar", floating=true, originX=.5, anchorX=.5, y=30, background="something", padding=20, homogeneous=true,
 			{"button", weight=1, text="[A]", spacing=10},
 			{"button", weight=1, text="[BB]"},
-			{"button", weight=2, text="[CCCCCCCC]"}, -- @Incomplete: Fix 'homogeneous' giving items too much space.
+			{"button", weight=2, text="[CCCCCCCC]"},
+		},
+		{"hbar", floating=true, originX=.5, anchorX=.5, y=110, background="warning", padding=20, homogeneous=true,
+			{"button", weight=2, text="[A]", spacing=10},
+			{"button", weight=1, text="[BB]"},
+			{"button", weight=1, text="[CCCCCCCC]"},
 		},
 	},
 

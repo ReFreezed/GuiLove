@@ -3705,10 +3705,47 @@ end
 
 
 
--- <see_return_statement> = getContainerNaturalSizeValues( bar )
-local function getContainerNaturalSizeValues(bar)
-	local staticW, dynamicW, highestW, highestDynamicW, expandablesX = 0, 0, 0, 0, 0
-	local staticH, dynamicH, highestH, highestDynamicH, expandablesY = 0, 0, 0, 0, 0
+-- <see_return_statement> = getBarNaturalSizeValues( bar )
+local function getBarNaturalSizeValues(bar)
+	--[[ Examples how homogeneous+weight affect sizes:
+	--------------------------------
+
+	input  [A][B][CCCC]
+	weight 1  1  2
+
+	minw=3
+	maxw=6
+
+	output [A][B][CCCC]
+
+	minw=3
+	maxw=6
+
+	A=1*minw
+	B=1*minw
+	C=2*minw
+
+	--------------------------------
+
+	input  [A][B][CCCC]
+	weight 2  1  1
+
+	minw=3
+	maxw=6
+
+	output [A~~~~~~~~~][B~~~][CCCC]
+
+	minw=6
+	maxw=12
+
+	A=2*minw
+	B=1*minw
+	C=1*minw
+
+	------------------------------]]
+
+	local staticW, dynamicW, highestW, highestDynamicW = 0, 0, 0, 0 -- Note: highestDynamic* is weighted.
+	local staticH, dynamicH, highestH, highestDynamicH = 0, 0, 0, 0
 
 	local currentSx = 0
 	local currentSy = 0
@@ -3718,11 +3755,13 @@ local function getContainerNaturalSizeValues(bar)
 
 	local totalWeight = 0
 
+	local max = math.max
+
 	for _, child in ipairs(bar) do
 		if not (child._hidden or child._floating) then
 			-- Dimensions.
-			highestW = math.max(highestW, child._layoutWidth)
-			highestH = math.max(highestH, child._layoutHeight)
+			highestW = max(highestW, child._layoutWidth)
+			highestH = max(highestH, child._layoutHeight)
 
 			if child._weight == 0 then
 				staticW = staticW + child._layoutWidth
@@ -3732,22 +3771,20 @@ local function getContainerNaturalSizeValues(bar)
 					staticW = staticW + child._width
 				else
 					dynamicW        = dynamicW + child._layoutWidth
-					highestDynamicW = math.max(highestDynamicW, child._layoutWidth)
-					expandablesX    = expandablesX + 1
+					highestDynamicW = max(highestDynamicW, child._layoutWidth/child._weight)
 				end
 				if child._height >= 0 then
 					staticH = staticH + child._height
 				else
 					dynamicH        = dynamicH + child._layoutHeight
-					highestDynamicH = math.max(highestDynamicH, child._layoutHeight)
-					expandablesY    = expandablesY + 1
+					highestDynamicH = max(highestDynamicH, child._layoutHeight/child._weight)
 				end
 			end
 
 			-- Spacing.
 			if not first then
-				currentSx = math.max(currentSx, (child._spacingLeft or child._spacingHorizontal or child._spacing))
-				currentSy = math.max(currentSy, (child._spacingTop  or child._spacingVertical   or child._spacing))
+				currentSx = max(currentSx, (child._spacingLeft or child._spacingHorizontal or child._spacing))
+				currentSy = max(currentSy, (child._spacingTop  or child._spacingVertical   or child._spacing))
 			end
 			sumSx     = sumSx + currentSx
 			sumSy     = sumSy + currentSy
@@ -3760,8 +3797,8 @@ local function getContainerNaturalSizeValues(bar)
 		end
 	end
 
-	return staticW, dynamicW, highestW, highestDynamicW, expandablesX, sumSx,
-	       staticH, dynamicH, highestH, highestDynamicH, expandablesY, sumSy,
+	return staticW, dynamicW, highestW, highestDynamicW, sumSx,
+	       staticH, dynamicH, highestH, highestDynamicH, sumSy,
 	       totalWeight
 end
 
@@ -8258,11 +8295,11 @@ Cs.vbar = newElementClass("GuiVerticalBar", Cs.bar, {}, {
 function Cs.hbar:_calculateNaturalSize()
 	calculateContainerChildNaturalSizes(self)
 
-	local staticW, dynamicW, highestW, highestDynamicW, expandablesX, sumSx,
-	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, sumSy,
-	      totalWeight = getContainerNaturalSizeValues(self)
+	local staticW, dynamicW, highestW, highestDynamicW, sumSx,
+	      staticH, dynamicH, highestH, highestDynamicH, sumSy,
+	      totalWeight = getBarNaturalSizeValues(self)
 
-	local innerW = (self._homogeneous and highestDynamicW*expandablesX--[[ @Incomplete: Use weight here somehow (I think). ]] or dynamicW) + staticW + sumSx
+	local innerW = (self._homogeneous and highestDynamicW*totalWeight or dynamicW) + staticW + sumSx
 
 	innerW   = math.max(innerW,   self._minWidth -self:getInnerSpaceX())
 	highestH = math.max(highestH, self._minHeight-self:getInnerSpaceY())
@@ -8275,11 +8312,11 @@ end
 function Cs.vbar:_calculateNaturalSize()
 	calculateContainerChildNaturalSizes(self)
 
-	local staticW, dynamicW, highestW, highestDynamicW, expandablesX, sumSx,
-	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, sumSy,
-	      totalWeight = getContainerNaturalSizeValues(self)
+	local staticW, dynamicW, highestW, highestDynamicW, sumSx,
+	      staticH, dynamicH, highestH, highestDynamicH, sumSy,
+	      totalWeight = getBarNaturalSizeValues(self)
 
-	local innerH = (self._homogeneous and highestDynamicH*expandablesY--[[ @Incomplete: Use weight here somehow (I think). ]] or dynamicH) + staticH + sumSy
+	local innerH = (self._homogeneous and highestDynamicH*totalWeight or dynamicH) + staticH + sumSy
 
 	innerH   = math.max(innerH,   self._minHeight-self:getInnerSpaceY())
 	highestW = math.max(highestW, self._minWidth -self:getInnerSpaceX())
