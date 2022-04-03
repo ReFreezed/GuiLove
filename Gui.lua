@@ -127,7 +127,7 @@
 	- getDimensions, setDimensions, getWidth, setWidth, getHeight, setHeight
 	- getGui
 	- getGuiTime
-	- getId, hasId
+	- getId, setId, hasId
 	- getIndex, getDepth
 	- getLayout
 	- getLayoutDimensions, getLayoutWidth, getLayoutHeight
@@ -140,6 +140,7 @@
 	- getPathDescription
 	- getPosition, setPosition, getX, setX, getY, setY
 	- getPositionOnScreen, getXOnScreen, getYOnScreen
+	- getRelativeDimensions, getRelativeWidth, getRelativeHeight, setRelativeDimensions, setRelativeWidth, setRelativeHeight
 	- getRoot, getNavigationRoot
 	- getSibling
 	- getSound, getResultingSound, setSound
@@ -148,6 +149,7 @@
 	- getTimeSinceBecomingVisible
 	- getTooltip, setTooltip, drawTooltip
 	- getTooltipFont, useTooltipFont
+	- getWeight, setWeight
 	- hasTag, addTag, removeTag, removeAllTags, setTag
 	- isAt
 	- isDisplayed, getClosestHiddenElement, getFarthestHiddenElement
@@ -2947,9 +2949,10 @@ end
 
 
 
--- class = newElementClass( className, parentClass|nil, includes, classTable, events )
-local function newElementClass(className, parentClass, includes, classTable, events)
-	local C = parentClass and parentClass:extend(className, classTable) or class(className, classTable)
+-- class = newElementClass( abstract, className, parentClass|nil, includes, classTable, events )
+local function newElementClass(abstract, className, parentClass, includes, classTable, events)
+	classTable.abstract = abstract
+	local C             = parentClass and parentClass:extend(className, classTable) or class(className, classTable)
 
 	-- Include includes.
 	for _, includeName in ipairs(includes) do
@@ -3272,27 +3275,20 @@ local isElementMatchingSelectorPath
 do
 	local function isMatchingSection(el, selPathSection)
 		for _, selPathSegment in ipairs(selPathSection) do
-
 			-- ID
 			if selPathSegment.type == "id" then
-				if not el:hasId(selPathSegment.value) then
-					return false
-				end
+				if el._id ~= selPathSegment.value then  return false  end
 
 			-- Tag
 			elseif selPathSegment.type == "tag" then
-				if not el:hasTag(selPathSegment.value) then
-					return false
-				end
+				if not el:hasTag(selPathSegment.value) then  return false  end
 
 			-- Element type
 			else--if selPathSegment.type == "type" then
-				if not el:isType(selPathSegment.value) then
-					return false
-				end
-
+				if not el:isType(selPathSegment.value) then  return false  end
 			end
 		end
+
 		return true
 	end
 
@@ -4507,10 +4503,7 @@ end
 -- element = gui:find( id )
 function Gui:find(id)
 	local root = self._root
-	if root then
-		return (root._id == id and root or root:find(id))
-	end
-	return nil
+	return root and (root._id == id and root or root:find(id))
 end
 
 -- elements = gui:findAll( id )
@@ -5338,7 +5331,7 @@ end
 
 
 
-Cs.element = newElementClass("GuiElement", nil, {}, {
+Cs.element = newElementClass(true, "GuiElement", nil, {}, {
 	--[[STATIC]] _events = {--[[ event1, [event1]=true, ... ]]},
 
 	-- Parameters.
@@ -5446,6 +5439,10 @@ Cs.element = newElementClass("GuiElement", nil, {}, {
 })
 
 function Cs.element:init(gui, elData, parent)
+	if self.abstract then
+		errorf("Cannot instantiate abstract class '%s'.", self.__name)
+	end
+
 	self._gui    = gui or error("Missing gui object argument.")
 	self._parent = parent
 
@@ -5500,7 +5497,7 @@ function Cs.element:init(gui, elData, parent)
 	if self._id == "" then
 		local numId          = gui._lastAutomaticId + 1
 		gui._lastAutomaticId = numId
-		self._id             = "__"..numId
+		self._id             = "__" .. numId
 		self._automaticId    = true
 	end
 
@@ -6009,6 +6006,44 @@ end
 
 
 
+-- width, height = element:getRelativeDimensions( )
+-- width  = element:getRelativeWidth( )
+-- height = element:getRelativeHeight( )
+function Cs.element:getRelativeDimensions()
+	return self._relativeWidth, self._relativeHeight
+end
+function Cs.element:getRelativeWidth()
+	return self._relativeWidth
+end
+function Cs.element:getRelativeHeight()
+	return self._relativeHeight
+end
+
+-- element:setRelativeDimensions( width, height )
+-- element:setRelativeWidth( width )
+-- element:setRelativeHeight( height )
+function Cs.element:setRelativeDimensions(w, h)
+	if type(w)~="number" then argerror(2,1,"w",w,"number") end
+	if type(h)~="number" then argerror(2,2,"h",h,"number") end
+	if self._relativeWidth == w and self._relativeHeight == h then  return  end
+	self._relativeWidth, self._relativeHeight = w, h
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+function Cs.element:setRelativeWidth(w)
+	if type(w)~="number" then argerror(2,1,"w",w,"number") end
+	if self._relativeWidth == w then  return  end
+	self._relativeWidth = w
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+function Cs.element:setRelativeHeight(h)
+	if type(h)~="number" then argerror(2,1,"h",h,"number") end
+	if self._relativeHeight == h then  return  end
+	self._relativeHeight = h
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+
+
+
 -- spacingLeft, spacingRight, spacingTop, spacingBottom = element:getSpacing( )
 -- spacing = element:getSpacingLeft( )
 -- spacing = element:getSpacingRight( )
@@ -6081,6 +6116,21 @@ end
 
 
 
+-- weight = element:getWeight( )
+function Cs.element:getWeight()
+	return self._weight
+end
+
+-- element:setWeight( weight )
+function Cs.element:setWeight(weight)
+	if type(weight)~="number" then argerror(2,1,"weight",weight,"number") end
+	if self._weight == weight then  return  end
+	self._weight = weight
+	scheduleLayoutUpdateIfDisplayed(self)
+end
+
+
+
 -- gui = element:getGui( )
 function Cs.element:getGui()
 	return self._gui
@@ -6101,12 +6151,25 @@ function Cs.element:getId()
 	return self._id
 end
 
+-- element:setId( id )
+function Cs.element:setId(id)
+	if type(id)~="string" then argerror(2,1,"id",id,"string") end
+	if id == "" then
+		local gui            = self._gui
+		local numId          = gui._lastAutomaticId + 1
+		gui._lastAutomaticId = numId
+		self._id             = "__" .. numId
+		self._automaticId    = true
+	else
+		self._id             = id
+		self._automaticId    = false
+	end
+end
+
 -- bool = element:hasId( id [, id2, ... ] )
-function Cs.element:hasId(id, ...)
-	if self._id == id then
-		return true
-	elseif ... then
-		return self:hasId(...)
+function Cs.element:hasId(...)
+	for i = 1, select("#", ...) do
+		if self._id == select(i, ...) then  return true  end
 	end
 	return false
 end
@@ -6562,8 +6625,6 @@ end
 function Cs.element:getStyle()
 	return self._style
 end
-
--- @Incomplete: Should there be a element:setStyle()?
 
 
 
@@ -7302,7 +7363,7 @@ end
 
 
 
-Cs.container = newElementClass("GuiContainer", Cs.element, {}, {
+Cs.container = newElementClass(false, "GuiContainer", Cs.element, {}, {
 	SCROLL_SMOOTHNESS = 0.65,
 
 	SCROLL_SPEED_X = 30,
@@ -7453,9 +7514,7 @@ end
 -- element|nil = container:find( id )
 function Cs.container:find(id)
 	for el in self:traverse() do
-		if el._id == id then
-			return el
-		end
+		if el._id == id then  return el  end
 	end
 	return nil
 end
@@ -7464,9 +7523,7 @@ end
 function Cs.container:findAll(id)
 	local els = {}
 	for el in self:traverse() do
-		if el._id == id then
-			table.insert(els, el)
-		end
+		if el._id == id then  table.insert(els, el)  end
 	end
 	return els
 end
@@ -8385,7 +8442,7 @@ end
 
 
 
-Cs.bar = newElementClass("GuiBar", Cs.container, {}, {
+Cs.bar = newElementClass(true, "GuiBar", Cs.container, {}, {
 	-- Parameters.
 	_expandPerpendicular = true,  -- Perpendicular to the layout direction of the bar.
 	_homogeneous         = false, -- If children should be the same size.
@@ -8414,12 +8471,12 @@ end
 
 
 
-Cs.hbar = newElementClass("GuiHorizontalBar", Cs.bar, {}, {
+Cs.hbar = newElementClass(false, "GuiHorizontalBar", Cs.bar, {}, {
 	-- void
 }, {
 	-- void
 })
-Cs.vbar = newElementClass("GuiVerticalBar", Cs.bar, {}, {
+Cs.vbar = newElementClass(false, "GuiVerticalBar", Cs.bar, {}, {
 	-- void
 }, {
 	-- void
@@ -8642,7 +8699,7 @@ end
 
 
 
-Cs.root = newElementClass("GuiRoot", Cs.container, {}, {
+Cs.root = newElementClass(false, "GuiRoot", Cs.container, {}, {
 	--[[REPLACE]] _width  = 0, -- The root always has a fixed size (i.e. not dynamic).
 	--[[REPLACE]] _height = 0,
 }, {
@@ -8679,9 +8736,9 @@ end
 
 
 
--- REPLACE  root:setDimensions( width, height )
--- REPLACE  root:setWidth( width )
--- REPLACE  root:setHeight( height )
+-- OVERRIDE  root:setDimensions( width, height )
+-- OVERRIDE  root:setWidth( width )
+-- OVERRIDE  root:setHeight( height )
 function Cs.root:setDimensions(w, h)
 	if type(w)~="number" then argerror(2,1,"w",w,"number") end
 	if type(h)~="number" then argerror(2,2,"h",h,"number") end
@@ -8719,7 +8776,7 @@ end
 
 
 
-Cs.leaf = newElementClass("GuiLeaf", Cs.element, {}, {
+Cs.leaf = newElementClass(true, "GuiLeaf", Cs.element, {}, {
 	-- Parameters.
 	_align = "center", -- "left" | "right" | "center"
 
@@ -8968,7 +9025,7 @@ end
 
 
 
-Cs.canvas = newElementClass("GuiCanvas", Cs.leaf, {}, {
+Cs.canvas = newElementClass(false, "GuiCanvas", Cs.leaf, {}, {
 	-- Parameters.
 	_canvasBackgroundColor = nil,
 }, {
@@ -9060,7 +9117,7 @@ end
 
 
 
-Cs.image = newElementClass("GuiImage", Cs.leaf, {"imageInclude"}, {
+Cs.image = newElementClass(false, "GuiImage", Cs.leaf, {"imageInclude"}, {
 	-- void
 }, {
 	-- void
@@ -9124,7 +9181,7 @@ end
 
 
 
-Cs.text = newElementClass("GuiText", Cs.leaf, {}, {
+Cs.text = newElementClass(false, "GuiText", Cs.leaf, {}, {
 	-- Parameters.
 	_wrapText      = false,
 	_textWrapLimit = -1, -- Negative means no limit.
@@ -9217,7 +9274,7 @@ end
 
 
 
-Cs.widget = newElementClass("GuiWidget", Cs.leaf, {}, {
+Cs.widget = newElementClass(true, "GuiWidget", Cs.leaf, {}, {
 	-- Parameters.
 	_active   = true, -- If the widget can be interacted with or is grayed out.
 	_priority = 0,    -- Navigation priority.
@@ -9267,7 +9324,7 @@ end
 
 
 
-Cs.button = newElementClass("GuiButton", Cs.widget, {"imageInclude"}, {
+Cs.button = newElementClass(false, "GuiButton", Cs.widget, {"imageInclude"}, {
 	-- Parameters.
 	_pressable = true,
 	_canToggle = false,
@@ -9593,7 +9650,7 @@ end
 
 
 
-Cs.input = newElementClass("GuiInput", Cs.widget, {}, {
+Cs.input = newElementClass(false, "GuiInput", Cs.widget, {}, {
 	-- Parameters.
 	--[[OVERRIDE]] _mouseCursor = "ibeam",
 
