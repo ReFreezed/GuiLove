@@ -190,7 +190,7 @@
 	- getElementAt
 	- getInnerSpace, getInnerSpaceX, getInnerSpaceY
 	- getMaxDimensions, setMaxDimensions, getMaxWidth, setMaxWidth, getMaxHeight, setMaxHeight
-	- getPadding, setPadding
+	- getPadding, getPaddingLeft, getPaddingRight, getPaddingTop, getPaddingBottom, setPadding
 	- getScroll, getScrollX, getScrollY, setScroll, setScrollX, setScrollY, scroll, updateScroll
 	- getScrollHandleX, getScrollHandleY
 	- getScrollLimit, getScrollLimitX, getScrollLimitY
@@ -3783,13 +3783,13 @@ local function getBarNaturalSizeValues(bar)
 
 			-- Spacing.
 			if not first then
-				currentSx = max(currentSx, (child._spacingLeft or child._spacingHorizontal or child._spacing))
-				currentSy = max(currentSy, (child._spacingTop  or child._spacingVertical   or child._spacing))
+				currentSx = max(currentSx, child._spacingLeft)
+				currentSy = max(currentSy, child._spacingTop )
 			end
 			sumSx     = sumSx + currentSx
 			sumSy     = sumSy + currentSy
-			currentSx = child._spacingRight  or child._spacingHorizontal or child._spacing
-			currentSy = child._spacingBottom or child._spacingVertical   or child._spacing
+			currentSx = child._spacingRight
+			currentSy = child._spacingBottom
 			first     = false
 
 			-- Weight.
@@ -3810,14 +3810,14 @@ local function updateFloatingElementPosition(el)
 
 	el._layoutX = round(0
 		+ parent._layoutX
-		+ parent._padding
+		+ parent._paddingLeft
 		+ el._originX * (parent._layoutWidth - parent:getInnerSpaceX())
 		+ el._x
 		- el._anchorX * el._layoutWidth
 	)
 	el._layoutY = round(0
 		+ parent._layoutY
-		+ parent._padding
+		+ parent._paddingTop
 		+ el._originY * (parent._layoutHeight - parent:getInnerSpaceY())
 		+ el._y
 		- el._anchorY * el._layoutHeight
@@ -5135,8 +5135,10 @@ end
 -- imageIncludeElement:drawImage( x, y )
 function Is.imageInclude:drawImage(x, y)
 	if not self._sprite then  return  end
+
 	local image, quad = getCurrentViewOfSprite(self._sprite)
-	local padding = (self:is(Cs.button) and self._imagePadding or 0)
+	local padding     = self:is(Cs.button) and self._imagePadding or 0
+
 	love.graphics.draw(image, quad, x+padding, y+padding, 0, self._imageScaleX, self._imageScaleY)
 end
 
@@ -5368,13 +5370,10 @@ Cs.element = newElementClass("GuiElement", nil, {}, {
 	_anchorX = 0.0, -- Where in self to base off x and y.
 	_anchorY = 0.0,
 
-	_spacing           = 0,
-	_spacingVertical   = nil, -- Falls back to _spacing.
-	_spacingHorizontal = nil, -- Falls back to _spacing.
-	_spacingTop        = nil, -- Falls back to _spacingVertical.
-	_spacingRight      = nil, -- Falls back to _spacingHorizontal.
-	_spacingBottom     = nil, -- Falls back to _spacingVertical.
-	_spacingLeft       = nil, -- Falls back to _spacingHorizontal.
+	_spacingLeft   = 0, -- Falls back to 'spacingHorizontal' and 'spacing'.
+	_spacingRight  = 0, -- Falls back to 'spacingHorizontal' and 'spacing'.
+	_spacingTop    = 0, -- Falls back to 'spacingVertical' and 'spacing'.
+	_spacingBottom = 0, -- Falls back to 'spacingVertical' and 'spacing'.
 
 	_background = "",
 	_style      = "",
@@ -5473,16 +5472,23 @@ function Cs.element:init(gui, elData, parent)
 	if elData.originX ~= nil then self._originX = elData.originX end if elData.originY ~= nil then self._originY = elData.originY end
 	if elData.relativeWidth ~= nil then self._relativeWidth = elData.relativeWidth end if elData.relativeHeight ~= nil then self._relativeHeight = elData.relativeHeight end
 	-- @@retrieve(self, elData, _sounds)
-	if elData.spacing ~= nil then self._spacing = elData.spacing end if elData.spacingVertical ~= nil then self._spacingVertical = elData.spacingVertical end if elData.spacingHorizontal ~= nil then self._spacingHorizontal = elData.spacingHorizontal end
-	if elData.spacingTop ~= nil then self._spacingTop = elData.spacingTop end if elData.spacingRight ~= nil then self._spacingRight = elData.spacingRight end if elData.spacingBottom ~= nil then self._spacingBottom = elData.spacingBottom end if elData.spacingLeft ~= nil then self._spacingLeft = elData.spacingLeft end
+	-- @@retrieve(self, elData, _spacingLeft, _spacingRight, _spacingTop, _spacingBottom)
 	-- @@retrieve(self, elData, _style)
 	-- @@retrieve(self, elData, _tags)
 	-- @@retrieve(self, elData, _tooltip)
 	if elData.weight ~= nil then self._weight = elData.weight end
-	if elData.width ~= nil then self._width = elData.width end if elData.height ~= nil then self._height = elData.height end
+	-- @@retrieve(self, elData, _width, _height)
 	if elData.x ~= nil then self._x = elData.x end if elData.y ~= nil then self._y = elData.y end
 
 	self._timeBecomingVisible = gui._time
+
+	if elData.width  then  self:setWidth (elData.width )  end
+	if elData.height then  self:setHeight(elData.height)  end
+
+	self._spacingLeft   = elData.spacingLeft   or elData.spacingHorizontal or elData.spacing
+	self._spacingRight  = elData.spacingRight  or elData.spacingHorizontal or elData.spacing
+	self._spacingTop    = elData.spacingTop    or elData.spacingVertical   or elData.spacing
+	self._spacingBottom = elData.spacingBottom or elData.spacingVertical   or elData.spacing
 
 	-- Set data table.
 	if not (elData.data == nil or type(elData.data) == "table") then  error("Assertion failed: elData.data == nil or type(elData.data) == \"table\"")  end
@@ -5564,8 +5570,9 @@ function Cs.element:_drawDebug(r, g, b, bgOpacity)
 
 	local isContainer = self:is(Cs.container)
 	local x, y, w, h  = xywh(self)
-	local padding     = isContainer and self._padding or 0
-	local lw          = math.max(padding, 1)
+	local paddingL    = isContainer and self._paddingLeft or 0
+	local paddingT    = isContainer and self._paddingTop  or 0
+	local lw          = math.max(math.min(paddingL, paddingT), 1) -- @Polish: Better border width.
 
 	local sbW = themeGet(gui, "scrollbarWidth")
 
@@ -5582,7 +5589,7 @@ function Cs.element:_drawDebug(r, g, b, bgOpacity)
 	-- Background and center line.
 	setColor(r, g, b, .24*(bgOpacity or 1))
 	love.graphics.rectangle("fill", 0, 0, w, h)
-	love.graphics.line(padding, padding, w/2, h/2)
+	love.graphics.line(paddingL, paddingT, w/2, h/2)
 
 	-- Border.
 	love.graphics.setLineWidth(lw)
@@ -7232,7 +7239,10 @@ Cs.container = newElementClass("GuiContainer", Cs.element, {}, {
 	_confineNavigation = false,
 	_solid             = false,
 
-	_padding = 0,
+	_paddingLeft   = 0, -- Falls back to 'paddingHorizontal' and 'padding'.
+	_paddingRight  = 0, -- Falls back to 'paddingHorizontal' and 'padding'.
+	_paddingTop    = 0, -- Falls back to 'paddingVertical' and 'padding'.
+	_paddingBottom = 0, -- Falls back to 'paddingVertical' and 'padding'.
 
 	_maxWidth  = -1, -- Negative means no limit.
 	_maxHeight = -1,
@@ -7258,8 +7268,13 @@ function Cs.container:init(gui, elData, parent)
 
 	if elData.confineNavigation ~= nil then self._confineNavigation = elData.confineNavigation end
 	if elData.maxWidth ~= nil then self._maxWidth = elData.maxWidth end if elData.maxHeight ~= nil then self._maxHeight = elData.maxHeight end
-	if elData.padding ~= nil then self._padding = elData.padding end
+	-- @@retrieve(self, elData, _paddingLeft, _paddingRight, _paddingTop, _paddingBottom)
 	if elData.solid ~= nil then self._solid = elData.solid end
+
+	self._paddingLeft   = elData.paddingLeft   or elData.paddingHorizontal or elData.padding
+	self._paddingRight  = elData.paddingRight  or elData.paddingHorizontal or elData.padding
+	self._paddingTop    = elData.paddingTop    or elData.paddingVertical   or elData.padding
+	self._paddingBottom = elData.paddingBottom or elData.paddingVertical   or elData.padding
 
 	for i, childData in ipairs(elData) do
 		local C     = Cs[getTypeFromElementData(childData)] or errorf("Bad GUI type '%s'.", getTypeFromElementData(childData))
@@ -7462,22 +7477,22 @@ end
 -- space = container:getInnerSpaceX( )
 -- space = container:getInnerSpaceY( )
 function Cs.container:getInnerSpace()
-	local spaceX = 2 * self._padding
-	local spaceY = spaceX
+	local spaceX = self._paddingLeft + self._paddingRight
+	local spaceY = self._paddingTop  + self._paddingBottom
 	local sbW    = themeGet(self._gui, "scrollbarWidth")
 	if self:hasScrollbarOnRight()  then  spaceX = spaceX + sbW  end
 	if self:hasScrollbarOnBottom() then  spaceY = spaceY + sbW  end
 	return spaceX, spaceY
 end
 function Cs.container:getInnerSpaceX()
-	local spaceX = 2 * self._padding
+	local spaceX = self._paddingLeft + self._paddingRight
 	if self:hasScrollbarOnRight() then
 		spaceX = spaceX + themeGet(self._gui, "scrollbarWidth")
 	end
 	return spaceX
 end
 function Cs.container:getInnerSpaceY()
-	local spaceY = 2 * self._padding
+	local spaceY = self._paddingTop + self._paddingBottom
 	if self:hasScrollbarOnBottom() then
 		spaceY = spaceY + themeGet(self._gui, "scrollbarWidth")
 	end
@@ -7529,17 +7544,43 @@ end
 
 
 
--- padding = container:getPadding( )
+-- paddingLeft, paddingRight, paddingTop, paddingBottom = container:getPadding( )
+-- padding = container:getPaddingLeft( )
+-- padding = container:getPaddingRight( )
+-- padding = container:getPaddingTop( )
+-- padding = container:getPaddingBottom( )
 function Cs.container:getPadding()
-	return self._padding
+	return self._paddingLeft, self._paddingRight, self._paddingTop, self._paddingBottom
 end
+function Cs.container:getPaddingLeft  ()  return self._paddingLeft    end
+function Cs.container:getPaddingRight ()  return self._paddingRight   end
+function Cs.container:getPaddingTop   ()  return self._paddingTop     end
+function Cs.container:getPaddingBottom()  return self._paddingBottom  end
 
 -- container:setPadding( padding )
-function Cs.container:setPadding(padding)
-	if self._padding == padding then
+-- container:setPadding( paddingHorizontal, paddingVertical )
+-- container:setPadding( paddingLeft, paddingRight, paddingTop, paddingBottom )
+function Cs.container:setPadding(paddingL, paddingR, paddingU, paddingB)
+	if not paddingR then
+		paddingL, paddingR, paddingU, paddingB = paddingL, paddingL, paddingL, paddingL
+	elseif not paddingB then
+		paddingL, paddingR, paddingU, paddingB = paddingL, paddingL, paddingR, paddingR
+	end
+
+	if
+		self._paddingLeft   == paddingL and
+		self._paddingRight  == paddingR and
+		self._paddingTop    == paddingT and
+		self._paddingBottom == paddingB
+	then
 		return
 	end
-	self._padding = padding
+
+	self._paddingLeft   = paddingL
+	self._paddingRight  = paddingR
+	self._paddingTop    = paddingT
+	self._paddingBottom = paddingB
+
 	scheduleLayoutUpdateIfDisplayed(self)
 end
 
@@ -7611,8 +7652,8 @@ end
 
 
 do
-	local function getScrollHandle(self, childAreaSize, contentSize, scroll)
-		local insideSize = (childAreaSize-2*self._padding)
+	local function getScrollHandle(self, padding, childAreaSize, contentSize, scroll)
+		local insideSize = childAreaSize - padding
 
 		local handleLen = math.max(
 			round(childAreaSize * insideSize / contentSize),
@@ -7637,11 +7678,11 @@ do
 	-- Units are in pixels.
 	function Cs.container:getScrollHandleX()
 		updateLayoutIfNeeded(self._gui)
-		return getScrollHandle(self, self:getChildAreaWidth(), self._contentWidth, self._scrollX)
+		return getScrollHandle(self, self._paddingLeft+self._paddingRight, self:getChildAreaWidth(), self._contentWidth, self._scrollX)
 	end
 	function Cs.container:getScrollHandleY()
 		updateLayoutIfNeeded(self._gui)
-		return getScrollHandle(self, self:getChildAreaHeight(), self._contentHeight, self._scrollY)
+		return getScrollHandle(self, self._paddingTop+self._paddingBottom, self:getChildAreaHeight(), self._contentHeight, self._scrollY)
 	end
 end
 
@@ -7653,14 +7694,14 @@ end
 function Cs.container:getScrollLimit()
 	local childAreaW, childAreaH = self:getChildAreaDimensions()
 	return
-		childAreaW - 2*self._padding - self._contentWidth,
-		childAreaH - 2*self._padding - self._contentHeight
+		childAreaW - (self._paddingLeft+self._paddingRight) - self._contentWidth,
+		childAreaH - (self._paddingTop+self._paddingBottom) - self._contentHeight
 end
 function Cs.container:getScrollLimitX()
-	return self:getChildAreaWidth()  - 2*self._padding - self._contentWidth
+	return self:getChildAreaWidth()  - (self._paddingLeft+self._paddingRight) - self._contentWidth
 end
 function Cs.container:getScrollLimitY()
-	return self:getChildAreaHeight() - 2*self._padding - self._contentHeight
+	return self:getChildAreaHeight() - (self._paddingTop+self._paddingBottom) - self._contentHeight
 end
 
 
@@ -8366,8 +8407,8 @@ function Cs.hbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
 	--
 	-- Expand and position children.
 	--
-	local x        = self._layoutX + self._padding
-	local y        = self._layoutY + self._padding
+	local x        = self._layoutX + self._paddingLeft
+	local y        = self._layoutY + self._paddingTop
 	local margin   = 0
 	local first    = true
 
@@ -8382,11 +8423,7 @@ function Cs.hbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
 
 		else
 			if not first then
-				margin = math.max(margin,
-					child._spacingLeft or
-					child._spacingHorizontal or
-					child._spacing
-				)
+				margin   = math.max(margin, child._spacingLeft)
 				x = x + margin
 			end
 
@@ -8408,12 +8445,8 @@ function Cs.hbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
 			end
 
 			x = x + child._layoutWidth
-			margin = (
-				child._spacingRight or
-				child._spacingHorizontal or
-				child._spacing
-			)
-			first = false
+			margin   = child._spacingRight
+			first    = false
 		end
 	end
 
@@ -8453,8 +8486,8 @@ function Cs.vbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
 	--
 	-- Expand and position children.
 	--
-	local x        = self._layoutX + self._padding
-	local y        = self._layoutY + self._padding
+	local x        = self._layoutX + self._paddingLeft
+	local y        = self._layoutY + self._paddingTop
 	local margin   = 0
 	local first    = true
 
@@ -8469,11 +8502,7 @@ function Cs.vbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
 
 		else
 			if not first then
-				margin = math.max(margin,
-					child._spacingTop or
-					child._spacingVertical or
-					child._spacing
-				)
+				margin   = math.max(margin, child._spacingTop)
 				y = y + margin
 			end
 
@@ -8495,12 +8524,8 @@ function Cs.vbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
 			end
 
 			y = y + child._layoutHeight
-			margin = (
-				child._spacingBottom or
-				child._spacingVertical or
-				child._spacing
-			)
-			first = false
+			margin   = child._spacingBottom
+			first    = false
 		end
 	end
 

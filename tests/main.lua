@@ -33,7 +33,7 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 			{"button", text="expand", weight=1},
 			{"button", text="[2]"},
 		},
-		{"hbar",
+		{"hbar", paddingHorizontal=8, paddingTop=4,
 			{"button", text="untitled (1).txt"},
 			{"button", text="untitled (2).txt"},
 		},
