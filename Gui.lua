@@ -3712,25 +3712,32 @@ local function getContainerNaturalSizeValues(bar)
 	local sumSy     = 0
 	local first     = true
 
+	local totalWeight = 0
+
 	for _, child in ipairs(bar) do
 		if not (child._hidden or child._floating) then
 			-- Dimensions.
 			highestW = math.max(highestW, child._layoutWidth)
 			highestH = math.max(highestH, child._layoutHeight)
 
-			if child._width >= 0 then
-				staticW = staticW + child._width
+			if child._weight == 0 then
+				staticW = staticW + child._layoutWidth
+				staticH = staticH + child._layoutHeight
 			else
-				dynamicW        = dynamicW + child._layoutWidth
-				highestDynamicW = math.max(highestDynamicW, child._layoutWidth)
-				expandablesX    = expandablesX + 1
-			end
-			if child._height >= 0 then
-				staticH = staticH + child._height
-			else
-				dynamicH        = dynamicH + child._layoutHeight
-				highestDynamicH = math.max(highestDynamicH, child._layoutHeight)
-				expandablesY    = expandablesY + 1
+				if child._width >= 0 then
+					staticW = staticW + child._width
+				else
+					dynamicW        = dynamicW + child._layoutWidth
+					highestDynamicW = math.max(highestDynamicW, child._layoutWidth)
+					expandablesX    = expandablesX + 1
+				end
+				if child._height >= 0 then
+					staticH = staticH + child._height
+				else
+					dynamicH        = dynamicH + child._layoutHeight
+					highestDynamicH = math.max(highestDynamicH, child._layoutHeight)
+					expandablesY    = expandablesY + 1
+				end
 			end
 
 			-- Spacing.
@@ -3738,28 +3745,32 @@ local function getContainerNaturalSizeValues(bar)
 				currentSx = math.max(currentSx, (child._spacingLeft or child._spacingHorizontal or child._spacing))
 				currentSy = math.max(currentSy, (child._spacingTop  or child._spacingVertical   or child._spacing))
 			end
-			sumSx, sumSy = sumSx+currentSx, sumSy+currentSy
-			currentSx = (child._spacingRight  or child._spacingHorizontal or child._spacing)
-			currentSy = (child._spacingBottom or child._spacingVertical   or child._spacing)
-			first = false
+			sumSx     = sumSx + currentSx
+			sumSy     = sumSy + currentSy
+			currentSx = child._spacingRight  or child._spacingHorizontal or child._spacing
+			currentSy = child._spacingBottom or child._spacingVertical   or child._spacing
+			first     = false
+
+			-- Weight.
+			totalWeight = totalWeight + child._weight
 		end
 	end
 
 	return staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentSx, sumSx,
-	       staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy
+	       staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy,
+	       totalWeight
 end
 
 
 
--- updateContainerLayoutSize( container )
 local function updateContainerLayoutSize(container)
 	local w = container._width
 	if w < 0 then
 		w = math.max(container._layoutInnerWidth+container:getInnerSpaceX(), container._minWidth)
 		if container._maxWidth >= 0 then  w = math.min(w, container._maxWidth)  end
 	end
-	container._layoutWidth          = w
-	-- container._layoutInnerWidth  = w - container:getInnerSpaceX() -- No! The inner size is the size of the contents.
+	container._layoutWidth         = w
+	-- container._layoutInnerWidth = w - container:getInnerSpaceX() -- No! The inner size is the size of the contents.
 
 	local h = container._height
 	if h < 0 then
@@ -3770,26 +3781,45 @@ local function updateContainerLayoutSize(container)
 	-- container._layoutInnerHeight = h - container:getInnerSpaceY() -- No! The inner size is the size of the contents.
 end
 
--- expandContainer( container, expandWidth|nil, expandHeight|nil )
-local function expandContainer(container, expandW, expandH)
+-- expandContainer( container, expandWidth|nil, expandHeight|nil, updateInnerSize )
+local function expandContainer(container, expandW, expandH, updateInnerSize)
 	local parent = container._parent
 
-	if (expandW or container._expandX) and container._width < 0 then
-		local w = expandW or parent._layoutInnerWidth+container:getInnerSpaceX()
+	if expandW and container._width < 0 then
+		local w = math.max(expandW, container._minWidth)
 		if container._maxWidth >= 0  then  w = math.min(w, container._maxWidth)  end
 
-		w                           = math.max(w, container._minWidth)
-		container._layoutWidth      = w
-		container._layoutInnerWidth = w - container:getInnerSpaceX()
+		container._layoutWidth = w
+
+		if updateInnerSize then
+			container._layoutInnerWidth = w - container:getInnerSpaceX()
+		end
 	end
 
-	if (expandH or container._expandY) and container._height < 0 then
-		local h = expandH or parent._layoutInnerHeight+container:getInnerSpaceY()
+	if expandH and container._height < 0 then
+		local h = math.max(expandH, container._minHeight)
 		if container._maxHeight >= 0 then  h = math.min(h, container._maxHeight)  end
 
-		h                            = math.max(h, container._minHeight)
-		container._layoutHeight      = h
-		container._layoutInnerHeight = h - container:getInnerSpaceY()
+		container._layoutHeight = h
+
+		if updateInnerSize then
+			container._layoutInnerHeight = h - container:getInnerSpaceY()
+		end
+	end
+end
+
+
+
+local function expandChildrenOfNonLayoutContainer(container)
+	local innerW = container._layoutWidth  - container:getInnerSpaceX() -- Should we use _layoutInner* here? I think no.
+	local innerH = container._layoutHeight - container:getInnerSpaceY()
+
+	for _, child in ipairs(container) do
+		if not child._hidden then
+			local childExpandW = (child._relativeWidth  >= 0) and innerW*child._relativeWidth  or nil
+			local childExpandH = (child._relativeHeight >= 0) and innerH*child._relativeHeight or nil
+			child:_expandLayout(childExpandW, childExpandH)
+		end
 	end
 end
 
@@ -5281,8 +5311,12 @@ Cs.element = newElementClass("GuiElement", nil, {}, {
 	_captureInput    = false, -- All input.
 	_captureGuiInput = false, -- All input affecting GUI.
 
-	_width  = -1, -- Negative means dynamic.
-	_height = -1,
+	_width          = -1, -- Negative means dynamic (unless _relativeWidth/_relativeHeight is set).
+	_height         = -1,
+	_relativeWidth  = -1, -- Negative means dynamic (unless _width/_height is set).
+	_relativeHeight = -1,
+
+	_weight = 0,--1, -- Weight of the element during expansion by the parent container. 0 means no expansion.
 
 	_minWidth  = 0,
 	_minHeight = 0,
@@ -5402,12 +5436,14 @@ function Cs.element:init(gui, elData, parent)
 	if elData.minWidth ~= nil then self._minWidth = elData.minWidth end if elData.minHeight ~= nil then self._minHeight = elData.minHeight end
 	-- @@retrieve(self, elData, _mouseCursor)
 	if elData.originX ~= nil then self._originX = elData.originX end if elData.originY ~= nil then self._originY = elData.originY end
+	if elData.relativeWidth ~= nil then self._relativeWidth = elData.relativeWidth end if elData.relativeHeight ~= nil then self._relativeHeight = elData.relativeHeight end
 	-- @@retrieve(self, elData, _sounds)
 	if elData.spacing ~= nil then self._spacing = elData.spacing end if elData.spacingVertical ~= nil then self._spacingVertical = elData.spacingVertical end if elData.spacingHorizontal ~= nil then self._spacingHorizontal = elData.spacingHorizontal end
 	if elData.spacingTop ~= nil then self._spacingTop = elData.spacingTop end if elData.spacingRight ~= nil then self._spacingRight = elData.spacingRight end if elData.spacingBottom ~= nil then self._spacingBottom = elData.spacingBottom end if elData.spacingLeft ~= nil then self._spacingLeft = elData.spacingLeft end
 	-- @@retrieve(self, elData, _style)
 	-- @@retrieve(self, elData, _tags)
 	-- @@retrieve(self, elData, _tooltip)
+	if elData.weight ~= nil then self._weight = elData.weight end
 	if elData.width ~= nil then self._width = elData.width end if elData.height ~= nil then self._height = elData.height end
 	if elData.x ~= nil then self._x = elData.x end if elData.y ~= nil then self._y = elData.y end
 
@@ -6201,7 +6237,7 @@ end
 function Cs.element.parents(el)
 	local i = 0
 
-	return function()
+	return function() -- @Memory: Don't use :parents() internally.
 		el = el._parent
 		if not el then  return  end
 
@@ -6963,7 +6999,7 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 	-- Create menu.
 
 	local menu = root:insert{
-		type="container", style="_MENU", expandX=true, expandY=true,
+		type="container", style="_MENU", relativeWidth=1, relativeHeight=1,
 		closable=true, captureGuiInput=true, confineNavigation=true,
 		[1] = {type="vbar", minWidth=self._layoutWidth, maxHeight=root._height},
 	}
@@ -7130,15 +7166,16 @@ function Cs.element:updateLayout()
 end
 
 -- INTERNAL  element:_calculateNaturalSize( )
+-- (Subclasses should replace this method.)
 function Cs.element:_calculateNaturalSize()
-	-- void (subclasses should replace this method)
+	-- void
 end
 
 -- INTERNAL  element:_expandLayout( expandWidth|nil, expandHeight|nil )
 function Cs.element:_expandLayout(expandW, expandH)
 	if expandW then
-		self._layoutWidth       = expandW
-		self._layoutInnerWidth  = self._layoutWidth
+		self._layoutWidth      = expandW
+		self._layoutInnerWidth = self._layoutWidth
 	end
 	if expandH then
 		self._layoutHeight      = expandH
@@ -7148,7 +7185,7 @@ end
 
 -- INTERNAL  element:_updateLayoutPosition( )
 function Cs.element:_updateLayoutPosition()
-	-- void (position is always set by the parent container)
+	-- void (Position is always set by the parent container.)
 end
 
 
@@ -7173,9 +7210,6 @@ Cs.container = newElementClass("GuiContainer", Cs.element, {}, {
 
 	_maxWidth  = -1, -- Negative means no limit.
 	_maxHeight = -1,
-
-	_expandX = false,
-	_expandY = false,
 	--
 
 	_mouseScrollDirection = "", -- "" | "x" | "y"
@@ -7194,7 +7228,6 @@ function Cs.container:init(gui, elData, parent)
 	Cs.container.super.init(self, gui, elData, parent)
 
 	if elData.confineNavigation ~= nil then self._confineNavigation = elData.confineNavigation end
-	if elData.expandX ~= nil then self._expandX = elData.expandX end if elData.expandY ~= nil then self._expandY = elData.expandY end
 	if elData.maxWidth ~= nil then self._maxWidth = elData.maxWidth end if elData.maxHeight ~= nil then self._maxHeight = elData.maxHeight end
 	if elData.padding ~= nil then self._padding = elData.padding end
 	if elData.solid ~= nil then self._solid = elData.solid end
@@ -8167,11 +8200,8 @@ end
 
 -- INTERNAL REPLACE  container:_expandLayout( expandWidth|nil, expandHeight|nil )
 function Cs.container:_expandLayout(expandW, expandH)
-	expandContainer(self, expandW, expandH)
-
-	for _, child in ipairs(self) do
-		if not child._hidden then  child:_expandLayout(nil, nil)  end
-	end
+	expandContainer(self, expandW, expandH, true)
+	expandChildrenOfNonLayoutContainer(self)
 end
 
 -- INTERNAL REPLACE  container:_updateLayoutPosition( )
@@ -8193,16 +8223,14 @@ end
 
 Cs.bar = newElementClass("GuiBar", Cs.container, {}, {
 	-- Parameters.
-	_expandChildren = true,  -- Perpendicular to the layout direction of the bar.
-	_homogeneous    = false, -- If children should be the same size.
+	_expandPerpendicular = true,  -- Perpendicular to the layout direction of the bar.
+	_homogeneous         = false, -- If children should be the same size.
 	--
 
 	_layoutInnerStaticWidth  = 0,
 	_layoutInnerStaticHeight = 0,
 	_layoutInnerSpacingsX    = 0,
 	_layoutInnerSpacingsY    = 0,
-	_layoutExpandablesX      = 0,
-	_layoutExpandablesY      = 0,
 }, {
 	-- void
 })
@@ -8210,7 +8238,7 @@ Cs.bar = newElementClass("GuiBar", Cs.container, {}, {
 function Cs.bar:init(gui, elData, parent)
 	Cs.bar.super.init(self, gui, elData, parent)
 
-	if elData.expandChildren ~= nil then self._expandChildren = elData.expandChildren end
+	if elData.expandPerpendicular ~= nil then self._expandPerpendicular = elData.expandPerpendicular end
 	if elData.homogeneous ~= nil then self._homogeneous = elData.homogeneous end
 end
 
@@ -8248,10 +8276,10 @@ function Cs.hbar:_calculateNaturalSize()
 	calculateContainerChildNaturalSizes(self)
 
 	local staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentSx, sumSx,
-	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy
-	      = getContainerNaturalSizeValues(self)
+	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy,
+	      totalWeight = getContainerNaturalSizeValues(self)
 
-	local innerW = (self._homogeneous and highestDynamicW*expandablesX or dynamicW) + staticW + sumSx
+	local innerW = (self._homogeneous and highestDynamicW*expandablesX--[[ @Incomplete: Use weight here somehow (I think). ]] or dynamicW) + staticW + sumSx
 
 	innerW   = math.max(innerW,   self._minWidth -self:getInnerSpaceX())
 	highestH = math.max(highestH, self._minHeight-self:getInnerSpaceY())
@@ -8259,9 +8287,8 @@ function Cs.hbar:_calculateNaturalSize()
 	self._layoutInnerWidth  = (self._width  >= 0) and self._width -self:getInnerSpaceX() or innerW
 	self._layoutInnerHeight = (self._height >= 0) and self._height-self:getInnerSpaceY() or highestH
 
-	self._layoutInnerStaticWidth, self._layoutInnerStaticHeight = staticW     , 0
-	self._layoutInnerSpacingsX  , self._layoutInnerSpacingsY    = sumSx       , 0
-	self._layoutExpandablesX    , self._layoutExpandablesY      = expandablesX, expandablesY
+	self._layoutInnerStaticWidth, self._layoutInnerStaticHeight = staticW, 0
+	self._layoutInnerSpacingsX  , self._layoutInnerSpacingsY    = sumSx  , 0
 
 	updateContainerLayoutSize(self)
 end
@@ -8269,115 +8296,144 @@ function Cs.vbar:_calculateNaturalSize()
 	calculateContainerChildNaturalSizes(self)
 
 	local staticW, dynamicW, highestW, highestDynamicW, expandablesX, currentSx, sumSx,
-	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy
-	      = getContainerNaturalSizeValues(self)
+	      staticH, dynamicH, highestH, highestDynamicH, expandablesY, currentSy, sumSy,
+	      totalWeight = getContainerNaturalSizeValues(self)
 
-	local innerH = (self._homogeneous and highestDynamicH*expandablesY or dynamicH) + staticH + sumSy
+	local innerH = (self._homogeneous and highestDynamicH*expandablesY--[[ @Incomplete: Use weight here somehow (I think). ]] or dynamicH) + staticH + sumSy
 
-	highestW = math.max(highestW, self._minWidth -self:getInnerSpaceX())
 	innerH   = math.max(innerH,   self._minHeight-self:getInnerSpaceY())
+	highestW = math.max(highestW, self._minWidth -self:getInnerSpaceX())
 
-	self._layoutInnerWidth  = (self._width  >= 0) and self._width -self:getInnerSpaceX() or highestW
 	self._layoutInnerHeight = (self._height >= 0) and self._height-self:getInnerSpaceY() or innerH
+	self._layoutInnerWidth  = (self._width  >= 0) and self._width -self:getInnerSpaceX() or highestW
 
-	self._layoutInnerStaticWidth, self._layoutInnerStaticHeight = 0           , staticH
-	self._layoutInnerSpacingsX  , self._layoutInnerSpacingsY    = 0           , sumSy
-	self._layoutExpandablesX    , self._layoutExpandablesY      = expandablesX, expandablesY
+	self._layoutInnerStaticHeight, self._layoutInnerStaticWidth = staticH, 0
+	self._layoutInnerSpacingsY   , self._layoutInnerSpacingsX   = sumSy  , 0
 
 	updateContainerLayoutSize(self)
 end
 
+
+
 -- INTERNAL REPLACE  hbar:_expandLayout( expandWidth|nil, expandHeight|nil )
 -- INTERNAL REPLACE  vbar:_expandLayout( expandWidth|nil, expandHeight|nil )
 function Cs.hbar:_expandLayout(expandW, expandH)
-	-- Expand self.
-	expandContainer(self, expandW, expandH)
 
-	-- Calculate amount of space for children to expand into (total or extra, whether homogeneous or not).
-	local totalSpaceX = 0
-	if expandW then
-		totalSpaceX = self._layoutInnerWidth - self._layoutInnerSpacingsX
-		if self._homogeneous then
-			totalSpaceX = totalSpaceX - self._layoutInnerStaticWidth
-		else
-			for _, child in ipairs(self) do
-				if not (child._hidden or child._floating) then
-					totalSpaceX = totalSpaceX - child._layoutWidth
-				end
-			end
-		end
-	end
 
-	-- Expand children.
-	local expandablesX = self._layoutExpandablesX
+
+	expandContainer(self, expandW, expandH, false)
+
+	--
+	-- Calculate amount of space for children to expand into (total if homogeneous, extra if not).
+	-- Also convert relative sizes into static.
+	--
+	local childSizeSum    = 0
+	local expansionWeight = 0
+	local innerSize       = (expandW or self._layoutWidth) - self._layoutInnerSpacingsX
+	local staticSize      = self._layoutInnerStaticWidth
+	local homogeneous     = self._homogeneous
 
 	for _, child in ipairs(self) do
-		if not child._hidden then
-			if child._floating then
-				child:_expandLayout(nil, nil)
+		if not (child._hidden or child._floating) then
+			if child._relativeWidth >= 0 and not (child._weight > 0 and homogeneous) then
+				local size   = round(child._relativeWidth*innerSize)
+				staticSize   = staticSize   + size - child._layoutWidth
+				childSizeSum = childSizeSum + size
 			else
-				if child._width < 0 then
-					if expandW then
-						local spaceX = round(totalSpaceX / expandablesX)
-						totalSpaceX  = totalSpaceX - spaceX
-						expandW      = (self._homogeneous and 0 or child._layoutWidth) + spaceX
-					end
-					expandablesX = expandablesX - 1
-				end
-				child:_expandLayout(
-					(child._width < 0     and expandW                 or nil),
-					(self._expandChildren and self._layoutInnerHeight or nil)
-				)
+				childSizeSum = childSizeSum + child._layoutWidth
 			end
+			expansionWeight = expansionWeight + child._weight -- Works if weight=0 too.
 		end
 	end
 
-	if not (expandablesX == 0) then  error((tostring(expandablesX)))  end
+	local expandPerp     = self._expandPerpendicular and ((expandH or self._layoutHeight) - self._layoutInnerSpacingsY) or nil
+	local expansionSpace = innerSize - (homogeneous and staticSize or childSizeSum)
+
+	--
+	-- Expand children.
+	--
+	for _, child in ipairs(self) do
+		if child._hidden then
+			-- void
+
+		-- No expansion.
+		elseif child._floating then
+			child:_expandLayout(nil, nil)
+
+		-- Only perpendicular (and relative-to-static along) expansion.
+		elseif child._weight == 0 or child._width >= 0 then
+			local expandAlong = (child._relativeWidth >= 0) and round(child._relativeWidth*innerSize) or nil
+			child:_expandLayout(expandAlong,expandPerp)
+
+		-- Expansion on both axes.
+		else
+			local space       = round(expansionSpace * child._weight/expansionWeight)
+			local expandAlong = (homogeneous and 0 or child._layoutWidth) + space
+			expansionSpace    = expansionSpace  - space
+			expansionWeight   = expansionWeight - child._weight
+			child:_expandLayout(expandAlong,expandPerp)
+		end
+	end
+
 end
 function Cs.vbar:_expandLayout(expandW, expandH)
-	-- Expand self.
-	expandContainer(self, expandW, expandH)
 
-	-- Calculate amount of space for children to expand into (total or extra, whether homogeneous or not).
-	local totalSpaceY = 0
-	if expandH then
-		totalSpaceY = self._layoutInnerHeight - self._layoutInnerSpacingsY
-		if self._homogeneous then
-			totalSpaceY = totalSpaceY - self._layoutInnerStaticHeight
-		else
-			for _, child in ipairs(self) do
-				if not (child._hidden or child._floating) then
-					totalSpaceY = totalSpaceY - child._layoutHeight
-				end
-			end
-		end
-	end
 
-	-- Expand children.
-	local expandablesY = self._layoutExpandablesY
+
+	expandContainer(self, expandW, expandH, false)
+
+	--
+	-- Calculate amount of space for children to expand into (total if homogeneous, extra if not).
+	-- Also convert relative sizes into static.
+	--
+	local childSizeSum    = 0
+	local expansionWeight = 0
+	local innerSize       = (expandH or self._layoutHeight) - self._layoutInnerSpacingsY
+	local staticSize      = self._layoutInnerStaticHeight
+	local homogeneous     = self._homogeneous
 
 	for _, child in ipairs(self) do
-		if not child._hidden then
-			if child._floating then
-				child:_expandLayout(nil, nil)
+		if not (child._hidden or child._floating) then
+			if child._relativeHeight >= 0 and not (child._weight > 0 and homogeneous) then
+				local size   = round(child._relativeHeight*innerSize)
+				staticSize   = staticSize   + size - child._layoutHeight
+				childSizeSum = childSizeSum + size
 			else
-				if child._height < 0 then
-					if expandH then
-						local spaceY = round(totalSpaceY / expandablesY)
-						totalSpaceY  = totalSpaceY - spaceY
-						expandH      = (self._homogeneous and 0 or child._layoutHeight) + spaceY
-					end
-					expandablesY = expandablesY - 1
-				end
-				child:_expandLayout(
-					(self._expandChildren and self._layoutInnerWidth or nil),
-					(child._height < 0    and expandH                or nil)
-				)
+				childSizeSum = childSizeSum + child._layoutHeight
 			end
+			expansionWeight = expansionWeight + child._weight -- Works if weight=0 too.
 		end
 	end
 
-	if not (expandablesY == 0) then  error((tostring(expandablesY)))  end
+	local expandPerp     = self._expandPerpendicular and ((expandW or self._layoutWidth) - self._layoutInnerSpacingsX) or nil
+	local expansionSpace = innerSize - (homogeneous and staticSize or childSizeSum)
+
+	--
+	-- Expand children.
+	--
+	for _, child in ipairs(self) do
+		if child._hidden then
+			-- void
+
+		-- No expansion.
+		elseif child._floating then
+			child:_expandLayout(nil, nil)
+
+		-- Only perpendicular (and relative-to-static along) expansion.
+		elseif child._weight == 0 or child._height >= 0 then
+			local expandAlong = (child._relativeHeight >= 0) and round(child._relativeHeight*innerSize) or nil
+			child:_expandLayout(expandPerp,expandAlong)
+
+		-- Expansion on both axes.
+		else
+			local space       = round(expansionSpace * child._weight/expansionWeight)
+			local expandAlong = (homogeneous and 0 or child._layoutHeight) + space
+			expansionSpace    = expansionSpace  - space
+			expansionWeight   = expansionWeight - child._weight
+			child:_expandLayout(expandPerp,expandAlong)
+		end
+	end
+
 end
 
 -- INTERNAL REPLACE  hbar:_updateLayoutPosition( )
@@ -8517,9 +8573,7 @@ end
 -- INTERNAL REPLACE  root:_expandLayout( expandWidth|nil, expandHeight|nil )
 -- expandWidth and expandHeight are ignored as the root always has a fixed non-expanding size.
 function Cs.root:_expandLayout(expandW, expandH)
-	for _, child in ipairs(self) do
-		if not child._hidden then  child:_expandLayout(nil, nil)  end
-	end
+	expandChildrenOfNonLayoutContainer(self)
 end
 
 
@@ -8987,7 +9041,7 @@ function Cs.text:_calculateNaturalSize()
 		for _, parent in self:parents() do
 			innerSpaceSum = innerSpaceSum + parent:getInnerSpaceX()
 
-			-- At most this will be the root, as the root always has a defined size.
+			-- At most this will be the root, as the root always has a fixed size.
 			if parent._width >= 0 then
 				wrapLimit = parent._width - innerSpaceSum - 2*themeGet(self._gui, "textIndentation")
 
@@ -9548,7 +9602,7 @@ end
 
 -- input:setValue( value )
 function Cs.input:setValue(value)
-	return self._field:setText(value)
+	self._field:setText(value)
 end
 
 -- value = input:getVisibleValue( )
@@ -9672,7 +9726,7 @@ function Cs.input:_mousepressed(mx, my, mbutton, pressCount)
 	self:focus()
 
 	if mbutton == 1 then
-		self._field:mousepressed(mx-self._layoutX-themeGet(self._gui, "inputIndentation"), 0, mbutton, pressCount)
+		self._field:mousepressed(mx-self:getXOnScreen()-themeGet(self._gui, "inputIndentation"), 0, mbutton, pressCount)
 		return true, true
 	else
 		return true, false
@@ -9681,12 +9735,12 @@ end
 
 -- INTERNAL REPLACE  input:_mousemoved( mouseX, mouseY )
 function Cs.input:_mousemoved(mx, my)
-	self._field:mousemoved(mx-self._layoutX-themeGet(self._gui, "inputIndentation"), 0)
+	self._field:mousemoved(mx-self:getXOnScreen()-themeGet(self._gui, "inputIndentation"), 0)
 end
 
 -- INTERNAL REPLACE  input:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
 function Cs.input:_mousereleased(mx, my, mbutton, pressCount)
-	self._field:mousereleased(mx-self._layoutX-themeGet(self._gui, "inputIndentation"), 0, mbutton)
+	self._field:mousereleased(mx-self:getXOnScreen()-themeGet(self._gui, "inputIndentation"), 0, mbutton)
 end
 
 

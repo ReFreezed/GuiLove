@@ -4,20 +4,58 @@ io.stderr:setvbuf("no")
 local Gui = require("Gui")
 local gui = Gui()
 
-local tree = {"root",
-	{"hbar", expandChildren=false,
-		{"hbar", expandY=true,
+gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(),
+	{"vbar", relativeWidth=1, relativeHeight=1,
+		{"hbar", homogeneous=true,
+			{"button", mnemonics=true, weight=1, text="&File", relativeWidth=.5},
+			{"button", mnemonics=true, weight=1, text="&Edit"},
+			{"button", mnemonics=true, weight=1, text="&Search"},
+			{"button", mnemonics=true, weight=1, text="&Debug"},
+			{"button", mnemonics=true, weight=1, text="&Help"},
+		},
+		{"hbar", homogeneous=true,
+			{"button", weight=0, text="XYZ", relativeWidth=.5},
+			{"button", weight=1, text="1"},
+			{"button", weight=1, text="2"},
+			{"button", weight=1, text="3"},
+			{"button", weight=1, text="4"},
+		},
+		{"hbar", homogeneous=true,
+			{"button", weight=0, text="XYZ", relativeWidth=.5},
+			{"button", weight=1, text="qwerty"},
+			{"button", weight=0, text="1"},
+			{"button", weight=0, text="2"},
+			{"button", weight=0, text="3"},
+		},
+
+		{"hbar",
+			{"button", text="[A]"},
+			{"button", text="[B]", weight=1},
+			{"button", text="[C]"},
+		},
+		{"hbar",
+			{"button", text="untitled.txt"},
+		},
+		{"input", weight=1},
+		{"hbar",
+			{"text", align="left", weight=1,  text="Foo bar"},
+			{"text", align="left", width=50,  text="INS"},
+			{"text", align="left", width=130, text="Line 1, Column 1"},
+		},
+	},
+
+	{"hbar", hidden=true, --expandPerpendicular=false,
+		{"hbar", --relativeHeight=1,
 			{"text", text="Left text goes here."},
 		},
-		{"vbar", id="myContainer", width=200, minHeight=120, maxHeight=120,
-			{"text", text="I'm just a text."},
+		{"vbar", id="myContainer", width=200, minHeight=120, maxHeight=120, homogeneous=true,
+			{"text", text="I'm just a\ntwo line text."},
 			{"input", value="foo"},
-			{"input", value="bar"},
+			{"input", value="bar", weight=2},
 			{"button", id="myButton", text="Press Me!"},
 		},
 	},
 }
-gui:load(tree)
 
 local myButton   = gui:find("myButton")
 local pressCount = 0
@@ -29,8 +67,6 @@ myButton:on("press", function(myButton, event)
 	local text        = "Pressed button " .. pressCount .. " " .. (pressCount == 1 and "time" or "times") .. "!"
 	myContainer:insert{ "text", text=text }
 end)
-
-gui:getRoot():setDimensions(love.graphics.getDimensions())
 
 
 
