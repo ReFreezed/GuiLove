@@ -4244,7 +4244,7 @@ function Gui:keypressed(key, scancode, isRepeat)
 	if root and not root._hidden then
 		local elToClose = nil
 
-		for _, el in ipairs(root:collectVisible(__STATIC1)) do
+		for _, el in ipairs(root:_collectVisibleUntilInputCapture(__STATIC1)) do
 			if key == "escape" and el:canClose() then
 				elToClose = el
 				break
@@ -4303,7 +4303,7 @@ function Gui:textinput(text)
 
 	local root = self._root
 	if root and not root._hidden then
-		for _, el in ipairs(root:collectVisible(__STATIC2)) do
+		for _, el in ipairs(root:_collectVisibleUntilInputCapture(__STATIC2)) do
 			if el._captureInput    then  return true  end
 			if el._captureGuiInput then  break        end
 		end
@@ -4711,7 +4711,7 @@ do
 			local foundNav   = false
 			local lastWidget = nil
 
-			for _, el in ipairs((nav and nav:getNavigationRoot() or root):collectVisible(__STATIC3)) do
+			for _, el in ipairs((nav and nav:getNavigationRoot() or root):_collectVisibleUntilInputCapture(__STATIC3)) do
 				-- Note: Remember that we're traversing backwards.
 				local elIsValid = el:is(Cs.widget) and (not id or el._id == id)
 
@@ -4762,7 +4762,7 @@ do
 
 		local first = nil
 
-		for _, el in ipairs(root:collectVisible(__STATIC4)) do
+		for _, el in ipairs(root:_collectVisibleUntilInputCapture(__STATIC4)) do
 			if el:is(Cs.widget) and not (first and first._priority > el._priority) then
 				first = el
 			end
@@ -4807,7 +4807,7 @@ do
 		local root = self._root
 		if not root or root._hidden then  return false  end
 
-		for _, el in ipairs(root:collectVisible(__STATIC5)) do
+		for _, el in ipairs(root:_collectVisibleUntilInputCapture(__STATIC5)) do
 			if el == widget then
 				return true
 			elseif (el._captureInput or el._captureGuiInput) then
@@ -5092,7 +5092,7 @@ function Gui:back()
 	-- Close closable (like Escape does).
 	local elToClose = nil
 
-	for _, el in ipairs(root:collectVisible(__STATIC7)) do
+	for _, el in ipairs(root:_collectVisibleUntilInputCapture(__STATIC7)) do
 		if el:canClose() then
 			elToClose = el
 			break
@@ -8053,7 +8053,7 @@ function Cs.container:getElementAt(x, y, nonSolid)
 	if self._maxWidth  >= 0 and (x < self._layoutX or x >= self._layoutX+self._layoutWidth ) then  return nil  end
 	if self._maxHeight >= 0 and (y < self._layoutY or y >= self._layoutY+self._layoutHeight) then  return nil  end
 
-	for _, el in ipairs(self:collectVisible(__STATIC10)) do
+	for _, el in ipairs(self:_collectVisibleUntilInputCapture(__STATIC10)) do
 		if ((nonSolid or el:isSolid()) and el:isAt(x, y)) or (el._captureInput or el._captureGuiInput) then
 			return el
 		end
@@ -8392,6 +8392,8 @@ do
 				end
 				coroutine.yield(child)
 			end
+
+
 		end
 
 	end
@@ -8406,6 +8408,8 @@ do
 				end
 				if cb(child) == "stop" then  return "stop"  end
 			end
+
+
 		end
 
 	end
@@ -8420,6 +8424,24 @@ do
 				end
 				table.insert(elements, child)
 			end
+
+
+		end
+
+	end
+	local function _collectVisibleUntilInputCapture(el, elements)
+
+		for i = #el, 1, -1 do
+			local child = el[i]
+
+			if not child._hidden then
+				if child:is(Cs.container) then
+					if _collectVisibleUntilInputCapture(child, elements) then  return true  end
+				end
+				table.insert(elements, child)
+			end
+
+			if child._captureInput or child._captureGuiInput then  return true  end
 		end
 
 	end
@@ -8562,6 +8584,13 @@ do
 			for i = 1, #elements do  elements[i] = nil  end
 			_collectVisible(self, elements)
 		end
+		return elements
+	end
+
+	-- INTERNAL  elements = container:_collectVisibleUntilInputCapture( array )
+	function Cs.container:_collectVisibleUntilInputCapture(elements)
+		for i = 1, #elements do  elements[i] = nil  end
+		_collectVisibleUntilInputCapture(self, elements)
 		return elements
 	end
 end

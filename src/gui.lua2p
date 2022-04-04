@@ -886,13 +886,12 @@ end
 -- Prepare a sound for being played (Useful if it's possible the element will be removed in an event)
 -- playSound:function = prepareSound( element, soundKey )
 local function prepareSound(el, soundK)
-	local gui = el._gui
-	local soundPlayer = (gui and gui._soundPlayer)
-	local sound = (soundPlayer and el:getResultingSound(soundK))
+	local gui         = el._gui
+	local soundPlayer = gui and gui._soundPlayer
+	local sound       = soundPlayer and el:getResultingSound(soundK)
+
 	return function()
-		if sound ~= nil then
-			soundPlayer(sound)
-		end
+		if sound ~= nil then  soundPlayer(sound)  end
 	end
 end
 
@@ -1790,7 +1789,7 @@ function Gui:keypressed(key, scancode, isRepeat)
 	if root and not root._hidden then
 		local elToClose = nil
 
-		for _, el in ipairs(root:collectVisible(@@STATIC{})) do
+		for _, el in ipairs(root:_collectVisibleUntilInputCapture(@@STATIC{})) do
 			if key == "escape" and el:canClose() then
 				elToClose = el
 				break
@@ -1848,7 +1847,7 @@ function Gui:textinput(text)
 
 	local root = self._root
 	if root and not root._hidden then
-		for _, el in ipairs(root:collectVisible(@@STATIC{})) do
+		for _, el in ipairs(root:_collectVisibleUntilInputCapture(@@STATIC{})) do
 			if el._captureInput    then  return true  end
 			if el._captureGuiInput then  break        end
 		end
@@ -2247,7 +2246,7 @@ do
 			local foundNav   = false
 			local lastWidget = nil
 
-			for _, el in ipairs((nav and nav:getNavigationRoot() or root):collectVisible(@@STATIC{})) do
+			for _, el in ipairs((nav and nav:getNavigationRoot() or root):_collectVisibleUntilInputCapture(@@STATIC{})) do
 				-- Note: Remember that we're traversing backwards.
 				local elIsValid = el:is(Cs.widget) and (not id or el._id == id)
 
@@ -2298,7 +2297,7 @@ do
 
 		local first = nil
 
-		for _, el in ipairs(root:collectVisible(@@STATIC{})) do
+		for _, el in ipairs(root:_collectVisibleUntilInputCapture(@@STATIC{})) do
 			if el:is(Cs.widget) and not (first and first._priority > el._priority) then
 				first = el
 			end
@@ -2343,7 +2342,7 @@ do
 		local root = self._root
 		if not root or root._hidden then  return false  end
 
-		for _, el in ipairs(root:collectVisible(@@STATIC{})) do
+		for _, el in ipairs(root:_collectVisibleUntilInputCapture(@@STATIC{})) do
 			if el == widget then
 				return true
 			elseif (el._captureInput or el._captureGuiInput) then
@@ -2627,7 +2626,7 @@ function Gui:back()
 	-- Close closable (like Escape does).
 	local elToClose = nil
 
-	for _, el in ipairs(root:collectVisible(@@STATIC{})) do
+	for _, el in ipairs(root:_collectVisibleUntilInputCapture(@@STATIC{})) do
 		if el:canClose() then
 			elToClose = el
 			break
@@ -5581,7 +5580,7 @@ function Cs.container:getElementAt(x, y, nonSolid)
 	if self._maxWidth  >= 0 and (x < self._layoutX or x >= self._layoutX+self._layoutWidth ) then  return nil  end
 	if self._maxHeight >= 0 and (y < self._layoutY or y >= self._layoutY+self._layoutHeight) then  return nil  end
 
-	for _, el in ipairs(self:collectVisible(@@STATIC{})) do
+	for _, el in ipairs(self:_collectVisibleUntilInputCapture(@@STATIC{})) do
 		if ((nonSolid or el:isSolid()) and el:isAt(x, y)) or (el._captureInput or el._captureGuiInput) then
 			return el
 		end
@@ -5883,7 +5882,7 @@ function Cs.container:traverseType(elType)
 end
 
 do
-	!local function eachVisible(whenContainer, whenTarget)
+	!local function eachVisible(whenContainer, whenTarget, whenLoopTrail)
 		for i = #el, 1, -1 do
 			local child = el[i]
 
@@ -5893,24 +5892,36 @@ do
 				end
 				$whenTarget
 			end
+
+			$whenLoopTrail
 		end
 	!end
 	local function _traverseVisible(el)
 		!eachVisible(
 			`_traverseVisible(child)`,
-			`coroutine.yield(child)`
+			`coroutine.yield(child)`,
+			``
 		)
 	end
 	local function _visitVisible(el, cb)
 		!eachVisible(
 			`if _visitVisible(child, cb) == "stop" then  return "stop"  end`,
-			`if cb(child) == "stop" then  return "stop"  end`
+			`if cb(child) == "stop" then  return "stop"  end`,
+			``
 		)
 	end
 	local function _collectVisible(el, elements)
 		!eachVisible(
 			`_collectVisible(child, elements)`,
-			`table.insert(elements, child)`
+			`table.insert(elements, child)`,
+			``
+		)
+	end
+	local function _collectVisibleUntilInputCapture(el, elements)
+		!eachVisible(
+			`if _collectVisibleUntilInputCapture(child, elements) then  return true  end`,
+			`table.insert(elements, child)`,
+			`if child._captureInput or child._captureGuiInput then  return true  end`
 		)
 	end
 
@@ -5995,6 +6006,13 @@ do
 			for i = 1, #elements do  elements[i] = nil  end
 			_collectVisible(self, elements)
 		end
+		return elements
+	end
+
+	-- INTERNAL  elements = container:_collectVisibleUntilInputCapture( array )
+	function Cs.container:_collectVisibleUntilInputCapture(elements)
+		for i = 1, #elements do  elements[i] = nil  end
+		_collectVisibleUntilInputCapture(self, elements)
 		return elements
 	end
 end
