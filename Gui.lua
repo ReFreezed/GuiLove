@@ -184,6 +184,7 @@
 	- Event: wheelmoved
 
 	container
+	- canScrollAny, canScrollX, canScrollY
 	- find, findAll, findType, findActive, findToggled, match, matchAll
 	- get, children
 	- getChildAreaDimensions, getChildAreaWidth, getChildAreaHeight
@@ -198,7 +199,6 @@
 	- getToggledChild, setToggledChild
 	- getVisibleChild, getVisibleChildNumber, getVisibleChildCount, setVisibleChild
 	- getVisualScroll, getVisualScrollX, getVisualScrollY
-	- hasAnyScrollbar, hasScrollbarOnRight, hasScrollbarOnBottom
 	- indexOf
 	- insert, removeAt, empty
 	- isScrollbarXHovered, isScrollbarYHovered, isScrollbarXHandleHovered, isScrollbarYHandleHovered
@@ -3517,9 +3517,10 @@ end
 
 -- themeRenderOnScreen( element, what, x, y, w, h, extraArgument1, ... )
 local function themeRenderOnScreen(el, what, x, y, w, h, ...)
-	local gui = el._gui
-	if x+w < 0 or y+h < 0 then  return  end
+	if   w <= 0 or   h <= 0 then  return  end
+	if x+w <  0 or y+h <  0 then  return  end
 
+	local gui          = el._gui
 	local rootW, rootH = gui._root:getDimensions()
 	if x >= rootW or y >= rootH then  return  end
 
@@ -5618,8 +5619,8 @@ function Cs.element._drawDebug(el, r, g, b, bgOpacity)
 	setColor(r, g, b, .4)
 	love.graphics.rectangle("line", lw/2, lw/2, w-lw, h-lw)
 	if isContainer then
-		if el:hasScrollbarOnRight()  then  love.graphics.rectangle("fill", w-lw-sbW, lw, sbW, h-2*lw)  end
-		if el:hasScrollbarOnBottom() then  love.graphics.rectangle("fill", lw, h-lw-sbW, w-w*lw, sbW)  end
+		if el:canScrollY() then  love.graphics.rectangle("fill", w-lw-sbW, lw, sbW, h-2*lw)  end
+		if el:canScrollX() then  love.graphics.rectangle("fill", lw, h-lw-sbW, w-w*lw, sbW)  end
 	end
 	love.graphics.setLineWidth(1)
 	setColor(r, g, b, .6)
@@ -6319,7 +6320,7 @@ function Cs.element.getMouseCursor(el)
 	return el._mouseCursor
 end
 
--- cursor|nil = getResultingMouseCursor( )
+-- cursor|nil = element:getResultingMouseCursor( )
 function Cs.element.getResultingMouseCursor(el)
 	local cur = el._mouseCursor
 	if type(cur) ~= "string" then  return cur  end
@@ -6989,31 +6990,29 @@ function Cs.element.scrollIntoView(el)
 
 	repeat
 		local parent = el._parent
-		local maxW   = parent._maxWidth
-		local maxH   = parent._maxHeight
 
-		if maxW >= 0 or maxH >= 0 then
+		if parent:canScrollX() or parent:canScrollY() then
 			local scrollX = parent._scrollX
 			local scrollY = parent._scrollY
 
-			if maxW >= 0 then
+			if parent:canScrollX() then
 				local distOutside = parent:getXOnScreen(true) - x1
 				if distOutside >= 0 then
 					scrollX = scrollX + distOutside
 				else
-					distOutside = x2 - (parent:getXOnScreen(true) + maxW - (maxH >= 0 and sbW or 0))
+					distOutside = x2 - (parent:getXOnScreen(true) + parent._layoutWidth - (parent:canScrollY() and sbW or 0))
 					if distOutside > 0 then  scrollX = scrollX - distOutside  end
 				end
 				x1 = el:getXOnScreen(true)
 				x2 = x1 + el._layoutWidth
 			end
 
-			if maxH >= 0 then
+			if parent:canScrollY() then
 				local distOutside = parent:getYOnScreen(true) - y1
 				if distOutside >= 0 then
 					scrollY = scrollY + distOutside
 				else
-					distOutside = y2 - (parent:getYOnScreen(true) + maxH - (maxW >= 0 and sbW or 0))
+					distOutside = y2 - (parent:getYOnScreen(true) + parent._layoutHeight - (parent:canScrollX() and sbW or 0))
 					if distOutside > 0 then  scrollY = scrollY - distOutside  end
 				end
 				y1 = el:getYOnScreen(true)
@@ -7049,7 +7048,7 @@ function Cs.element.setScissor(el, x, y, w, h, ignoreScrollables)
 		while parent do
 			if not parent then  break  end
 
-			if parent:hasAnyScrollbar() then
+			if parent:canScrollAny() then
 				local parentX, parentY = parent:getPositionOnScreen()
 
 				if not gui._elementScissorIsSet then
@@ -7327,6 +7326,9 @@ Cs.container = newElementClass(false, "GuiContainer", Cs.element, {}, {
 
 	_maxWidth  = -1, -- Negative means no limit.
 	_maxHeight = -1,
+
+	_canScrollX = false,
+	_canScrollY = false,
 	--
 
 	_contentWidth  = 0,
@@ -7347,6 +7349,7 @@ Cs.container = newElementClass(false, "GuiContainer", Cs.element, {}, {
 function Cs.container.init(container, gui, elData, parent)
 	Cs.container.super.init(container, gui, elData, parent)
 
+	if elData.canScrollX ~= nil then container._canScrollX = elData.canScrollX end if elData.canScrollY ~= nil then container._canScrollY = elData.canScrollY end
 	if elData.confineNavigation ~= nil then container._confineNavigation = elData.confineNavigation end
 	if elData.maxWidth ~= nil then container._maxWidth = elData.maxWidth end if elData.maxHeight ~= nil then container._maxHeight = elData.maxHeight end
 	-- @@retrieve(container, elData, _paddingLeft, _paddingRight, _paddingTop, _paddingBottom)
@@ -7407,11 +7410,12 @@ function Cs.container._draw(container)
 	local gui        = container._gui
 	local x, y, w, h = xywh(container)
 
-	local maxW      , maxH       = container._maxWidth, container._maxHeight
 	local childAreaW, childAreaH = container:getChildAreaDimensions()
 
-	local sbW    = themeGet(gui, "scrollbarWidth")
-	local sbMinW = themeGet(gui, "scrollbarMinLength")
+	local sbW = themeGet(gui, "scrollbarWidth")
+
+	local canScrollX = container:canScrollX()
+	local canScrollY = container:canScrollY()
 
 	if not container._gui.debug then
 		triggerIncludingAnimations(container, "beforedraw", x, y, w, h)
@@ -7420,30 +7424,27 @@ function Cs.container._draw(container)
 	drawLayoutBackground(container)
 	container:_drawDebug(0, 0, 1)
 
-	if maxW >= 0 or maxH >= 0 then
+	if canScrollX or canScrollY then
 		setScissor(gui, x, y, childAreaW, childAreaH)
 	end
 	for _, child in ipairs(container) do
 		child:_draw()
 	end
-	if maxW >= 0 or maxH >= 0 then
+	if canScrollX or canScrollY then
 		setScissor(gui, nil)
 	end
 
 	if not container._gui.debug then
-		-- Horizontal scrollbar.
-		if maxW >= 0 then
+		-- Scrollbars.
+		if canScrollX then
 			local handlePos, handleLen = container:getScrollHandleX()
 			themeRenderArea(container, "scrollbar", 0, h-sbW, childAreaW, sbW, "x", round(handlePos), handleLen)
 		end
-
-		-- Vertical scrollbar.
-		if maxH >= 0 then
+		if canScrollY then
 			local handlePos, handleLen = container:getScrollHandleY()
 			themeRenderArea(container, "scrollbar", w-sbW, 0, sbW, childAreaH, "y", round(handlePos), handleLen)
 		end
-
-		if maxW >= 0 and maxH >= 0 then
+		if canScrollX and canScrollY then
 			themeRenderArea(container, "scrollbardeadzone", w-sbW, h-sbW, sbW, sbW)
 		end
 
@@ -7552,20 +7553,20 @@ function Cs.container.getInnerSpace(container)
 	local spaceX = container._paddingLeft + container._paddingRight
 	local spaceY = container._paddingTop  + container._paddingBottom
 	local sbW    = themeGet(container._gui, "scrollbarWidth")
-	if container:hasScrollbarOnRight()  then  spaceX = spaceX + sbW  end
-	if container:hasScrollbarOnBottom() then  spaceY = spaceY + sbW  end
+	if container:canScrollY() then  spaceX = spaceX + sbW  end
+	if container:canScrollX() then  spaceY = spaceY + sbW  end
 	return spaceX, spaceY
 end
 function Cs.container.getInnerSpaceX(container)
 	local space = container._paddingLeft + container._paddingRight
-	if container:hasScrollbarOnRight() then
+	if container:canScrollY() then
 		space = space + themeGet(container._gui, "scrollbarWidth")
 	end
 	return space
 end
 function Cs.container.getInnerSpaceY(container)
 	local space = container._paddingTop + container._paddingBottom
-	if container:hasScrollbarOnBottom() then
+	if container:canScrollX() then
 		space = space + themeGet(container._gui, "scrollbarWidth")
 	end
 	return space
@@ -7832,7 +7833,7 @@ do
 		local insideSize = childAreaSize - padding
 
 		local handleLen = math.max(
-			round(childAreaSize * insideSize / contentSize),
+			round(childAreaSize * math.min(insideSize/contentSize, 1)),
 			themeGet(container._gui, "scrollbarMinLength")
 		)
 
@@ -7948,17 +7949,17 @@ end
 
 
 
--- bool = hasAnyScrollbar( )
--- bool = hasScrollbarOnRight( )
--- bool = hasScrollbarOnBottom( )
-function Cs.container.hasAnyScrollbar(container)
-	return container._maxHeight >= 0 or container._maxWidth >= 0
+-- bool = container:canScrollAny( )
+-- bool = container:canScrollX( ) -- Horizontal scrolling, scrollbar on the bottom side.
+-- bool = container:canScrollY( ) -- Vertical scrolling, scrollbar on the right side.
+function Cs.container.canScrollAny(container)
+	return container:canScrollX() or container:canScrollY()
 end
-function Cs.container.hasScrollbarOnRight(container)
-	return container._maxHeight >= 0
+function Cs.container.canScrollX(container)
+	return container._canScrollX
 end
-function Cs.container.hasScrollbarOnBottom(container)
-	return container._maxWidth >= 0
+function Cs.container.canScrollY(container)
+	return container._canScrollY
 end
 
 
@@ -7971,7 +7972,7 @@ Cs.container.indexOf = indexOf
 
 -- REPLACE  bool = container:isSolid( )
 function Cs.container.isSolid(container)
-	return container._solid or container._background ~= "" or container._maxWidth >= 0 or container._maxHeight >= 0
+	return container._solid or container._background ~= "" or container:canScrollAny()
 end
 
 
@@ -8004,20 +8005,20 @@ function Cs.container.getChildAreaDimensions(container)
 	updateLayoutIfNeeded(container._gui)
 	local sbW = themeGet(container._gui, "scrollbarWidth")
 	return
-		(container._maxHeight >= 0 and container._layoutWidth -sbW or container._layoutWidth ),
-		(container._maxWidth  >= 0 and container._layoutHeight-sbW or container._layoutHeight)
+		(container:canScrollY() and container._layoutWidth -sbW or container._layoutWidth ),
+		(container:canScrollX() and container._layoutHeight-sbW or container._layoutHeight)
 end
 function Cs.container.getChildAreaWidth(container)
 	updateLayoutIfNeeded(container._gui)
 	return
-		container:hasScrollbarOnRight()
+		container:canScrollY()
 		and container._layoutWidth - themeGet(container._gui, "scrollbarWidth")
 		or  container._layoutWidth
 end
 function Cs.container.getChildAreaHeight(container)
 	updateLayoutIfNeeded(container._gui)
 	return
-		container:hasScrollbarOnBottom()
+		container:canScrollX()
 		and container._layoutHeight - themeGet(container._gui, "scrollbarWidth")
 		or  container._layoutHeight
 end
@@ -8038,10 +8039,10 @@ end
 function Cs.container.getElementAt(container, x, y, nonSolid)
 	updateLayoutIfNeeded(container._gui)
 
-	if container._maxWidth  >= 0 and (x < container._layoutX or x >= container._layoutX+container._layoutWidth ) then  return nil  end
-	if container._maxHeight >= 0 and (y < container._layoutY or y >= container._layoutY+container._layoutHeight) then  return nil  end
+	if container:canScrollX() and (x < container._layoutX or x >= container._layoutX+container._layoutWidth ) then  return nil  end
+	if container:canScrollY() and (y < container._layoutY or y >= container._layoutY+container._layoutHeight) then  return nil  end
 
-	for _, el in ipairs(container:_collectVisibleUntilInputCapture(__STATIC10)) do
+	for _, el in ipairs(container:_collectVisibleUntilInputCapture(x, y, __STATIC10)) do
 		if ((nonSolid or el:isSolid()) and el:isAt(x, y)) or (el._captureInput or el._captureGuiInput) then
 			return el
 		end
@@ -8125,16 +8126,16 @@ function Cs.container._mousepressed(container, mx, my, mbutton, pressCount)
 		local x1, y1 = x0           , y2-sbW
 
 		if mx >= x1 and mx < x2 and my >= y1 and my < y2 then
-			local handlePos, handleLen, handleMaxPos = container:getScrollHandleX()
-			container._mouseScrollDirection          = "x"
+			local handlePos, handleLen      = container:getScrollHandleX()
+			container._mouseScrollDirection = "x"
 
 			-- Drag handle.
 			if mx >= x1+handlePos and mx < x1+handlePos+handleLen then
-				container._mouseScrollOffset = mx-x1-handlePos
+				container._mouseScrollOffset = mx - x1 - handlePos
 
 			-- Jump and drag.
 			else
-				container._mouseScrollOffset = handleLen/2
+				container._mouseScrollOffset = handleLen / 2
 				container:_mousemoved(mx, my)
 			end
 
@@ -8143,20 +8144,20 @@ function Cs.container._mousepressed(container, mx, my, mbutton, pressCount)
 
 		-- Vertical scrolling.
 		----------------------------------------------------------------
-		local x2, y2 = x0+container._layoutWidth, y0+childAreaH
-		local x1, y1 = x2-sbW                   , y0
+		local y2, x2 = y0+childAreaH, x0+container._layoutWidth
+		local y1, x1 = y0           , x2-sbW
 
 		if mx >= x1 and mx < x2 and my >= y1 and my < y2 then
-			local handlePos, handleLen, handleMaxPos = container:getScrollHandleY()
-			container._mouseScrollDirection          = "y"
+			local handlePos, handleLen      = container:getScrollHandleY()
+			container._mouseScrollDirection = "y"
 
 			-- Drag handle.
 			if my >= y1+handlePos and my < y1+handlePos+handleLen then
-				container._mouseScrollOffset = my-y1-handlePos
+				container._mouseScrollOffset = my - y1 - handlePos
 
 			-- Jump and drag.
 			else
-				container._mouseScrollOffset = handleLen/2
+				container._mouseScrollOffset = handleLen / 2
 				container:_mousemoved(mx, my)
 			end
 
@@ -8193,7 +8194,7 @@ end
 
 -- INTERNAL REPLACE  handled = container:_wheelmoved( deltaX, deltaY )
 function Cs.container._wheelmoved(container, dx, dy)
-	if (dx ~= 0 and container._maxWidth >= 0) or (dy ~= 0 and container._maxHeight >= 0) then
+	if (dx ~= 0 and container:canScrollX()) or (dy ~= 0 and container:canScrollY()) then
 		if container:scroll(
 			container._gui._scrollSpeedX * container.SCROLL_SPEED_X * dx, -- @Incomplete: Scroll relative to font size instead of SCROLL_SPEED_*.
 			container._gui._scrollSpeedY * container.SCROLL_SPEED_Y * dy
@@ -8447,13 +8448,11 @@ do
 					local x1, y1 = child:getPositionOnScreen()
 					local x2     = x1 + child._layoutWidth
 					local y2     = y1 + child._layoutHeight
-					local maxW   = child._maxWidth
-					local maxH   = child._maxHeight
 
-					if maxW >= 0 and (x < x1 or x >= x2-(maxH >= 0 and sbW or 0)) then
+					if child:canScrollX() and (x < x1 or x >= x2-(child:canScrollY() and sbW or 0)) then
 						includeChildren = false
 						includeSelf     = (x < x2)
-					elseif maxH >= 0 and (y < y1 or y >= y2-(maxW >= 0 and sbW or 0)) then
+					elseif child:canScrollY() and (y < y1 or y >= y2-(child:canScrollX() and sbW or 0)) then
 						includeChildren = false
 						includeSelf     = (y < y2)
 					end
@@ -8466,6 +8465,8 @@ do
 					coroutine.yield(child)
 				end
 			end
+
+
 		end
 
 	end
@@ -8483,13 +8484,11 @@ do
 					local x1, y1 = child:getPositionOnScreen()
 					local x2     = x1 + child._layoutWidth
 					local y2     = y1 + child._layoutHeight
-					local maxW   = child._maxWidth
-					local maxH   = child._maxHeight
 
-					if maxW >= 0 and (x < x1 or x >= x2-(maxH >= 0 and sbW or 0)) then
+					if child:canScrollX() and (x < x1 or x >= x2-(child:canScrollY() and sbW or 0)) then
 						includeChildren = false
 						includeSelf     = (x < x2)
-					elseif maxH >= 0 and (y < y1 or y >= y2-(maxW >= 0 and sbW or 0)) then
+					elseif child:canScrollY() and (y < y1 or y >= y2-(child:canScrollX() and sbW or 0)) then
 						includeChildren = false
 						includeSelf     = (y < y2)
 					end
@@ -8502,6 +8501,8 @@ do
 					if cb(child) == "stop" then  return "stop"  end
 				end
 			end
+
+
 		end
 
 	end
@@ -8519,13 +8520,11 @@ do
 					local x1, y1 = child:getPositionOnScreen()
 					local x2     = x1 + child._layoutWidth
 					local y2     = y1 + child._layoutHeight
-					local maxW   = child._maxWidth
-					local maxH   = child._maxHeight
 
-					if maxW >= 0 and (x < x1 or x >= x2-(maxH >= 0 and sbW or 0)) then
+					if child:canScrollX() and (x < x1 or x >= x2-(child:canScrollY() and sbW or 0)) then
 						includeChildren = false
 						includeSelf     = (x < x2)
-					elseif maxH >= 0 and (y < y1 or y >= y2-(maxW >= 0 and sbW or 0)) then
+					elseif child:canScrollY() and (y < y1 or y >= y2-(child:canScrollX() and sbW or 0)) then
 						includeChildren = false
 						includeSelf     = (y < y2)
 					end
@@ -8538,6 +8537,44 @@ do
 					table.insert(elements, child)
 				end
 			end
+
+
+		end
+
+	end
+	local function _collectVisibleUntilInputCaptureAt(el, x, y, sbW, elements)
+
+		for i = #el, 1, -1 do
+			local child = el[i]
+
+			if not child._hidden then
+				local isContainer     = child:is(Cs.container)
+				local includeSelf     = true
+				local includeChildren = isContainer
+
+				if isContainer then
+					local x1, y1 = child:getPositionOnScreen()
+					local x2     = x1 + child._layoutWidth
+					local y2     = y1 + child._layoutHeight
+
+					if child:canScrollX() and (x < x1 or x >= x2-(child:canScrollY() and sbW or 0)) then
+						includeChildren = false
+						includeSelf     = (x < x2)
+					elseif child:canScrollY() and (y < y1 or y >= y2-(child:canScrollX() and sbW or 0)) then
+						includeChildren = false
+						includeSelf     = (y < y2)
+					end
+				end
+
+				if includeSelf then
+					if includeChildren then
+						if _collectVisibleUntilInputCaptureAt(child, x, y, sbW, elements) then  return true  end
+					end
+					table.insert(elements, child)
+				end
+			end
+
+			if child._captureInput or child._captureGuiInput then  return true  end
 		end
 
 	end
@@ -8574,9 +8611,16 @@ do
 	end
 
 	-- INTERNAL  elements = container:_collectVisibleUntilInputCapture( array )
-	function Cs.container._collectVisibleUntilInputCapture(container, elements)
-		for i = 1, #elements do  elements[i] = nil  end
-		_collectVisibleUntilInputCapture(container, elements)
+	-- INTERNAL  elements = container:_collectVisibleUntilInputCapture( x, y, array )
+	function Cs.container._collectVisibleUntilInputCapture(container, x, y, elements)
+		if y then
+			for i = 1, #elements do  elements[i] = nil  end
+			_collectVisibleUntilInputCaptureAt(container, x, y, themeGet(container._gui, "scrollbarWidth"), elements)
+		else
+			elements = x
+			for i = 1, #elements do  elements[i] = nil  end
+			_collectVisibleUntilInputCapture(container, elements)
+		end
 		return elements
 	end
 end
@@ -8742,8 +8786,10 @@ function Cs.hbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 	--
 	-- Expand and position children.
 	--
-	local x        = bar._layoutX + bar._paddingLeft
-	local y        = bar._layoutY + bar._paddingTop
+	local baseX    = bar._layoutX + bar._paddingLeft
+	local baseY    = bar._layoutY + bar._paddingTop
+	local x        = 0
+	local y        = 0
 	local margin   = 0
 	local first    = true
 
@@ -8762,8 +8808,8 @@ function Cs.hbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 				x = x + margin
 			end
 
-			child._layoutX = x
-			child._layoutY = y
+			child._layoutX = baseX + x
+			child._layoutY = baseY + y
 
 			-- Only perpendicular (and relative-to-static along) expansion.
 			if child._weight == 0 or child._width >= 0 then
@@ -8784,6 +8830,9 @@ function Cs.hbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 			first    = false
 		end
 	end
+
+	-- Make sure scrolling uses the final content size.
+	bar._contentWidth = x
 
 end
 function Cs.vbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
@@ -8821,8 +8870,10 @@ function Cs.vbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 	--
 	-- Expand and position children.
 	--
-	local x        = bar._layoutX + bar._paddingLeft
-	local y        = bar._layoutY + bar._paddingTop
+	local baseX    = bar._layoutX + bar._paddingLeft
+	local baseY    = bar._layoutY + bar._paddingTop
+	local x        = 0
+	local y        = 0
 	local margin   = 0
 	local first    = true
 
@@ -8841,8 +8892,8 @@ function Cs.vbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 				y = y + margin
 			end
 
-			child._layoutX = x
-			child._layoutY = y
+			child._layoutX = baseX + x
+			child._layoutY = baseY + y
 
 			-- Only perpendicular (and relative-to-static along) expansion.
 			if child._weight == 0 or child._height >= 0 then
@@ -8863,6 +8914,9 @@ function Cs.vbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 			first    = false
 		end
 	end
+
+	-- Make sure scrolling uses the final content size.
+	bar._contentHeight = y
 
 end
 
@@ -10375,7 +10429,7 @@ defaultTheme = (function()
 					setColor(.4, 0, 0, 1)
 					love.graphics.rectangle("fill", 0, 0, w, h)
 				else
-					setColor(.12, .12, .12, .8)
+					setColor(.15, .15, .15, .8)
 					love.graphics.rectangle("fill", 0, 0, w, h)
 				end
 			end,
@@ -10443,7 +10497,7 @@ defaultTheme = (function()
 
 				-- Background.
 				local r, g, b = 1, 1, 1
-				local a       = (isHovered and .3 or .2) * opacity
+				local a       = (isHovered and .35 or .25) * opacity
 
 				if button:isToggled()               then  r, g, b =   .4,   .8,    1  end
 				if button:isPressed() and isHovered then  r, g, b = r*.6, g*.6, b*.6  end
@@ -10572,12 +10626,12 @@ defaultTheme = (function()
 			end,
 
 			-- Scrollbar.
-			-- draw.scrollbar( element, scrollbarWidth, scrollbarHeight, direction, handlePosition, handleLength )
-			-- draw.scrollbardeadzone( element, deadzoneWidth, deadzoneHeight )
-			["scrollbar"] = function(el, w, h, dir, pos, len)
-				local isScrolling     = el[dir == "x" and "isScrollingX"              or "isScrollingY"             ](el)
-				local isBarHovered    = el[dir == "x" and "isScrollbarXHovered"       or "isScrollbarYHovered"      ](el)
-				local isHandleHovered = el[dir == "x" and "isScrollbarXHandleHovered" or "isScrollbarYHandleHovered"](el)
+			-- draw.scrollbar( container, scrollbarWidth, scrollbarHeight, direction, handlePosition, handleLength )
+			-- draw.scrollbardeadzone( container, deadzoneWidth, deadzoneHeight )
+			["scrollbar"] = function(container, w, h, dir, pos, len)
+				local isScrolling     = container[dir == "x" and "isScrollingX"              or "isScrollingY"             ](container)
+				local isBarHovered    = container[dir == "x" and "isScrollbarXHovered"       or "isScrollbarYHovered"      ](container)
+				local isHandleHovered = container[dir == "x" and "isScrollbarXHandleHovered" or "isScrollbarYHandleHovered"](container)
 
 				-- Background.
 				local a = (isBarHovered or isScrolling) and .06 or 0
@@ -10596,13 +10650,13 @@ defaultTheme = (function()
 
 				Gui.draw9PartScaled(handleX, handleY, handleW, handleH, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
 			end,
-			["scrollbardeadzone"] = function(el, w, h)
+			["scrollbardeadzone"] = function(container, w, h)
 				-- This is the area where the two scrollbars meet. In this theme we do nothing here.
 			end,
 
 			-- Highlight of current navigation target.
-			-- draw.navigation( element, elementWidth, elementHeight, timeSinceNavigation )
-			["navigation"] = function(el, w, h, time)
+			-- draw.navigation( widget, elementWidth, elementHeight, timeSinceNavigation )
+			["navigation"] = function(widget, w, h, time)
 				-- Use a bigger highlight size right after navigation, then quickly shrink to same size as the element.
 				local offset = NAV_MAX_EXTRA_SIZE * math.max(1-time/NAV_SHRINK_DURATION, 0)
 				local x      = -offset

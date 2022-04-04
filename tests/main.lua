@@ -9,65 +9,73 @@ local Gui = require("Gui")
 local gui = Gui()
 
 gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(),
-	{"vbar", relativeWidth=1, relativeHeight=1,
-		{"hbar", homogeneous=true,
-			{"button", mnemonics=true, weight=1, text="&File", relativeWidth=.5},
-			{"button", mnemonics=true, weight=1, text="&Edit"},
-			{"button", mnemonics=true, weight=1, text="&Search"},
-			{"button", mnemonics=true, weight=1, text="&Debug"},
-			{"button", mnemonics=true, weight=1, text="&Help"},
-		},
-		{"hbar", homogeneous=true,
-			{"button", weight=0, text="50%", relativeWidth=.5},
-			{"button", weight=1, text="expand1"},
-			{"button", weight=1, text="expand2"},
-			{"button", weight=1, text="expand3"},
-			{"button", weight=1, text="expand4"},
-		},
-		{"hbar", homogeneous=true,
-			{"button", weight=0, text="50%", relativeWidth=.5},
-			{"button", weight=1, text="expand"},
-			{"button", weight=0, text="[1]"},
-			{"button", weight=0, text="[2]"},
-			{"button", weight=0, text="[3]"},
+	{"hbar", relativeWidth=1, relativeHeight=1,
+		{"vbar", weight=1,
+			{"hbar", homogeneous=true,
+				{"button", mnemonics=true, weight=1, text="&File", relativeWidth=.5},
+				{"button", mnemonics=true, weight=1, text="&Edit"},
+				{"button", mnemonics=true, weight=1, text="&Search"},
+				{"button", mnemonics=true, weight=1, text="&Debug"},
+				{"button", mnemonics=true, weight=1, text="&Help"},
+			},
+			{"hbar", homogeneous=true,
+				{"button", weight=0, text="50%", relativeWidth=.5},
+				{"button", weight=1, text="expand1"},
+				{"button", weight=1, text="expand2"},
+				{"button", weight=1, text="expand3"},
+				{"button", weight=1, text="expand4"},
+			},
+			{"hbar", homogeneous=true,
+				{"button", weight=0, text="50%", relativeWidth=.5},
+				{"button", weight=1, text="expand"},
+				{"button", weight=0, text="[1]"},
+				{"button", weight=0, text="[2]"},
+				{"button", weight=0, text="[3]"},
+			},
+
+			{"hbar",
+				{"button", text="[1]"},
+				{"button", text="expand", weight=1},
+				{"button", text="[2]"},
+			},
+			{"hbar", paddingHorizontal=8, paddingTop=4,
+				{"button", text="untitled (1).txt"},
+				{"button", text="untitled (2).txt"},
+			},
+			{"input", weight=1},
+			{"hbar",
+				{"text", align="left", weight=1,  text="Foo bar"},
+				{"text", align="left", width=50,  text="INS"},
+				{"text", align="left", width=130, text="Line 1, Column 1"},
+			},
+
+			{"hbar", floating=true, originX=.5, anchorX=.5, y=30, background="something", padding=20, homogeneous=true,
+				{"button", weight=1, text="[A]", spacing=10},
+				{"button", weight=1, text="[BB]"},
+				{"button", weight=2, text="[CCCCCCCC]"},
+			},
+			{"hbar", floating=true, originX=.5, anchorX=.5, y=95, background="warning", padding=20, homogeneous=true,
+				{"button", weight=2, text="[A]", spacing=10},
+				{"button", weight=1, text="[BB]"},
+				{"button", weight=1, text="[CCCCCCCC]"},
+			},
 		},
 
-		{"hbar",
-			{"button", text="[1]"},
-			{"button", text="expand", weight=1},
-			{"button", text="[2]"},
-		},
-		{"hbar", paddingHorizontal=8, paddingTop=4,
-			{"button", text="untitled (1).txt"},
-			{"button", text="untitled (2).txt"},
-		},
-		{"input", weight=1},
-		{"hbar",
-			{"text", align="left", weight=1,  text="Foo bar"},
-			{"text", align="left", width=50,  text="INS"},
-			{"text", align="left", width=130, text="Line 1, Column 1"},
-		},
-
-		{"hbar", floating=true, originX=.5, anchorX=.5, y=30, background="something", padding=20, homogeneous=true,
-			{"button", weight=1, text="[A]", spacing=10},
-			{"button", weight=1, text="[BB]"},
-			{"button", weight=2, text="[CCCCCCCC]"},
-		},
-		{"hbar", floating=true, originX=.5, anchorX=.5, y=110, background="warning", padding=20, homogeneous=true,
-			{"button", weight=2, text="[A]", spacing=10},
-			{"button", weight=1, text="[BB]"},
-			{"button", weight=1, text="[CCCCCCCC]"},
+		{"vbar", width=60, padding=5, background="warning", canScrollY=true,
+			{"button", text="BIG1", relativeHeight=.4},
+			{"button", text="BIG2", relativeHeight=.4},
+			{"button", text="BIG3", relativeHeight=.4},
 		},
 	},
 
-	{"hbar", hidden=true, --expandPerpendicular=false,
+	{"hbar", hidden=1==0, originX=.5, originY=.5, anchorX=.5, anchorY=.5, background="something", padding=10, --expandPerpendicular=false,
 		{"hbar", --relativeHeight=1,
 			{"text", text="Left text goes here."},
 		},
-		{"vbar", id="myContainer", width=200, minHeight=120, maxHeight=120, homogeneous=true,
+		{"vbar", id="myContainer", width=200, height=120, canScrollY=true, homogeneous=true,
 			{"text", text="I'm just a\ntwo line text."},
 			{"input", value="foo"},
-			{"input", value="bar", weight=2},
+			{"input", value="bar"},
 			{"button", id="myButton", text="Press Me!"},
 		},
 	},
@@ -144,30 +152,43 @@ end
 
 
 
+local updateTime = 0.00
+
 function love.update(dt)
-	gui.debug = love.keyboard.isScancodeDown"`"
+	gui.debug  = love.keyboard.isScancodeDown"`"
+	updateTime = love.timer.getTime()
 	gui:update(dt)
+	updateTime = love.timer.getTime() - updateTime
 end
 
 local stats     = {}
 local formatStr = nil
 
 function love.draw()
+	local drawTime = love.timer.getTime()
 	gui:draw()
+	drawTime = love.timer.getTime() - drawTime
 
-	love.graphics.getStats(stats)
-	formatStr = formatStr or table.concat({
-		"draw: calls=%d batched=%d",
-		"memory: lua=%.2fMiB",
-	}, "\n")
-	local text = string.format(formatStr
-		, stats.drawcalls, stats.drawcallsbatched
-		, collectgarbage"count"/1024
-	)
-	love.graphics.setColor(.2, 0, .2, .8)
-	love.graphics.rectangle("fill", 0, 0, 200, 2*love.graphics.getFont():getHeight())
-	love.graphics.setColor(1, 1, 1)
-	love.graphics.print(text)
+	-- Stats.
+	local h = 3*love.graphics.getFont():getHeight()
+
+	if not (love.window.hasMouseFocus() and love.mouse.getY() < h+15) then
+		love.graphics.getStats(stats)
+		formatStr = formatStr or table.concat({
+			"draw: calls=%d batched=%d",
+			"memory: lua=%.2fMiB",
+			"time: update=%.1fms draw=%.1fms",
+		}, "\n")
+		local text = string.format(formatStr
+			, stats.drawcalls, stats.drawcallsbatched
+			, collectgarbage"count"/1024
+			, updateTime*1000, drawTime*1000
+		)
+		love.graphics.setColor(.2, 0, .2, .8)
+		love.graphics.rectangle("fill", 0, 0, 220, h)
+		love.graphics.setColor(1, 1, 1)
+		love.graphics.print(text, 0, 0)
+	end
 end
 
 

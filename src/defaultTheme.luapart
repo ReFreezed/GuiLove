@@ -194,7 +194,7 @@ return {
 				setColor(.4, 0, 0, 1)
 				love.graphics.rectangle("fill", 0, 0, w, h)
 			else
-				setColor(.12, .12, .12, .8)
+				setColor(.15, .15, .15, .8)
 				love.graphics.rectangle("fill", 0, 0, w, h)
 			end
 		end,
@@ -262,7 +262,7 @@ return {
 
 			-- Background.
 			local r, g, b = 1, 1, 1
-			local a       = (isHovered and .3 or .2) * opacity
+			local a       = (isHovered and .35 or .25) * opacity
 
 			if button:isToggled()               then  r, g, b =   .4,   .8,    1  end
 			if button:isPressed() and isHovered then  r, g, b = r*.6, g*.6, b*.6  end
@@ -391,12 +391,12 @@ return {
 		end,
 
 		-- Scrollbar.
-		-- draw.scrollbar( element, scrollbarWidth, scrollbarHeight, direction, handlePosition, handleLength )
-		-- draw.scrollbardeadzone( element, deadzoneWidth, deadzoneHeight )
-		["scrollbar"] = function(el, w, h, dir, pos, len)
-			local isScrolling     = el[dir == "x" and "isScrollingX"              or "isScrollingY"             ](el)
-			local isBarHovered    = el[dir == "x" and "isScrollbarXHovered"       or "isScrollbarYHovered"      ](el)
-			local isHandleHovered = el[dir == "x" and "isScrollbarXHandleHovered" or "isScrollbarYHandleHovered"](el)
+		-- draw.scrollbar( container, scrollbarWidth, scrollbarHeight, direction, handlePosition, handleLength )
+		-- draw.scrollbardeadzone( container, deadzoneWidth, deadzoneHeight )
+		["scrollbar"] = function(container, w, h, dir, pos, len)
+			local isScrolling     = container[dir == "x" and "isScrollingX"              or "isScrollingY"             ](container)
+			local isBarHovered    = container[dir == "x" and "isScrollbarXHovered"       or "isScrollbarYHovered"      ](container)
+			local isHandleHovered = container[dir == "x" and "isScrollbarXHandleHovered" or "isScrollbarYHandleHovered"](container)
 
 			-- Background.
 			local a = (isBarHovered or isScrolling) and .06 or 0
@@ -415,13 +415,13 @@ return {
 
 			Gui.draw9PartScaled(handleX, handleY, handleW, handleH, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
 		end,
-		["scrollbardeadzone"] = function(el, w, h)
+		["scrollbardeadzone"] = function(container, w, h)
 			-- This is the area where the two scrollbars meet. In this theme we do nothing here.
 		end,
 
 		-- Highlight of current navigation target.
-		-- draw.navigation( element, elementWidth, elementHeight, timeSinceNavigation )
-		["navigation"] = function(el, w, h, time)
+		-- draw.navigation( widget, elementWidth, elementHeight, timeSinceNavigation )
+		["navigation"] = function(widget, w, h, time)
 			-- Use a bigger highlight size right after navigation, then quickly shrink to same size as the element.
 			local offset = NAV_MAX_EXTRA_SIZE * math.max(1-time/NAV_SHRINK_DURATION, 0)
 			local x      = -offset
