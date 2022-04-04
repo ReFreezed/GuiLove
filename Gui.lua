@@ -2901,6 +2901,26 @@ local validSoundKeys = {
 
 local defaultTheme
 
+local __LAMBDA1 = (function() local triggerIncludingAnimations ; local __func = function(innerEl)
+	triggerIncludingAnimations(innerEl, "layout")
+end ; return function(__triggerIncludingAnimations) triggerIncludingAnimations = __triggerIncludingAnimations ; return __func end end)()
+local __LAMBDA2 = (function() local trigger, dt ; local __func = function(el)
+	trigger(el, "update", dt)
+end ; return function(__trigger, __dt) trigger, dt = __trigger, __dt ; return __func end end)()
+local __STATIC1 = {}
+local __STATIC2 = {}
+local __STATIC3 = {}
+local __STATIC4 = {}
+local __STATIC5 = {}
+local __STATIC6 = {}
+local __STATIC7 = {}
+local __STATIC8 = {}
+local __STATIC9 = {}
+local __LAMBDA3 = (function() local time ; local __func = function(el)
+	el._timeBecomingVisible = time
+end ; return function(__time) time = __time ; return __func end end)()
+local __STATIC10 = {}
+
 
 
 --==============================================================
@@ -3387,9 +3407,9 @@ end
 
 
 
--- class = requireElementClass( elType )
-local function requireElementClass(elType)
-	return Cs[elType] or errorf(2, "Unknown element type '%s'.", elType)
+-- class = requireElementClass( elementType, errorLevel )
+local function requireElementClass(elType, level)
+	return Cs[elType] or errorf(1+level, "Invalid element type '%s'.", elType)
 end
 
 
@@ -3616,9 +3636,7 @@ local function updateLayout(el)
 
 	gui._layoutNeedsUpdate = false
 
-	for innerEl in container:traverseVisible() do
-		triggerIncludingAnimations(innerEl, "layout")
-	end
+	container:visitVisible(__LAMBDA1(triggerIncludingAnimations))
 
 	updateHoveredElement(gui)
 
@@ -4119,7 +4137,6 @@ function Gui:update(dt)
 					cb(el, "update", (time-anim.startTime)/anim.duration)
 				end
 			end
-
 		end
 
 		if self._animationLockCount == 0 then
@@ -4133,9 +4150,7 @@ function Gui:update(dt)
 		if self._root:isVisible() then
 			trigger(self._root, "update", dt)
 
-			for el in self._root:traverseVisible() do
-				trigger(el, "update", dt)
-			end
+			self._root:visitVisible(__LAMBDA2(trigger, dt))
 		end
 	end
 
@@ -4225,16 +4240,24 @@ function Gui:keypressed(key, scancode, isRepeat)
 	if focus then  return true  end
 
 	local root = self._root
+
 	if root and not root._hidden then
-		for el in root:traverseVisible() do
+		local elToClose = nil
+
+		for _, el in ipairs(root:collectVisible(__STATIC1)) do
 			if key == "escape" and el:canClose() then
-				el:close()
-				return true
+				elToClose = el
+				break
 			elseif el._captureInput then
 				return true
 			elseif el._captureGuiInput then
 				break
 			end
+		end
+
+		if elToClose then
+			elToClose:close()
+			return true
 		end
 	end
 
@@ -4280,7 +4303,7 @@ function Gui:textinput(text)
 
 	local root = self._root
 	if root and not root._hidden then
-		for el in root:traverseVisible() do
+		for _, el in ipairs(root:collectVisible(__STATIC2)) do
 			if el._captureInput    then  return true  end
 			if el._captureGuiInput then  break        end
 		end
@@ -4688,7 +4711,7 @@ do
 			local foundNav   = false
 			local lastWidget = nil
 
-			for el in (nav and nav:getNavigationRoot() or root):traverseVisible() do
+			for _, el in ipairs((nav and nav:getNavigationRoot() or root):collectVisible(__STATIC3)) do
 				-- Note: Remember that we're traversing backwards.
 				local elIsValid = el:is(Cs.widget) and (not id or el._id == id)
 
@@ -4739,7 +4762,7 @@ do
 
 		local first = nil
 
-		for el in root:traverseVisible() do
+		for _, el in ipairs(root:collectVisible(__STATIC4)) do
 			if el:is(Cs.widget) and not (first and first._priority > el._priority) then
 				first = el
 			end
@@ -4784,7 +4807,7 @@ do
 		local root = self._root
 		if not root or root._hidden then  return false  end
 
-		for el in root:traverseVisible() do
+		for _, el in ipairs(root:collectVisible(__STATIC5)) do
 			if el == widget then
 				return true
 			elseif (el._captureInput or el._captureGuiInput) then
@@ -4998,7 +5021,7 @@ function Gui:isInputCaptured(includeGuiInput)
 	local root = self._root
 	if not root or root._hidden then  return false  end
 
-	for el in root:traverseVisible() do
+	for _, el in ipairs(root:collectVisible(__STATIC6)) do
 		if el._captureInput or (includeGuiInput and el._captureGuiInput) then
 			return true
 		end
@@ -5067,13 +5090,20 @@ function Gui:back()
 	if not root or root._hidden then  return false  end
 
 	-- Close closable (like Escape does).
-	for el in root:traverseVisible() do
+	local elToClose = nil
+
+	for _, el in ipairs(root:collectVisible(__STATIC7)) do
 		if el:canClose() then
-			el:close()
-			return true
+			elToClose = el
+			break
 		elseif el._captureInput or el._captureGuiInput then
 			break
 		end
+	end
+
+	if elToClose then
+		elToClose:close()
+		return true
 	end
 
 	return false
@@ -5820,7 +5850,7 @@ end
 -- closestElement|nil = element:getClosest( elementType )
 -- Returns closest ancestor matching elementType (including self).
 function Cs.element.getClosest(el, elType)
-	local C = requireElementClass(elType)
+	local C = requireElementClass(elType, 2)
 	repeat
 		if el:is(C) then  return el  end
 		el = el._parent
@@ -5833,27 +5863,29 @@ end
 do
 
 
-	local function _getClosestInDirection(navRoot, C, fromX, fromY, angle, ignoreCapture, elToIgnore)
+	local function _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, elToIgnore)
+		fromX = round(fromX)
+		fromY = round(fromY)
+
 		local closestEl      = nil
 		local closestDistSqr = 1/0
 		local closestAngDiff = 1/0
 
-		for el in navRoot:traverseVisible() do
+		for _, el in ipairs(navRoot:collectVisible(__STATIC8)) do
 			if el ~= elToIgnore and el:is(C) then
 				local x, y = el:getPositionOnScreen()
 				x          = math.min(math.max(fromX, x+.01), x+el._layoutWidth -.01)
 				y          = math.min(math.max(fromY, y+.01), y+el._layoutHeight-.01)
 
-				local dx = x - fromX
-				local dy = y - fromY
-
-				local distSqr = dx*dx+dy*dy
+				local dx      = x - fromX
+				local dy      = y - fromY
+				local distSqr = dx*dx + dy*dy
 
 				if distSqr <= closestDistSqr then
 					local angDiff = math.atan2(dy, dx) - angle
 					angDiff       = math.abs(math.atan2(math.sin(angDiff), math.cos(angDiff))) -- Normalize.
 
-					if angDiff < 1.5707963267949 then
+					if angDiff < 1.5707963267949 and (distSqr < closestDistSqr or (distSqr == closestDistSqr and angDiff < closestAngDiff)) then
 						closestEl      = el
 						closestDistSqr = distSqr
 						closestAngDiff = angDiff
@@ -5876,23 +5908,22 @@ do
 		if not(type(ignoreCapture)=="boolean" or ignoreCapture==nil) then argerror(2,3,"ignoreCapture",ignoreCapture,"boolean","nil") end
 		if not(type(ignoreConfinement)=="boolean" or ignoreConfinement==nil) then argerror(2,4,"ignoreConfinement",ignoreConfinement,"boolean","nil") end
 
-		local C = elType and requireElementClass(elType) or Cs.widget
+		local C = elType and requireElementClass(elType, 2) or Cs.widget
 
-		local gui = self._gui
-		updateLayoutIfNeeded(gui)
+		updateLayoutIfNeeded(self._gui)
 
-		local navRoot = (ignoreConfinement and gui._root or self:getNavigationRoot())
+		local navRoot = ignoreConfinement and self._gui._root or self:getNavigationRoot()
 
 		local centerX, centerY = self:getLayoutCenterPosition()
 
-		local fromX = centerX+self._layoutOffsetX+0.495*self._layoutWidth *math.cos(angle)
-		local fromY = centerY+self._layoutOffsetY+0.495*self._layoutHeight*math.sin(angle)
-		local closestEl = _getClosestInDirection(navRoot, C, fromX, fromY, angle, ignoreCapture, self)
+		local fromX     = centerX + self._layoutOffsetX + .495*self._layoutWidth *math.cos(angle)
+		local fromY     = centerY + self._layoutOffsetY + .495*self._layoutHeight*math.sin(angle)
+		local closestEl = _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, self)
 
 		if not closestEl and not ignoreConfinement and navRoot._confineNavigation then
-			fromX = centerX+self._layoutOffsetX-10000*math.cos(angle)
-			fromY = centerY+self._layoutOffsetY-10000*math.sin(angle)
-			closestEl = _getClosestInDirection(navRoot, C, fromX, fromY, angle, ignoreCapture, nil)
+			fromX     = centerX + self._layoutOffsetX - 10000*math.cos(angle)
+			fromY     = centerY + self._layoutOffsetY - 10000*math.sin(angle)
+			closestEl = _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, nil)
 		end
 
 		return closestEl
@@ -5901,7 +5932,7 @@ end
 
 do
 	local function getNextOrPrevious(self, elType, ignoreCapture, usePrev)
-		local C = elType and requireElementClass(elType) or Cs.widget
+		local C = elType and requireElementClass(elType, 3) or Cs.widget
 
 		local root = self._gui._root
 		if not root or root._hidden then  return nil  end
@@ -5909,7 +5940,7 @@ do
 		local foundSelf = false
 		local lastMatch = nil
 
-		for el in self:getNavigationRoot():traverseVisible() do
+		for _, el in ipairs(self:getNavigationRoot():collectVisible(__STATIC9)) do
 			-- Note: Remember that we're traversing backwards.
 
 			local elIsValid = el:is(C)
@@ -5925,8 +5956,8 @@ do
 			if not ignoreCapture and (el._captureInput or el._captureGuiInput) then
 				break
 			end
-
 		end
+
 		return nil
 	end
 
@@ -6829,11 +6860,8 @@ function Cs.element:setHidden(hidden)
 			self._timeBecomingVisible = time
 
 			if self:is(Cs.container) then
-				for el in self:traverseVisible() do
-					el._timeBecomingVisible = time
-				end
+				self:visitVisible(__LAMBDA3(time))
 			end
-
 		end
 	end
 
@@ -6971,7 +6999,7 @@ end
 
 -- bool = element:isType( elementType )
 function Cs.element:isType(elType)
-	return self:is(requireElementClass(elType))
+	return self:is(requireElementClass(elType, 2))
 end
 
 
@@ -7530,7 +7558,7 @@ end
 
 -- element|nil = container:findType( elementType )
 function Cs.container:findType(elType)
-	local C = requireElementClass(elType)
+	local C = requireElementClass(elType, 2)
 
 	for el in self:traverse() do
 		if el:is(C) then  return el  end
@@ -8025,7 +8053,7 @@ function Cs.container:getElementAt(x, y, nonSolid)
 	if self._maxWidth  >= 0 and (x < self._layoutX or x >= self._layoutX+self._layoutWidth ) then  return nil  end
 	if self._maxHeight >= 0 and (y < self._layoutY or y >= self._layoutY+self._layoutHeight) then  return nil  end
 
-	for el in self:traverseVisible(x, y) do
+	for _, el in ipairs(self:collectVisible(__STATIC10)) do
 		if ((nonSolid or el:isSolid()) and el:isAt(x, y)) or (el._captureInput or el._captureGuiInput) then
 			return el
 		end
@@ -8286,36 +8314,41 @@ end
 
 -- for element in container:traverse( )
 function Cs.container:traverse()
+
 	local stack = {self, 0}
 	local len   = 2
 
 	return function()
 		local child
 
-		repeat
-			local i    = stack[len] + 1
-			stack[len] = i
-			child      = stack[len-1][i]
 
-			if not child then
-				len = len - 2 -- Don't bother removing values from the stack.
-				if len == 0 then  return  end
+			repeat
+				local i    = stack[len] + 1
+				stack[len] = i
+				child      = stack[len-1][i]
+
+				if not child then
+					len = len - 2 -- Don't bother removing values from the stack.
+					if len == 0 then  return  end
+				end
+			until child
+
+			if child:is(Cs.container) then
+				len          = len + 2
+				stack[len-1] = child
+				stack[len  ] = 0
 			end
-		until child
 
-		if child:is(Cs.container) then
-			len          = len + 2
-			stack[len-1] = child
-			stack[len  ] = 0
-		end
 
 		return child
 	end
+
 end
 
 -- for element in container:traverseType( elementType )
 function Cs.container:traverseType(elType)
-	local C     = requireElementClass(elType)
+	local C = requireElementClass(elType, 2)
+
 	local stack = {self, 0}
 	local len   = 2
 
@@ -8343,24 +8376,57 @@ function Cs.container:traverseType(elType)
 
 		return child
 	end
+
 end
 
 do
-	local function traverseVisibleChildren(el)
+
+	local function _traverseVisible(el)
+
 		for i = #el, 1, -1 do
 			local child = el[i]
 
 			if not child._hidden then
 				if child:is(Cs.container) then
-					traverseVisibleChildren(child)
+					_traverseVisible(child)
 				end
-
 				coroutine.yield(child)
 			end
 		end
+
+	end
+	local function _visitVisible(el, cb)
+
+		for i = #el, 1, -1 do
+			local child = el[i]
+
+			if not child._hidden then
+				if child:is(Cs.container) then
+					if _visitVisible(child, cb) == "stop" then  return "stop"  end
+				end
+				if cb(child) == "stop" then  return "stop"  end
+			end
+		end
+
+	end
+	local function _collectVisible(el, elements)
+
+		for i = #el, 1, -1 do
+			local child = el[i]
+
+			if not child._hidden then
+				if child:is(Cs.container) then
+					_collectVisible(child, elements)
+				end
+				table.insert(elements, child)
+			end
+		end
+
 	end
 
-	local function traverseVisibleChildrenUnderCoords(el, x, y, sbW)
+
+	local function _traverseVisibleAt(el, x, y, sbW)
+
 		for i = #el, 1, -1 do
 			local child = el[i]
 
@@ -8371,10 +8437,10 @@ do
 
 				if isContainer then
 					local x1, y1 = child:getPositionOnScreen()
-					local x2, y2 = x1+child._layoutWidth, y1+child._layoutHeight
-
-					local maxW = child._maxWidth
-					local maxH = child._maxHeight
+					local x2     = x1 + child._layoutWidth
+					local y2     = y1 + child._layoutHeight
+					local maxW   = child._maxWidth
+					local maxH   = child._maxHeight
 
 					if maxW >= 0 and (x < x1 or x >= x2-(maxH >= 0 and sbW or 0)) then
 						includeChildren = false
@@ -8387,22 +8453,116 @@ do
 
 				if includeSelf then
 					if includeChildren then
-						traverseVisibleChildrenUnderCoords(child, x, y, sbW)
+						_traverseVisibleAt(child, x, y, sbW)
 					end
 					coroutine.yield(child)
 				end
 			end
 		end
+
+	end
+	local function _visitVisibleAt(el, x, y, sbW, cb)
+
+		for i = #el, 1, -1 do
+			local child = el[i]
+
+			if not child._hidden then
+				local isContainer     = child:is(Cs.container)
+				local includeSelf     = true
+				local includeChildren = isContainer
+
+				if isContainer then
+					local x1, y1 = child:getPositionOnScreen()
+					local x2     = x1 + child._layoutWidth
+					local y2     = y1 + child._layoutHeight
+					local maxW   = child._maxWidth
+					local maxH   = child._maxHeight
+
+					if maxW >= 0 and (x < x1 or x >= x2-(maxH >= 0 and sbW or 0)) then
+						includeChildren = false
+						includeSelf     = (x < x2)
+					elseif maxH >= 0 and (y < y1 or y >= y2-(maxW >= 0 and sbW or 0)) then
+						includeChildren = false
+						includeSelf     = (y < y2)
+					end
+				end
+
+				if includeSelf then
+					if includeChildren then
+						if _visitVisibleAt(child, x, y, sbW, cb) == "stop" then  return "stop"  end
+					end
+					if cb(child) == "stop" then  return "stop"  end
+				end
+			end
+		end
+
+	end
+	local function _collectVisibleAt(el, x, y, sbW, elements)
+
+		for i = #el, 1, -1 do
+			local child = el[i]
+
+			if not child._hidden then
+				local isContainer     = child:is(Cs.container)
+				local includeSelf     = true
+				local includeChildren = isContainer
+
+				if isContainer then
+					local x1, y1 = child:getPositionOnScreen()
+					local x2     = x1 + child._layoutWidth
+					local y2     = y1 + child._layoutHeight
+					local maxW   = child._maxWidth
+					local maxH   = child._maxHeight
+
+					if maxW >= 0 and (x < x1 or x >= x2-(maxH >= 0 and sbW or 0)) then
+						includeChildren = false
+						includeSelf     = (x < x2)
+					elseif maxH >= 0 and (y < y1 or y >= y2-(maxW >= 0 and sbW or 0)) then
+						includeChildren = false
+						includeSelf     = (y < y2)
+					end
+				end
+
+				if includeSelf then
+					if includeChildren then
+						_collectVisibleAt(child, x, y, sbW, elements)
+					end
+					table.insert(elements, child)
+				end
+			end
+		end
+
 	end
 
 	-- for element in container:traverseVisible( )
 	-- for element in container:traverseVisible( x, y )
 	function Cs.container:traverseVisible(x, y)
-		if x then
-			return newIteratorCoroutine(traverseVisibleChildrenUnderCoords, self, x, y, themeGet(self._gui, "scrollbarWidth"))
+		if x then  return newIteratorCoroutine(_traverseVisibleAt, self, x, y, themeGet(self._gui, "scrollbarWidth"))
+		else       return newIteratorCoroutine(_traverseVisible  , self)  end
+	end
+
+	-- container:visitVisible( callback )
+	-- container:visitVisible( x, y, callback )
+	-- traversalAction = callback( element )
+	-- traversalAction = "continue" | "stop" -- Returning nil means "continue".
+	function Cs.container:visitVisible(x, y, cb)
+		if y then  _visitVisibleAt(self, x, y, themeGet(self._gui, "scrollbarWidth"), cb)
+		else       _visitVisible  (self, x)  end
+	end
+
+	-- elements = container:collectVisible( [ array={} ] )
+	-- elements = container:collectVisible( x, y, [, array={} ] )
+	function Cs.container:collectVisible(x, y, elements)
+		if y then
+			elements = elements or {}
+			for i = 1, #elements do  elements[i] = nil  end
+			_collectVisibleAt(self, x, y, themeGet(self._gui, "scrollbarWidth"), elements)
 		else
-			return newIteratorCoroutine(traverseVisibleChildren, self)
+			elements = x or {}
+			for i = 1, #elements do  elements[i] = nil  end
+			_collectVisible(self, elements)
 		end
+		return elements
 	end
 end
 

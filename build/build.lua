@@ -17,6 +17,65 @@ local pp = require"build.preprocess"
 
 pp.metaEnvironment.DEV = DEV
 
+local statics     = {}
+local staticCount = 0
+
+-- @@STATIC( code )
+-- reference = @@STATIC{ ... }
+function pp.metaEnvironment.STATIC(lua)
+	if lua:find"^{" then
+		staticCount      = staticCount + 1
+		local staticName = "__STATIC" .. staticCount
+		lua              = string.format("local %s = %s", staticName, lua)
+		table.insert(statics, lua)
+		return staticName
+	else
+		table.insert(statics, lua)
+	end
+end
+
+local function map(arr, cb)
+	local out = {}
+	for i = 1, #arr do
+		out[i] = cb(arr[i])
+	end
+	return out
+end
+
+local lambdaCount = 0
+
+-- call = @@LAMBDA( captureByCopy1, ..., function()end )
+function pp.metaEnvironment.LAMBDA(...)
+	local captureCount = select("#", ...) - 1
+	assert(captureCount > 0)
+
+	local captures = {}
+
+	for i = 1, captureCount do
+		captures[i] = select(i, ...)
+	end
+
+	lambdaCount      = lambdaCount + 1
+	local lambdaName = "__LAMBDA" .. lambdaCount
+
+	local indent = pp.getOutputSoFarOnLine():match"^\t*"
+	local func   = select(captureCount+1, ...):gsub("\n"..indent, "\n")
+
+	local decl = string.format("local %s = (function() local %s ; local __func = %s ; return function(%s) %s = %s ; return __func end end)()",
+		lambdaName,
+		table.concat(captures, ", "),
+		func,
+		table.concat(map(captures, function(capture)  return "__"..capture  end), ", "),
+		table.concat(captures, ", "),
+		table.concat(map(captures, function(capture)  return "__"..capture  end), ", "),
+	nil)
+
+	local call = string.format("%s(%s)", lambdaName, table.concat(captures, ", "))
+
+	pp.metaEnvironment.STATIC(decl)
+	return call
+end
+
 pp.processFile{
 	pathIn   = "src/gui.lua2p",
 	pathOut  = "Gui.lua",
@@ -37,6 +96,9 @@ pp.processFile{
 
 	onAfterMeta = function(lua)
 		return (lua
+			:gsub("%-%-{STATICS}", function()
+				return table.concat(statics, "\n")
+			end, 1)
 			:gsub("[ \t]+\n",    "\n"      ) -- No trailing whitespace on lines.
 			:gsub("\n\n\n\n\n+", "\n\n\n\n") -- Limit empty lines.
 		)

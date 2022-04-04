@@ -1,6 +1,10 @@
 io.stdout:setvbuf("no")
 io.stderr:setvbuf("no")
 
+love.keyboard.setKeyRepeat(true)
+
+local TAU = 2*math.pi
+
 local Gui = require("Gui")
 local gui = Gui()
 
@@ -85,6 +89,23 @@ end)
 function love.keypressed(key, scancode, isRepeat)
 	if gui:keypressed(key, scancode, isRepeat) then
 		-- void
+
+	elseif key == "right" then
+		gui:navigate(0)
+	elseif key == "down" then
+		gui:navigate(TAU/4)
+	elseif key == "left" then
+		gui:navigate(TAU/2)
+	elseif key == "up" then
+		gui:navigate(-TAU/4)
+
+	elseif key == "tab" then
+		if love.keyboard.isDown("lshift","rshift") then
+			gui:navigateToPrevious()
+		else
+			gui:navigateToNext()
+		end
+
 	elseif key == "escape" then
 		love.event.quit()
 	end
@@ -123,8 +144,25 @@ function love.update(dt)
 	gui:update(dt)
 end
 
+local stats     = {}
+local formatStr = nil
+
 function love.draw()
 	gui:draw()
+
+	love.graphics.getStats(stats)
+	formatStr = formatStr or table.concat({
+		"draw: calls=%d batched=%d",
+		"memory: lua=%.2fMiB",
+	}, "\n")
+	local text = string.format(formatStr
+		, stats.drawcalls, stats.drawcallsbatched
+		, collectgarbage"count"/1024
+	)
+	love.graphics.setColor(.2, 0, .2, .8)
+	love.graphics.rectangle("fill", 0, 0, 200, 2*love.graphics.getFont():getHeight())
+	love.graphics.setColor(1, 1, 1)
+	love.graphics.print(text)
 end
 
 
