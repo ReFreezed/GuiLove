@@ -158,8 +158,6 @@
 	- isHovered
 	- isMouseFocus, isKeyboardFocus
 	- isNavigationTarget
-	- isScrollbarXHovered, isScrollbarYHovered, isScrollbarXHandleHovered, isScrollbarYHandleHovered
-	- isScrollingX, isScrollingY
 	- isSolid
 	- isType
 	- playSound
@@ -203,6 +201,8 @@
 	- hasAnyScrollbar, hasScrollbarOnRight, hasScrollbarOnBottom
 	- indexOf
 	- insert, removeAt, empty
+	- isScrollbarXHovered, isScrollbarYHovered, isScrollbarXHandleHovered, isScrollbarYHandleHovered
+	- isScrollingX, isScrollingY
 	- setChildrenActive
 	- setChildrenHidden
 	- sort
@@ -2971,8 +2971,8 @@ end
 
 -- class = newElementClass( abstract, className, parentClass|nil, includes, classTable, events )
 local function newElementClass(abstract, className, parentClass, includes, classTable, events)
-	classTable.abstract = abstract
-	local C             = parentClass and parentClass:extend(className, classTable) or class(className, classTable)
+	classTable._abstract = abstract
+	local C              = parentClass and parentClass:extend(className, classTable) or class(className, classTable)
 
 	-- Include includes.
 	for _, includeName in ipairs(includes) do
@@ -3222,9 +3222,7 @@ do
 
 	function parseSelector(selector)
 		local selPath = selPathCache[selector]
-		if selPath then
-			return selPath
-		end
+		if selPath then  return selPath  end
 
 		selPath = {}
 
@@ -3355,13 +3353,12 @@ end
 -- Prepare a sound for being played (Useful if it's possible the element will be removed in an event)
 -- playSound:function = prepareSound( element, soundKey )
 local function prepareSound(el, soundK)
-	local gui = el._gui
-	local soundPlayer = (gui and gui._soundPlayer)
-	local sound = (soundPlayer and el:getResultingSound(soundK))
+	local gui         = el._gui
+	local soundPlayer = gui and gui._soundPlayer
+	local sound       = soundPlayer and el:getResultingSound(soundK)
+
 	return function()
-		if sound ~= nil then
-			soundPlayer(sound)
-		end
+		if sound ~= nil then  soundPlayer(sound)  end
 	end
 end
 
@@ -3409,7 +3406,7 @@ end
 
 -- class = requireElementClass( elementType, errorLevel )
 local function requireElementClass(elType, level)
-	return Cs[elType] or errorf(1+level, "Invalid element type '%s'.", elType)
+	return Cs[elType] or errorf(1+level, "Bad element type '%s'.", elType)
 end
 
 
@@ -3576,7 +3573,7 @@ local function trigger(el, event, ...)
 	local cb = el._callbacks[event]
 	if not cb then  return nil  end
 
-	return cb(el, event, ...)
+	return (cb(el, event, ...))
 end
 
 -- value = triggerIncludingAnimations( element, event, value, ... )
@@ -3588,7 +3585,7 @@ local function triggerIncludingAnimations(el, event, ...)
 		if cb then  cb(el, event, (time-anim.startTime)/anim.duration, ...)  end
 	end
 
-	return trigger(el, event, ...)
+	return (trigger(el, event, ...))
 end
 
 
@@ -3856,8 +3853,8 @@ local function updateContainerNaturalSize(container, contentW, contentH)
 	local w = container._width -- May be negative.
 	local h = container._height
 
-	container._contentWidth  = (w >= 0) and w-self:getInnerSpaceX() or contentW
-	container._contentHeight = (h >= 0) and h-self:getInnerSpaceY() or contentH
+	container._contentWidth  = (w >= 0) and w-container:getInnerSpaceX() or contentW
+	container._contentHeight = (h >= 0) and h-container:getInnerSpaceY() or contentH
 
 	if w < 0 then
 		w = math.max(container._contentWidth+container:getInnerSpaceX(), container._minWidth)
@@ -4090,13 +4087,13 @@ end
 
 
 -- Gui( )
-function Gui:init()
-	self._allAnimations          = {}
-	self._defaultSounds          = {}
-	self._heres                  = {}
-	self._mouseFocusButtonStates = {false, false, false} -- We only handle mouse button 1-3.
+function Gui.init(gui)
+	gui._allAnimations          = {}
+	gui._defaultSounds          = {}
+	gui._heres                  = {}
+	gui._mouseFocusButtonStates = {false, false, false} -- We only handle mouse button 1-3.
 
-	self._styles = {
+	gui._styles = {
 		["_MENU"] = {},
 	}
 end
@@ -4104,13 +4101,13 @@ end
 
 
 -- gui:update( deltaTime )
-function Gui:update(dt)
-	local time                = self._time + dt
-	self._time                = time
-	self._tooltipTime         = self._tooltipTime + dt
-	self._timeSinceNavigation = self._timeSinceNavigation + dt
+function Gui.update(gui, dt)
+	local time               = gui._time + dt
+	gui._time                = time
+	gui._tooltipTime         = gui._tooltipTime + dt
+	gui._timeSinceNavigation = gui._timeSinceNavigation + dt
 
-	local allAnims = self._allAnimations
+	local allAnims = gui._allAnimations
 
 	if allAnims[1] then
 		for i, anim in ipairsr(allAnims) do
@@ -4128,7 +4125,7 @@ function Gui:update(dt)
 				table.remove(anims, assert(indexOf(anims, anim)))
 
 				if anim.lockInteraction then
-					self._animationLockCount = self._animationLockCount-1
+					gui._animationLockCount = gui._animationLockCount-1
 				end
 
 			else
@@ -4139,64 +4136,62 @@ function Gui:update(dt)
 			end
 		end
 
-		if self._animationLockCount == 0 then
-			updateHoveredElement(self)
+		if gui._animationLockCount == 0 then
+			updateHoveredElement(gui)
 		end
 	end
 
-	if self._root then
-		self._root:_update(dt)
+	if gui._root then
+		gui._root:_update(dt)
 
-		if self._root:isVisible() then
-			trigger(self._root, "update", dt)
+		if gui._root:isVisible() then
+			trigger(gui._root, "update", dt)
 
-			self._root:visitVisible(__LAMBDA2(trigger, dt))
+			gui._root:visitVisible(__LAMBDA2(trigger, dt))
 		end
 	end
 
 	-- The navigation target has a special additional update event.
-	local nav = self._navigationTarget
+	local nav = gui._navigationTarget
 	if nav then  trigger(nav, "navupdate", dt)  end
 
 	-- Check if mouse is inside window.
-	if self._mouseX ~=  -999999 and not love.window.hasMouseFocus() then
-		self:mousemoved( -999999,  -999999)
+	if gui._mouseX ~=  -999999 and not love.window.hasMouseFocus() then
+		gui:mousemoved( -999999,  -999999)
 	end
 
 	--
 	-- Update mouse cursor.
 	--
-	local el  = self._mouseFocus or self._hoveredElement
+	local el  = gui._mouseFocus or gui._hoveredElement
 	local cur = el and el:getResultingMouseCursor()
 
-	if self._currentMouseCursor ~= cur then
-		self._currentMouseCursor = cur
+	if gui._currentMouseCursor ~= cur then
+		gui._currentMouseCursor = cur
 		love.mouse.setCursor(cur)
 	end
 
-	self._ignoreKeyboardInputThisFrame = false
+	gui._ignoreKeyboardInputThisFrame = false
 end
 
 
 
 -- gui:draw( )
-function Gui:draw()
-	if self._root and not self._root._hidden then
-		updateLayoutIfNeeded(self)
+function Gui.draw(gui)
+	if gui._root and not gui._root._hidden then
+		updateLayoutIfNeeded(gui)
 
 		-- Elements.
-		self._root:_draw()
+		gui._root:_draw()
 
 		-- Navigation target.
-		if not self.debug then
-			local nav = self._navigationTarget
-			if nav then  themeRender(nav, "navigation", self._timeSinceNavigation)  end
+		if gui._navigationTarget and not gui.debug then
+			themeRender(gui._navigationTarget, "navigation", gui._timeSinceNavigation)
 		end
 
 		-- Tooltip.
-		local el = self._hoveredElement
-		if el and not self._mouseFocus then
-			el:_drawTooltip()
+		if gui._hoveredElement and not gui._mouseFocus then
+			gui._hoveredElement:_drawTooltip()
 		end
 	end
 end
@@ -4208,21 +4203,21 @@ end
 
 
 -- handled = gui:keypressed( key, scancode, isRepeat )
-function Gui:keypressed(key, scancode, isRepeat)
+function Gui.keypressed(gui, key, scancode, isRepeat)
 	if type(key)~="string" then argerror(2,1,"key",key,"string") end
 	if type(scancode)~="string" then argerror(2,2,"scancode",scancode,"string") end
 	if type(isRepeat)~="boolean" then argerror(2,3,"isRepeat",isRepeat,"boolean") end
 
-	if self._animationLockCount > 0 then  return true  end
+	if gui._animationLockCount > 0 then  return true  end
 
-	local focus = (self._keyboardFocus or self._mouseFocus)
-	local el = (focus or self._hoveredElement)
+	local focus = gui._keyboardFocus or gui._mouseFocus
+	local el    = focus or gui._hoveredElement
 
-	if self._ignoreKeyboardInputThisFrame then
-		return (el ~= nil)
+	if gui._ignoreKeyboardInputThisFrame then
+		return el ~= nil
 	end
 
-	el = (el or self._navigationTarget) -- Can this be on the 'el' declaration line?
+	el = el or gui._navigationTarget -- Can this be on the 'el' declaration line?
 
 	if el then
 		if focus then
@@ -4230,16 +4225,18 @@ function Gui:keypressed(key, scancode, isRepeat)
 		else
 			if el:triggerBubbling("keypressed", key, scancode, isRepeat) then  return true  end
 		end
+
 		local handled, grabKbFocus = el:_keypressed(key, scancode, isRepeat)
+
 		if handled then
-			if grabKbFocus then  setKeyboardFocus(self, el)  end
+			if grabKbFocus then  setKeyboardFocus(gui, el)  end
 			return true
 		end
 	end
 
 	if focus then  return true  end
 
-	local root = self._root
+	local root = gui._root
 
 	if root and not root._hidden then
 		local elToClose = nil
@@ -4265,13 +4262,12 @@ function Gui:keypressed(key, scancode, isRepeat)
 end
 
 -- handled = gui:keyreleased( key, scancode )
-function Gui:keyreleased(key, scancode)
+function Gui.keyreleased(gui, key, scancode)
 	if type(key)~="string" then argerror(2,1,"key",key,"string") end
 	if type(scancode)~="string" then argerror(2,2,"scancode",scancode,"string") end
 
-	local focus = self._keyboardFocus
-	if focus then
-		focus:_keyreleased(key, scancode)
+	if gui._keyboardFocus then
+		gui._keyboardFocus:_keyreleased(key, scancode)
 		return true
 	end
 
@@ -4279,19 +4275,19 @@ function Gui:keyreleased(key, scancode)
 end
 
 -- handled = gui:textinput( text )
-function Gui:textinput(text)
+function Gui.textinput(gui, text)
 	if type(text)~="string" then argerror(2,1,"text",text,"string") end
 
-	if self._animationLockCount > 0 then  return true  end
+	if gui._animationLockCount > 0 then  return true  end
 
-	local focus = self._keyboardFocus or self._mouseFocus
-	local el    = focus or self._hoveredElement
+	local focus = gui._keyboardFocus or gui._mouseFocus
+	local el    = focus or gui._hoveredElement
 
-	if self._ignoreKeyboardInputThisFrame then
-		return (el ~= nil)
+	if gui._ignoreKeyboardInputThisFrame then
+		return el ~= nil
 	end
 
-	el = (el or self._navigationTarget) -- Can this be on the 'el' declaration line?
+	el = el or gui._navigationTarget -- Can this be on the 'el' declaration line?
 
 	if el then
 		if not focus and el:triggerBubbling("textinput", text) then  return true  end
@@ -4301,7 +4297,8 @@ function Gui:textinput(text)
 
 	if focus then  return true  end
 
-	local root = self._root
+	local root = gui._root
+
 	if root and not root._hidden then
 		for _, el in ipairs(root:_collectVisibleUntilInputCapture(__STATIC2)) do
 			if el._captureInput    then  return true  end
@@ -4315,31 +4312,31 @@ end
 
 
 -- handled = gui:mousepressed( mouseX, mouseY, mouseButton, pressCount )
-function Gui:mousepressed(mx, my, mbutton, pressCount)
+function Gui.mousepressed(gui, mx, my, mbutton, pressCount)
 	if type(mx)~="number" then argerror(2,1,"mx",mx,"number") end
 	if type(my)~="number" then argerror(2,2,"my",my,"number") end
 	if type(mbutton)~="number" then argerror(2,3,"mbutton",mbutton,"number") end
 	if type(pressCount)~="number" then argerror(2,4,"pressCount",pressCount,"number") end
 	if mbutton > 3 then  return false  end
 
-	self._mouseX = mx
-	self._mouseY = my
+	gui._mouseX = mx
+	gui._mouseY = my
 
-	if self._animationLockCount > 0 then  return true  end
+	if gui._animationLockCount > 0 then  return true  end
 
-	if self._mouseFocusButtonStates[mbutton] then
+	if gui._mouseFocusButtonStates[mbutton] then
 		-- The mouse button got pressed twice or more with no release inbetween.
 		-- Should be an error, but it's not really an issue.
 		return true
 	end
 
-	updateLayoutIfNeeded(self) -- Updates hovered element.
+	updateLayoutIfNeeded(gui) -- Updates hovered element.
 
-	local mouseFocus = self._mouseFocus
-	local currentEl  = mouseFocus or self._hoveredElement
+	local mouseFocus = gui._mouseFocus
+	local currentEl  = mouseFocus or gui._hoveredElement
 
-	if self._keyboardFocus and currentEl ~= self._keyboardFocus then
-		self._keyboardFocus:blur() -- We assume this is a GuiInput. @Volatile
+	if gui._keyboardFocus and currentEl ~= gui._keyboardFocus then
+		gui._keyboardFocus:blur() -- We assume this is a GuiInput. @Volatile
 	end
 
 	while currentEl do
@@ -4353,7 +4350,7 @@ function Gui:mousepressed(mx, my, mbutton, pressCount)
 		-- Trigger the internal mousepressed event handler.
 		local handled, grabMouseFocus = currentEl:_mousepressed(mx, my, mbutton, pressCount)
 		if handled then
-			if grabMouseFocus then  setMouseFocus(self, mbutton, currentEl)  end
+			if grabMouseFocus then  setMouseFocus(gui, mbutton, currentEl)  end
 			return true
 		end
 
@@ -4368,23 +4365,23 @@ function Gui:mousepressed(mx, my, mbutton, pressCount)
 end
 
 -- handled = gui:mousemoved( mouseX, mouseY )
-function Gui:mousemoved(mx, my)
+function Gui.mousemoved(gui, mx, my)
 	if type(mx)~="number" then argerror(2,1,"mx",mx,"number") end
 	if type(my)~="number" then argerror(2,2,"my",my,"number") end
 
-	self._mouseX = mx
-	self._mouseY = my
+	gui._mouseX = mx
+	gui._mouseY = my
 
-	if self._animationLockCount > 0 then  return true  end
+	if gui._animationLockCount > 0 then  return true  end
 
-	if not updateLayoutIfNeeded(self) then
-		updateHoveredElement(self) -- Make sure hovered element updates whenever mouse moves.
+	if not updateLayoutIfNeeded(gui) then
+		updateHoveredElement(gui) -- Make sure hovered element updates whenever mouse moves.
 	end
 
-	local focus = self._mouseFocus
+	local focus = gui._mouseFocus
 	if not focus then  return false  end
 
-	local el = (mx and focus or self._hoveredElement)
+	local el = (mx and focus or gui._hoveredElement)
 	if el then
 		el:_mousemoved(mx, my)
 		trigger(el, "mousemoved", mx-el:getXOnScreen(), my-el:getYOnScreen())
@@ -4394,25 +4391,25 @@ function Gui:mousemoved(mx, my)
 end
 
 -- handled = gui:mousereleased( mouseX, mouseY, mouseButton, pressCount )
-function Gui:mousereleased(mx, my, mbutton, pressCount)
+function Gui.mousereleased(gui, mx, my, mbutton, pressCount)
 	if type(mx)~="number" then argerror(2,1,"mx",mx,"number") end
 	if type(my)~="number" then argerror(2,2,"my",my,"number") end
 	if type(mbutton)~="number" then argerror(2,3,"mbutton",mbutton,"number") end
 	if type(pressCount)~="number" then argerror(2,4,"pressCount",pressCount,"number") end
 	if mbutton > 3 then  return false  end
 
-	self._mouseX = mx
-	self._mouseY = my
+	gui._mouseX = mx
+	gui._mouseY = my
 
-	local focus = self._mouseFocus
-	if not (focus and self._mouseFocusButtonStates[mbutton]) then
+	local focus = gui._mouseFocus
+	if not (focus and gui._mouseFocusButtonStates[mbutton]) then
 		return false
 	end
 
-	blurMouseFocus(self, mbutton)
-	updateLayoutIfNeeded(self) -- Updates hovered element.
+	blurMouseFocus(gui, mbutton)
+	updateLayoutIfNeeded(gui) -- Updates hovered element.
 
-	local el = focus or self._hoveredElement
+	local el = focus or gui._hoveredElement
 	if el then
 		el:_mousereleased(mx, my, mbutton, pressCount)
 	end
@@ -4425,11 +4422,11 @@ function Gui:mousereleased(mx, my, mbutton, pressCount)
 end
 
 -- handled = gui:wheelmoved( dx, dy )
-function Gui:wheelmoved(dx, dy)
+function Gui.wheelmoved(gui, dx, dy)
 	if type(dx)~="number" then argerror(2,1,"dx",dx,"number") end
 	if type(dy)~="number" then argerror(2,2,"dy",dy,"number") end
 
-	if self._animationLockCount > 0 then  return true  end
+	if gui._animationLockCount > 0 then  return true  end
 
 	local isScroll = (dx ~= 0 or dy ~= 0)
 
@@ -4438,14 +4435,14 @@ function Gui:wheelmoved(dx, dy)
 		dx, dy = dy, dx
 	end
 
-	local focus = self._mouseFocus
+	local focus = gui._mouseFocus
 	if not focus then
-		updateLayoutIfNeeded(self) -- Updates hovered element.
+		updateLayoutIfNeeded(gui) -- Updates hovered element.
 	end
 
 	-- Focus (non-bubbling event)
 	-- OR hovered element (bubbling event).
-	local el         = focus or self._hoveredElement
+	local el         = focus or gui._hoveredElement
 	local anyIsSolid = false
 
 	while el do
@@ -4473,31 +4470,31 @@ end
 
 
 -- bool = gui:areStandardKeysActive( )
-function Gui:areStandardKeysActive()
-	return self._standardKeysAreActive
+function Gui.areStandardKeysActive(gui)
+	return gui._standardKeysAreActive
 end
 
 -- gui:setStandardKeysActive( bool )
-function Gui:setStandardKeysActive(active)
-	self._standardKeysAreActive = active
+function Gui.setStandardKeysActive(gui, active)
+	gui._standardKeysAreActive = active
 end
 
 
 
 -- gui:blur( )
-function Gui:blur()
-	if self._mouseFocus then
-		for mbutton, state in ipairs(self._mouseFocusButtonStates) do
+function Gui.blur(gui)
+	if gui._mouseFocus then
+		for mbutton, state in ipairs(gui._mouseFocusButtonStates) do
 			if state then
-				self:mousereleased(self._mouseX, self._mouseY, mbutton, 1--[[ @Polish: Keep track of pressCount. ]])
+				gui:mousereleased(gui._mouseX, gui._mouseY, mbutton, 1--[[ @Polish: Keep track of pressCount. ]])
 			end
 		end
 	end
 
-	blurMouseFocus(self, nil)
+	blurMouseFocus(gui, nil)
 
-	if self._keyboardFocus then
-		self._keyboardFocus:blur() -- We assume this is a GuiInput. @Volatile
+	if gui._keyboardFocus then
+		gui._keyboardFocus:blur() -- We assume this is a GuiInput. @Volatile
 	end
 end
 
@@ -4515,23 +4512,23 @@ end
 --
 -- @Incomplete: A way to specify style for a child (or grandchild?) by ID.
 --
-function Gui:defineStyle(styleName, styleData)
+function Gui.defineStyle(gui, styleName, styleData)
 	if type(styleName)~="string" then argerror(2,1,"styleName",styleName,"string") end
 	if type(styleData)~="table" then argerror(2,2,"styleData",styleData,"table") end
-	self._styles[styleName] = styleData
+	gui._styles[styleName] = styleData
 end
 
 
 
 -- element = gui:find( id )
-function Gui:find(id)
-	local root = self._root
+function Gui.find(gui, id)
+	local root = gui._root
 	return root and (root._id == id and root or root:find(id))
 end
 
 -- elements = gui:findAll( id )
-function Gui:findAll(id)
-	local root = self._root
+function Gui.findAll(gui, id)
+	local root = gui._root
 	if not root then  return {}  end
 
 	local els = root:findAll(id)
@@ -4543,60 +4540,60 @@ function Gui:findAll(id)
 end
 
 -- element = gui:findActive( )
-function Gui:findActive()
-	local root = self._root
-	return (root and root:findActive())
+function Gui.findActive(gui)
+	local root = gui._root
+	return root and root:findActive()
 end
 
 -- element = gui:findToggled( )
-function Gui:findToggled()
-	local root = self._root
-	return (root and root:findToggled())
+function Gui.findToggled(gui)
+	local root = gui._root
+	return root and root:findToggled()
 end
 
 -- Match an element using a CSS-like selector.
 -- element  = gui:match( selector )
 -- selector = "elementType #id .tag" -- Sequence of space-separated element types, IDs and tags.
 -- Note: Element types include subtypes (e.g. 'bar' includes both 'vbar' and 'hbar').
-function Gui:match(selector)
-	local root = self._root
+function Gui.match(gui, selector)
+	local root = gui._root
 	if not root then  return nil  end
-	return root:match(selector, true)
+	return (root:match(selector, true))
 end
 
 -- Match elements using a CSS-like selector.
 -- elements = gui:matchAll( selector )
 -- selector = "elementType #id .tag" -- Sequence of space-separated element types, IDs and tags.
 -- Note: Element types include subtypes (e.g. 'bar' includes both 'vbar' and 'hbar').
-function Gui:matchAll(selector)
-	local root = self._root
+function Gui.matchAll(gui, selector)
+	local root = gui._root
 	if not root then  return {}  end
-	return root:matchAll(selector, true)
+	return (root:matchAll(selector, true))
 end
 
 
 
 -- sound = gui:getDefaultSound( soundKey )
-function Gui:getDefaultSound(soundK)
+function Gui.getDefaultSound(gui, soundK)
 	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
-	return self._defaultSounds[soundK]
+	return gui._defaultSounds[soundK]
 end
 
 -- gui:setDefaultSound( soundKey, sound )
 -- gui:setDefaultSound( soundKey, nil ) -- Remove default sound.
 -- Note: 'sound' is the value sent to the GUI sound player callback.
-function Gui:setDefaultSound(soundK, sound)
+function Gui.setDefaultSound(gui, soundK, sound)
 	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
-	self._defaultSounds[soundK] = sound
+	gui._defaultSounds[soundK] = sound
 end
 
 
 
 -- element = gui:getElementAt( x, y [, includeNonSolid=false ] )
-function Gui:getElementAt(x, y, nonSolid)
-	local root = self._root
+function Gui.getElementAt(gui, x, y, nonSolid)
+	local root = gui._root
 	if root and not root._hidden then
 		return root:getElementAt(x, y, nonSolid)
 	end
@@ -4606,107 +4603,107 @@ end
 
 
 -- font = gui:getFont( )
-function Gui:getFont()
-	return self._font
+function Gui.getFont(gui)
+	return gui._font
 end
 
 -- gui:setFont( font )
-function Gui:setFont(font)
-	if self._font == font then  return  end
-	self._font              = font
-	self._layoutNeedsUpdate = true
+function Gui.setFont(gui, font)
+	if gui._font == font then  return  end
+	gui._font              = font
+	gui._layoutNeedsUpdate = true
 end
 
 -- font = gui:getBoldFont( )
-function Gui:getBoldFont()
-	return self._fontBold
+function Gui.getBoldFont(gui)
+	return gui._fontBold
 end
 
 -- gui:setBoldFont( font )
-function Gui:setBoldFont(font)
-	if self._fontBold == font then  return  end
-	self._fontBold          = font
-	self._layoutNeedsUpdate = true
+function Gui.setBoldFont(gui, font)
+	if gui._fontBold == font then  return  end
+	gui._fontBold          = font
+	gui._layoutNeedsUpdate = true
 end
 
 -- font = gui:getSmallFont( )
-function Gui:getSmallFont()
-	return self._fontSmall
+function Gui.getSmallFont(gui)
+	return gui._fontSmall
 end
 
 -- gui:setSmallFont( font )
-function Gui:setSmallFont(font)
-	if self._fontSmall == font then  return  end
-	self._fontSmall         = font
-	self._layoutNeedsUpdate = true
+function Gui.setSmallFont(gui, font)
+	if gui._fontSmall == font then  return  end
+	gui._fontSmall         = font
+	gui._layoutNeedsUpdate = true
 end
 
 -- font = gui:getLargeFont( )
-function Gui:getLargeFont()
-	return self._fontLarge
+function Gui.getLargeFont(gui)
+	return gui._fontLarge
 end
 
 -- gui:setLargeFont( font )
-function Gui:setLargeFont(font)
-	if self._fontLarge == font then  return  end
-	self._fontLarge         = font
-	self._layoutNeedsUpdate = true
+function Gui.setLargeFont(gui, font)
+	if gui._fontLarge == font then  return  end
+	gui._fontLarge         = font
+	gui._layoutNeedsUpdate = true
 end
 
 -- font = gui:getTooltipFont( )
-function Gui:getTooltipFont()
-	return self._fontTooltip
+function Gui.getTooltipFont(gui)
+	return gui._fontTooltip
 end
 
 -- gui:setTooltipFont( font )
-function Gui:setTooltipFont(font)
-	self._fontTooltip = font
+function Gui.setTooltipFont(gui, font)
+	gui._fontTooltip = font
 end
 
 
 
 -- element = gui:getHoveredElement( )
-function Gui:getHoveredElement()
-	return self._hoveredElement
+function Gui.getHoveredElement(gui)
+	return gui._hoveredElement
 end
 
 
 
 do
-	local function setNavigationTarget(self, widget)
-		if self._navigationTarget == widget then
-			return false -- no change
-		end
-		self._navigationTarget    = widget
-		self._timeSinceNavigation = 0
-		if widget then
-			widget:scrollIntoView()
-		end
-		;(widget or self._root):triggerBubbling("navigated", widget)
-		return true -- change happened!
+	local function setNavigationTarget(gui, widget)
+		if gui._navigationTarget == widget then  return false  end -- No change.
+
+		gui._navigationTarget    = widget
+		gui._timeSinceNavigation = 0
+
+		if widget then  widget:scrollIntoView()  end
+
+		;(widget or gui._root):triggerBubbling("navigated", widget)
+
+		return true -- Change happened!
 	end
 
 	-- widget = gui:getNavigationTarget( )
-	function Gui:getNavigationTarget()
-		return self._navigationTarget
+	function Gui.getNavigationTarget(gui)
+		return gui._navigationTarget
 	end
 
 	-- success = gui:navigateTo( widget )
-	function Gui:navigateTo(widget)
-		if self._navigationTarget == widget then  return true   end
-		if self._lockNavigation             then  return false  end
-		if not self:canNavigateTo(widget)   then  return false  end
-		setNavigationTarget(self, widget)
+	function Gui.navigateTo(gui, widget)
+		if gui._navigationTarget == widget then  return true   end
+		if gui._lockNavigation             then  return false  end
+		if not gui:canNavigateTo(widget)   then  return false  end
+		setNavigationTarget(gui, widget)
 		return true
 	end
 
 	do
-		local function navigateToNextOrPrevious(self, id, allowNone, usePrev)
-			local root = self._root
+		local function navigateToNextOrPrevious(gui, id, allowNone, usePrev)
+			local root = gui._root
 			if not root or root._hidden then  return nil  end
 
-			local nav = self._navigationTarget
-			if not nav and not usePrev then  return self:navigateToFirst()  end
+			local nav = gui._navigationTarget
+			if not nav and not usePrev then  return gui:navigateToFirst()  end
 
 			local foundNav   = false
 			local lastWidget = nil
@@ -4716,7 +4713,7 @@ do
 				local elIsValid = el:is(Cs.widget) and (not id or el._id == id)
 
 				if elIsValid and usePrev and foundNav then
-					setNavigationTarget(self, el)
+					setNavigationTarget(gui, el)
 					return el
 				end
 
@@ -4724,7 +4721,7 @@ do
 
 				if not usePrev and foundNav then
 					if lastWidget or allowNone then
-						setNavigationTarget(self, lastWidget)
+						setNavigationTarget(gui, lastWidget)
 						return lastWidget
 					end
 					return nav
@@ -4737,27 +4734,27 @@ do
 
 			if not allowNone then  return nav  end
 
-			setNavigationTarget(self, nil)
+			setNavigationTarget(gui, nil)
 			return nil
 		end
 
 		-- element = gui:navigateToNext( [ id=any, allowNone=false ] )
 		-- Note: Calls gui:navigateToFirst() if there's no current navigation target.
-		function Gui:navigateToNext(id, allowNone)
-			return navigateToNextOrPrevious(self, id, allowNone, false)
+		function Gui.navigateToNext(gui, id, allowNone)
+			return navigateToNextOrPrevious(gui, id, allowNone, false)
 		end
 
 		-- element = gui:navigateToPrevious( [ id=any, allowNone=false ] )
-		function Gui:navigateToPrevious(id, allowNone)
-			return navigateToNextOrPrevious(self, id, allowNone, true)
+		function Gui.navigateToPrevious(gui, id, allowNone)
+			return navigateToNextOrPrevious(gui, id, allowNone, true)
 		end
 	end
 
 	-- element = gui:navigateToFirst( )
-	function Gui:navigateToFirst()
-		if self._lockNavigation then  return nil  end
+	function Gui.navigateToFirst(gui)
+		if gui._lockNavigation then  return nil  end
 
-		local root = self._root
+		local root = gui._root
 		if not root or root._hidden then  return nil  end
 
 		local first = nil
@@ -4771,46 +4768,46 @@ do
 			end
 		end
 
-		setNavigationTarget(self, first)
+		setNavigationTarget(gui, first)
 		return first
 	end
 
 	-- landingElement = gui:navigate( angle )
-	function Gui:navigate(angle)
-		if self._lockNavigation then  return nil  end
+	function Gui.navigate(gui, angle)
+		if gui._lockNavigation then  return nil  end
 
-		local root = self._root
+		local root = gui._root
 		if not root or root._hidden then  return nil  end
 
-		local nav = self._navigationTarget
-		if not nav then  return self:navigateToFirst()  end
+		local nav = gui._navigationTarget
+		if not nav then  return gui:navigateToFirst()  end
 
 		if trigger(nav, "navigate", angle) then
-			return self._navigationTarget -- Suppress default behavior.
+			return gui._navigationTarget -- Suppress default behavior.
 		end
 
 		local closestEl = nav:getClosestInDirection(angle)
 		if closestEl then
-			setNavigationTarget(self, closestEl)
+			setNavigationTarget(gui, closestEl)
 		end
 
-		return (closestEl or nav)
+		return closestEl or nav
 	end
 
 	-- bool = gui:canNavigateTo( element|nil )
 	-- Note: Does not check if navigation is locked.
-	function Gui:canNavigateTo(widget)
+	function Gui.canNavigateTo(gui, widget)
 		if widget == nil            then  return true   end -- Navigation target can always be nothing.
 		if not widget:is(Cs.widget) then  return false  end
 		if not widget:isDisplayed() then  return false  end
 
-		local root = self._root
+		local root = gui._root
 		if not root or root._hidden then  return false  end
 
 		for _, el in ipairs(root:_collectVisibleUntilInputCapture(__STATIC5)) do
 			if el == widget then
 				return true
-			elseif (el._captureInput or el._captureGuiInput) then
+			elseif el._captureInput or el._captureGuiInput then
 				return false
 			end
 		end
@@ -4822,15 +4819,15 @@ end
 
 
 -- root = gui:getRoot( )
-function Gui:getRoot()
-	return self._root
+function Gui.getRoot(gui)
+	return gui._root
 end
 
 
 
 -- converter|nil = gui:getScissorCoordsConverter( )
-function Gui:getScissorCoordsConverter()
-	return self._scissorCoordsConverter
+function Gui.getScissorCoordsConverter(gui)
+	return gui._scissorCoordsConverter
 end
 
 --
@@ -4840,51 +4837,51 @@ end
 -- If the graphics transform is changed outside the GUI system then a scissor
 -- coordinate converter is needed for scissoring to work properly.
 --
-function Gui:setScissorCoordsConverter(converter)
-	self._scissorCoordsConverter = converter
+function Gui.setScissorCoordsConverter(gui, converter)
+	gui._scissorCoordsConverter = converter
 end
 
 
 
 -- speedX, speedY = gui:getScrollSpeed( )
-function Gui:getScrollSpeed()
-	return self._scrollSpeedX, self._scrollSpeedY
+function Gui.getScrollSpeed(gui)
+	return gui._scrollSpeedX, gui._scrollSpeedY
 end
 
 -- gui:setScrollSpeed( speedX [, speedY=speedX ] )
-function Gui:setScrollSpeed(speedX, speedY)
+function Gui.setScrollSpeed(gui, speedX, speedY)
 	if type(speedX)~="number" then argerror(2,1,"speedX",speedX,"number") end
 	if not(type(speedY)=="number" or speedY==nil) then argerror(2,2,"speedY",speedY,"number","nil") end
-	self._scrollSpeedX = speedX
-	self._scrollSpeedY = speedY or speedX
+	gui._scrollSpeedX = speedX
+	gui._scrollSpeedY = speedY or speedX
 end
 
 
 
 -- soundPlayer = gui:getSoundPlayer( )
-function Gui:getSoundPlayer()
-	return self._soundPlayer
+function Gui.getSoundPlayer(gui)
+	return gui._soundPlayer
 end
 
 -- gui:setSoundPlayer( soundPlayer|nil )
 -- soundPlayer = function( sound )
-function Gui:setSoundPlayer(soundPlayer)
-	self._soundPlayer = soundPlayer
+function Gui.setSoundPlayer(gui, soundPlayer)
+	gui._soundPlayer = soundPlayer
 end
 
 
 
 -- spriteLoader = gui:getSpriteLoader( )
-function Gui:getSpriteLoader()
-	return self._spriteLoader
+function Gui.getSpriteLoader(gui)
+	return gui._spriteLoader
 end
 
 -- gui:setSpriteLoader( spriteLoader|nil )
 -- image, frames = spriteLoader( spriteName )
 -- frames        = { frame1, ... }
 -- frame         = { duration=duration, quad=quad }
-function Gui:setSpriteLoader(spriteLoader)
-	self._spriteLoader = spriteLoader
+function Gui.setSpriteLoader(gui, spriteLoader)
+	gui._spriteLoader = spriteLoader
 end
 
 
@@ -4892,8 +4889,8 @@ end
 -- targetElement = gui:getTarget( target )
 -- target        = "ID.subID.anotherSubID" -- Sequence of dot-separated IDs.
 -- Returns nil and a message on error.
-function Gui:getTarget(target)
-	local el = self._root
+function Gui.getTarget(gui, target)
+	local el = gui._root
 	if not el then  return nil, "There is no root element."  end
 
 	local ids = matchAll(target, "[^.]+") -- @Memory
@@ -4916,11 +4913,11 @@ end
 -- targetAndEvent = "ID.subID.anotherSubID.event" -- Sequence of dot-separated IDs followed by a dot and an event name.
 -- Returns nil and a message on error.
 -- Returns nil (and no message) if there's no callback.
-function Gui:getTargetCallback(targetAndEvent)
+function Gui.getTargetCallback(gui, targetAndEvent)
 	local target, eventOrErr = _M.parseTargetAndEvent(targetAndEvent)
 	if not target then  return nil, eventOrErr  end
 
-	local el, err = self:getTarget(target)
+	local el, err = gui:getTarget(target)
 	if not el then  return nil, err  end
 
 	return el:getCallback(eventOrErr)
@@ -4929,11 +4926,11 @@ end
 -- targetElement  = gui:setTargetCallback( targetAndEvent, callback|nil )
 -- targetAndEvent = "ID.subID.anotherSubID.event" -- Sequence of dot-separated IDs followed by a dot and an event name.
 -- Returns nil and a message on error.
-function Gui:setTargetCallback(targetAndEvent, cb)
+function Gui.setTargetCallback(gui, targetAndEvent, cb)
 	local target, eventOrErr = _M.parseTargetAndEvent(targetAndEvent)
 	if not target then  return nil, eventOrErr  end
 
-	local el, err = self:getTarget(target)
+	local el, err = gui:getTarget(target)
 	if not el then  return nil, err  end
 
 	el:on(eventOrErr, cb)
@@ -4943,82 +4940,81 @@ end
 
 
 -- textPreprocessor|nil = gui:getTextPreprocessor( )
-function Gui:getTextPreprocessor()
-	return self._textPreprocessor
+function Gui.getTextPreprocessor(gui)
+	return gui._textPreprocessor
 end
 
 -- gui:setTextPreprocessor( textPreprocessor|nil )
 -- newText = textPreprocessor( text, element, mnemonicsAreEnabled )
-function Gui:setTextPreprocessor(f)
-	if not(type(f)=="function" or f==nil) then argerror(2,1,"f",f,"function","nil") end
-	self._textPreprocessor = f
+function Gui.setTextPreprocessor(gui, func)
+	if not(type(func)=="function" or func==nil) then argerror(2,1,"func",func,"function","nil") end
+	gui._textPreprocessor = func
 end
 
 -- gui:reprocessTexts( )
 -- Manually re-preprocess texts. Useful if e.g. the program's language has changed.
-function Gui:reprocessTexts()
-	local root = self._root
-	if root then
-		root:reprocessTexts()
+function Gui.reprocessTexts(gui)
+	if gui._root then
+		gui._root:reprocessTexts()
 	end
 end
 
 
 
 -- theme|nil = gui:getTheme( )
-function Gui:getTheme()
-	return self._theme
+function Gui.getTheme(gui)
+	return gui._theme
 end
 
 -- gui:setTheme( theme|nil )
-function Gui:setTheme(theme)
+function Gui.setTheme(gui, theme)
 	if not(type(theme)=="table" or theme==nil) then argerror(2,1,"theme",theme,"table","nil") end
-	if self._theme == theme then  return  end
-	self._theme             = theme
-	self._layoutNeedsUpdate = true
+	if gui._theme == theme then  return  end
+	gui._theme             = theme
+	gui._layoutNeedsUpdate = true
 end
 
 
 
 -- time = gui:getTime( )
-function Gui:getTime()
-	return self._time
+function Gui.getTime(gui)
+	return gui._time
 end
 
 -- time = gui:getTimeSinceNavigation( )
-function Gui:getTimeSinceNavigation()
-	return self._timeSinceNavigation
+function Gui.getTimeSinceNavigation(gui)
+	return gui._timeSinceNavigation
 end
 
 
 
 -- bool = gui:isBusy( )
-function Gui:isBusy()
-	return self:isKeyboardBusy() or self:isMouseBusy()
+function Gui.isBusy(gui)
+	return gui:isKeyboardBusy() or gui:isMouseBusy()
 end
 
 -- bool = gui:isKeyboardBusy( )
-function Gui:isKeyboardBusy()
-	return self._keyboardFocus ~= nil
+function Gui.isKeyboardBusy(gui)
+	return gui._keyboardFocus ~= nil
 end
 
 -- bool = gui:isMouseBusy( )
-function Gui:isMouseBusy()
-	return self._mouseFocus ~= nil
+function Gui.isMouseBusy(gui)
+	return gui._mouseFocus ~= nil
 end
 
 
 
 -- bool = gui:isIgnoringKeyboardInput( )
-function Gui:isIgnoringKeyboardInput()
-	return self._ignoreKeyboardInputThisFrame
+function Gui.isIgnoringKeyboardInput(gui)
+	return gui._ignoreKeyboardInputThisFrame
 end
 
 
 
 -- bool = gui:isInputCaptured( [ includeGuiInput=false ] )
-function Gui:isInputCaptured(includeGuiInput)
-	local root = self._root
+function Gui.isInputCaptured(gui, includeGuiInput)
+	local root = gui._root
 	if not root or root._hidden then  return false  end
 
 	for _, el in ipairs(root:collectVisible(__STATIC6)) do
@@ -5033,20 +5029,20 @@ end
 
 
 -- bool = gui:isInteractionLocked( )
-function Gui:isInteractionLocked()
-	return (self._animationLockCount > 0)
+function Gui.isInteractionLocked(gui)
+	return gui._animationLockCount > 0
 end
 
 
 
 -- bool = gui:isMouseGrabbed( )
-function Gui:isMouseGrabbed()
-	return self._mouseIsGrabbed
+function Gui.isMouseGrabbed(gui)
+	return gui._mouseIsGrabbed
 end
 
 -- gui:setMouseIsGrabbed( bool )
-function Gui:setMouseIsGrabbed(grabbed)
-	self._mouseIsGrabbed = grabbed
+function Gui.setMouseIsGrabbed(gui, grabbed)
+	gui._mouseIsGrabbed = grabbed
 end
 
 
@@ -5054,39 +5050,39 @@ end
 -- gui:load( elementData )
 -- elementData = { type=elementType, parameter1=value, ..., [1]=child1Data, ... }
 -- elementData = {      elementType, parameter1=value, ..., [1]=child1Data, ... }
-function Gui:load(elData)
+function Gui.load(gui, elData)
 	if getTypeFromElementData(elData) ~= "root" then
 		errorf(2, "Gui root element must be of type 'root'.")
 	end
 
-	local root = Cs.root(self, elData, nil)
-	self._root = root
+	local root = Cs.root(gui, elData, nil)
+	gui._root  = root
 
-	printHeres(self)
+	printHeres(gui)
 
-	local themeInit = themeGet(self, "init")
+	local themeInit = themeGet(gui, "init")
 	themeInit(root)
 	for el in root:traverse() do
 		themeInit(el)
 	end
 
-	self._layoutNeedsUpdate = true
+	gui._layoutNeedsUpdate = true
 end
 
 
 
 -- handled = gui:ok( )
 -- Trigger 'ok' action.
-function Gui:ok()
-	local nav = self._navigationTarget
+function Gui.ok(gui)
+	local nav = gui._navigationTarget
 	if nav and nav._active then  return nav:_ok()  end
 	return false
 end
 
 -- handled = gui:back( )
 -- Trigger 'back' action.
-function Gui:back()
-	local root = self._root
+function Gui.back(gui)
+	local root = gui._root
 	if not root or root._hidden then  return false  end
 
 	-- Close closable (like Escape does).
@@ -5113,10 +5109,10 @@ end
 
 -- gui:updateLayout( )
 -- Force a layout update. (Should never be needed as it's done automatically.)
-function Gui:updateLayout()
-	local root = self._root
+function Gui.updateLayout(gui)
+	local root = gui._root
 	if root and not root._hidden then
-		return updateLayout(root)
+		updateLayout(root)
 	end
 end
 
@@ -5142,51 +5138,51 @@ Is.imageInclude = {
 	_spriteName = nil,
 }
 
-local function initImageInclude(self, elData)
-	if elData.imageBackgroundColor ~= nil then self._imageBackgroundColor = elData.imageBackgroundColor end
-	if elData.imageColor ~= nil then self._imageColor = elData.imageColor end
-	-- @@retrieve(self, elData, _imageScaleX,_imageScaleY)
-	-- @@retrieve(self, elData, _sprite)
+local function initImageInclude(imageInc, elData)
+	if elData.imageBackgroundColor ~= nil then imageInc._imageBackgroundColor = elData.imageBackgroundColor end
+	if elData.imageColor ~= nil then imageInc._imageColor = elData.imageColor end
+	-- @@retrieve(imageInc, elData, _imageScaleX,_imageScaleY)
+	-- @@retrieve(imageInc, elData, _sprite)
 
-	self._imageScaleX = elData.imageScaleX or elData.imageScale or self._imageScaleX
-	self._imageScaleY = elData.imageScaleY or elData.imageScale or self._imageScaleY
+	imageInc._imageScaleX = elData.imageScaleX or elData.imageScale
+	imageInc._imageScaleY = elData.imageScaleY or elData.imageScale
 
-	self:setSprite(elData.sprite)
+	imageInc:setSprite(elData.sprite)
 end
 
 
 
 -- imageIncludeElement:drawImage( x, y )
-function Is.imageInclude:drawImage(x, y)
-	if not self._sprite then  return  end
+function Is.imageInclude.drawImage(imageInc, x, y)
+	if not imageInc._sprite then  return  end
 
-	local image, quad = getCurrentViewOfSprite(self._sprite)
-	local padding     = self:is(Cs.button) and self._imagePadding or 0
+	local image, quad = getCurrentViewOfSprite(imageInc._sprite)
+	local padding     = imageInc:is(Cs.button) and imageInc._imagePadding or 0
 
-	love.graphics.draw(image, quad, x+padding, y+padding, 0, self._imageScaleX, self._imageScaleY)
+	love.graphics.draw(image, quad, x+padding, y+padding, 0, imageInc._imageScaleX, imageInc._imageScaleY)
 end
 
 
 
 -- colorTable|nil = imageIncludeElement:getImageBackgroundColor( )
-function Is.imageInclude:getImageBackgroundColor()
-	return self._imageBackgroundColor
+function Is.imageInclude.getImageBackgroundColor(imageInc)
+	return imageInc._imageBackgroundColor
 end
 
 -- imageIncludeElement:setImageBackgroundColor( colorTable|nil )
-function Is.imageInclude:setImageBackgroundColor(color)
-	self._imageBackgroundColor = color
+function Is.imageInclude.setImageBackgroundColor(imageInc, color)
+	imageInc._imageBackgroundColor = color
 end
 
 -- bool = imageIncludeElement:hasImageBackgroundColor( )
-function Is.imageInclude:hasImageBackgroundColor()
-	return (self._imageBackgroundColor ~= nil)
+function Is.imageInclude.hasImageBackgroundColor(imageInc)
+	return imageInc._imageBackgroundColor ~= nil
 end
 
 -- hasImageBackgroundColor = imageIncludeElement:useImageBackgroundColor( [ alphaMultiplier=1 ] )
 -- Tell LÖVE to use the image background color.
-function Is.imageInclude:useImageBackgroundColor(opacity)
-	local color = self._imageBackgroundColor
+function Is.imageInclude.useImageBackgroundColor(imageInc, opacity)
+	local color = imageInc._imageBackgroundColor
 	useColor((color or COLOR_TRANSPARENT), opacity)
 	return (color ~= nil)
 end
@@ -5194,24 +5190,24 @@ end
 
 
 -- colorTable|nil = imageIncludeElement:getImageColor( )
-function Is.imageInclude:getImageColor()
-	return self._imageColor
+function Is.imageInclude.getImageColor(imageInc)
+	return imageInc._imageColor
 end
 
 -- imageIncludeElement:setImageColor( colorTable|nil )
-function Is.imageInclude:setImageColor(color)
-	self._imageColor = color
+function Is.imageInclude.setImageColor(imageInc, color)
+	imageInc._imageColor = color
 end
 
 -- bool = imageIncludeElement:hasImageColor( )
-function Is.imageInclude:hasImageColor()
-	return (self._imageColor ~= nil)
+function Is.imageInclude.hasImageColor(imageInc)
+	return imageInc._imageColor ~= nil
 end
 
 -- hasImageColor = imageIncludeElement:useImageColor( [ alphaMultiplier=1 ] )
 -- Tell LÖVE to use the image color.
-function Is.imageInclude:useImageColor(opacity)
-	local color = self._imageColor
+function Is.imageInclude.useImageColor(imageInc, opacity)
+	local color = imageInc._imageColor
 	useColor((color or COLOR_WHITE), opacity)
 	return (color ~= nil)
 end
@@ -5219,31 +5215,31 @@ end
 
 
 -- width, height = imageIncludeElement:getImageDimensions( )
-function Is.imageInclude:getImageDimensions()
-	local sprite = self._sprite
+function Is.imageInclude.getImageDimensions(imageInc)
+	local sprite = imageInc._sprite
 	if not sprite then  return 0, 0  end
 	return sprite.width, sprite.height
 end
 
 -- Sets the scale of the image by specifying a size. Does nothing if there's no image.
 -- imageIncludeElement:setImageSize( width, height )
-function Is.imageInclude:setImageSize(w, h)
-	local sprite = self._sprite
+function Is.imageInclude.setImageSize(imageInc, w, h)
+	local sprite = imageInc._sprite
 	if not sprite then  return  end
-	self:setImageScale(w/sprite.width, h/sprite.height)
+	imageInc:setImageScale(w/sprite.width, h/sprite.height)
 end
 
 -- Scales the image so it fills the element. Does nothing if there's no image or if no dimensions are set.
 -- imageIncludeElement:maximizeImageSize( [ extraWidth=0, extraHeight=0 ] )
-function Is.imageInclude:maximizeImageSize(extraW, extraH)
-	local sprite = self._sprite
+function Is.imageInclude.maximizeImageSize(imageInc, extraW, extraH)
+	local sprite = imageInc._sprite
 	if not sprite then  return  end
 
-	local paddingSum = (self:is(Cs.button) and 2*self._imagePadding or 0)
+	local paddingSum = imageInc:is(Cs.button) and 2*imageInc._imagePadding or 0
 
-	local scaleX = (self._width  >= 0) and (self._width  - paddingSum + (extraH or 0)) / sprite.width  or self._imageScaleX
-	local scaleY = (self._height >= 0) and (self._height - paddingSum + (extraW or 0)) / sprite.height or self._imageScaleY
-	self:setImageScale(scaleX, scaleY)
+	local scaleX = (imageInc._width  >= 0) and (imageInc._width  - paddingSum + (extraH or 0)) / sprite.width  or imageInc._imageScaleX
+	local scaleY = (imageInc._height >= 0) and (imageInc._height - paddingSum + (extraW or 0)) / sprite.height or imageInc._imageScaleY
+	imageInc:setImageScale(scaleX, scaleY)
 end
 
 
@@ -5251,50 +5247,50 @@ end
 -- scaleX, scaleY = imageIncludeElement:getImageScale( )
 -- scale = imageIncludeElement:getImageScaleX( )
 -- scale = imageIncludeElement:getImageScaleY( )
-function Is.imageInclude:getImageScale()
-	return self._imageScaleX, self._imageScaleY
+function Is.imageInclude.getImageScale(imageInc)
+	return imageInc._imageScaleX, imageInc._imageScaleY
 end
-function Is.imageInclude:getImageScaleX()
-	return self._imageScaleX
+function Is.imageInclude.getImageScaleX(imageInc)
+	return imageInc._imageScaleX
 end
-function Is.imageInclude:getImageScaleY()
-	return self._imageScaleY
+function Is.imageInclude.getImageScaleY(imageInc)
+	return imageInc._imageScaleY
 end
 
 -- imageIncludeElement:setImageScale( scaleX [, scaleY=scaleX ] )
 -- imageIncludeElement:setImageScaleX( scale )
 -- imageIncludeElement:setImageScaleY( scale )
-function Is.imageInclude:setImageScale(sx, sy)
+function Is.imageInclude.setImageScale(imageInc, sx, sy)
 	if type(sx)~="number" then argerror(2,1,"sx",sx,"number") end
 	if not(type(sy)=="number" or sy==nil) then argerror(2,2,"sy",sy,"number","nil") end
 
 	sy = sy or sx
-	if self._imageScaleX == sx and self._imageScaleY == sy then  return  end
+	if imageInc._imageScaleX == sx and imageInc._imageScaleY == sy then  return  end
 
-	self._imageScaleX = sx
-	self._imageScaleY = sy
-	if self._sprite then  scheduleLayoutUpdateIfDisplayed(self)  end
+	imageInc._imageScaleX = sx
+	imageInc._imageScaleY = sy
+	if imageInc._sprite then  scheduleLayoutUpdateIfDisplayed(imageInc)  end
 end
-function Is.imageInclude:setImageScaleX(sx)
+function Is.imageInclude.setImageScaleX(imageInc, sx)
 	if type(sx)~="number" then argerror(2,1,"sx",sx,"number") end
-	if self._imageScaleX == sx then  return  end
+	if imageInc._imageScaleX == sx then  return  end
 
-	self:setImageScale(sx, self._imageScaleY)
-	if self._sprite then  scheduleLayoutUpdateIfDisplayed(self)  end
+	imageInc:setImageScale(sx, imageInc._imageScaleY)
+	if imageInc._sprite then  scheduleLayoutUpdateIfDisplayed(imageInc)  end
 end
-function Is.imageInclude:setImageScaleY(sy)
+function Is.imageInclude.setImageScaleY(imageInc, sy)
 	if type(sy)~="number" then argerror(2,1,"sy",sy,"number") end
-	if self._imageScaleY == sy then  return  end
+	if imageInc._imageScaleY == sy then  return  end
 
-	self:setImageScale(self._imageScaleY, sy)
-	if self._sprite then  scheduleLayoutUpdateIfDisplayed(self)  end
+	imageInc:setImageScale(imageInc._imageScaleY, sy)
+	if imageInc._sprite then  scheduleLayoutUpdateIfDisplayed(imageInc)  end
 end
 
 
 
 -- spriteName|nil = imageIncludeElement:getSprite( )
-function Is.imageInclude:getSprite()
-	return self._spriteName
+function Is.imageInclude.getSprite(imageInc)
+	return imageInc._spriteName
 end
 
 -- imageIncludeElement:setSprite( image [, quad ] )
@@ -5303,7 +5299,7 @@ end
 -- imageIncludeElement:setSprite( nil ) -- Remove sprite.
 -- frames = { frame1, ... }
 -- frame  = { duration=duration, quad=quad }
-function Is.imageInclude:setSprite(imageOrName, framesOrQuad)
+function Is.imageInclude.setSprite(imageInc, imageOrName, framesOrQuad)
 	if not(type(imageOrName)=="userdata" or type(imageOrName)=="string" or imageOrName==nil) then argerror(2,1,"imageOrName",imageOrName,"userdata","string","nil") end
 
 	local image      = nil
@@ -5311,9 +5307,9 @@ function Is.imageInclude:setSprite(imageOrName, framesOrQuad)
 
 	if type(imageOrName) == "string" then
 		spriteName = imageOrName
-		if spriteName ~= "" and spriteName == self._spriteName then  return  end
+		if spriteName ~= "" and spriteName == imageInc._spriteName then  return  end
 
-		local spriteLoader = self._gui._spriteLoader
+		local spriteLoader = imageInc._gui._spriteLoader
 		if not spriteLoader then
 			printerr(2, "There is no sprite loader to convert the sprite name %q to a sprite.", spriteName)
 			return
@@ -5330,27 +5326,23 @@ function Is.imageInclude:setSprite(imageOrName, framesOrQuad)
 		image = imageOrName
 	end
 
-	local oldIw, oldIh = 0, 0
-	if self._sprite then
-		oldIw, oldIh = self._sprite.width, self._sprite.height
-	end
+	local oldIw = imageInc._sprite and imageInc._sprite.width  or 0
+	local oldIh = imageInc._sprite and imageInc._sprite.height or 0
 
-	self._sprite     = image and newSprite(image, framesOrQuad)
-	self._spriteName = spriteName
+	imageInc._sprite     = image and newSprite(image, framesOrQuad)
+	imageInc._spriteName = spriteName
 
-	local iw, ih = 0, 0
-	if self._sprite then
-		iw, ih = self._sprite.width, self._sprite.height
-	end
+	local iw = imageInc._sprite and imageInc._sprite.width  or 0
+	local ih = imageInc._sprite and imageInc._sprite.height or 0
 
 	if not (iw == oldIw and ih == oldIh) then
-		scheduleLayoutUpdateIfDisplayed(self)
+		scheduleLayoutUpdateIfDisplayed(imageInc)
 	end
 end
 
 -- bool = imageIncludeElement:hasSprite( )
-function Is.imageInclude:hasSprite()
-	return (self._sprite ~= nil)
+function Is.imageInclude.hasSprite(imageInc)
+	return imageInc._sprite ~= nil
 end
 
 
@@ -5468,101 +5460,103 @@ Cs.element = newElementClass(true, "GuiElement", nil, {}, {
 	"wheelmoved"   , -- suppress = function( element, event, dx, dy )
 })
 
-function Cs.element:init(gui, elData, parent)
-	if self.abstract then
-		errorf("Cannot instantiate abstract class '%s'.", self.__name)
+function Cs.element.init(el, gui, elData, parent)
+	if el._abstract then
+		errorf("Cannot instantiate abstract class '%s'.", el.__name)
 	end
 
-	self._gui    = gui or error("Missing gui object argument.")
-	self._parent = parent
+	el._gui    = gui or error("Missing gui object argument.")
+	el._parent = parent
 
-	self._animations = {}
-	self._callbacks  = {}
+	el._animations = {}
+	el._callbacks  = {}
 
 	local styleName = elData.style
 
 	if styleName then
 		local styleData = gui._styles[styleName] or errorf("No style with name '%s' exist.", styleName)
 		applyStyle(elData, styleData)
-		self._style = styleName
+		el._style = styleName
 	end
 
-	if elData.anchorX ~= nil then self._anchorX = elData.anchorX end if elData.anchorY ~= nil then self._anchorY = elData.anchorY end
-	if elData.background ~= nil then self._background = elData.background end
-	if elData.captureInput ~= nil then self._captureInput = elData.captureInput end if elData.captureGuiInput ~= nil then self._captureGuiInput = elData.captureGuiInput end
-	if elData.closable ~= nil then self._closable = elData.closable end
-	-- @@retrieve(self, elData, _data)
-	if elData.floating ~= nil then self._floating = elData.floating end
-	if elData.hidden ~= nil then self._hidden = elData.hidden end
-	if elData.id ~= nil then self._id = elData.id end
-	if elData.minWidth ~= nil then self._minWidth = elData.minWidth end if elData.minHeight ~= nil then self._minHeight = elData.minHeight end
-	-- @@retrieve(self, elData, _mouseCursor)
-	if elData.originX ~= nil then self._originX = elData.originX end if elData.originY ~= nil then self._originY = elData.originY end
-	if elData.relativeWidth ~= nil then self._relativeWidth = elData.relativeWidth end if elData.relativeHeight ~= nil then self._relativeHeight = elData.relativeHeight end
-	-- @@retrieve(self, elData, _sounds)
-	-- @@retrieve(self, elData, _spacingLeft, _spacingRight, _spacingTop, _spacingBottom)
-	-- @@retrieve(self, elData, _style)
-	-- @@retrieve(self, elData, _tags)
-	-- @@retrieve(self, elData, _tooltip)
-	if elData.weight ~= nil then self._weight = elData.weight end
-	-- @@retrieve(self, elData, _width, _height)
-	if elData.x ~= nil then self._x = elData.x end if elData.y ~= nil then self._y = elData.y end
+	if elData.anchorX ~= nil then el._anchorX = elData.anchorX end if elData.anchorY ~= nil then el._anchorY = elData.anchorY end
+	if elData.background ~= nil then el._background = elData.background end
+	if elData.captureInput ~= nil then el._captureInput = elData.captureInput end if elData.captureGuiInput ~= nil then el._captureGuiInput = elData.captureGuiInput end
+	if elData.closable ~= nil then el._closable = elData.closable end
+	-- @@retrieve(el, elData, _data)
+	if elData.floating ~= nil then el._floating = elData.floating end
+	if elData.hidden ~= nil then el._hidden = elData.hidden end
+	if elData.id ~= nil then el._id = elData.id end
+	-- @@retrieve(el, elData, _minWidth, _minHeight)
+	-- @@retrieve(el, elData, _mouseCursor)
+	if elData.originX ~= nil then el._originX = elData.originX end if elData.originY ~= nil then el._originY = elData.originY end
+	if elData.relativeWidth ~= nil then el._relativeWidth = elData.relativeWidth end if elData.relativeHeight ~= nil then el._relativeHeight = elData.relativeHeight end
+	-- @@retrieve(el, elData, _sounds)
+	-- @@retrieve(el, elData, _spacingLeft, _spacingRight, _spacingTop, _spacingBottom)
+	-- @@retrieve(el, elData, _style)
+	-- @@retrieve(el, elData, _tags)
+	-- @@retrieve(el, elData, _tooltip)
+	if elData.weight ~= nil then el._weight = elData.weight end
+	-- @@retrieve(el, elData, _width, _height)
+	if elData.x ~= nil then el._x = elData.x end if elData.y ~= nil then el._y = elData.y end
 
-	self._timeBecomingVisible = gui._time
+	el._timeBecomingVisible = gui._time
 
-	if elData.width  then  self:setWidth (elData.width )  end
-	if elData.height then  self:setHeight(elData.height)  end
+	if elData.width     then  el:setWidth    (elData.width    )  end
+	if elData.height    then  el:setHeight   (elData.height   )  end
+	if elData.minWidth  then  el:setMinWidth (elData.minWidth )  end
+	if elData.minHeight then  el:setMinHeight(elData.minHeight)  end
 
-	self._spacingLeft   = elData.spacingLeft   or elData.spacingHorizontal or elData.spacing
-	self._spacingRight  = elData.spacingRight  or elData.spacingHorizontal or elData.spacing
-	self._spacingTop    = elData.spacingTop    or elData.spacingVertical   or elData.spacing
-	self._spacingBottom = elData.spacingBottom or elData.spacingVertical   or elData.spacing
+	el._spacingLeft   = elData.spacingLeft   or elData.spacingHorizontal or elData.spacing
+	el._spacingRight  = elData.spacingRight  or elData.spacingHorizontal or elData.spacing
+	el._spacingTop    = elData.spacingTop    or elData.spacingVertical   or elData.spacing
+	el._spacingBottom = elData.spacingBottom or elData.spacingVertical   or elData.spacing
 
 	-- Set data table.
 	if not (elData.data == nil or type(elData.data) == "table") then  error("Assertion failed: elData.data == nil or type(elData.data) == \"table\"")  end
-	self._data = elData.data or {}
-	self.data  = self._data -- element.data is exposed for easy access.
+	el._data = elData.data or {}
+	el.data  = el._data -- element.data is exposed for easy access.
 
 	-- Make sure the element has an ID.
-	if self._id == "" then
+	if el._id == "" then
 		local numId          = gui._lastAutomaticId + 1
 		gui._lastAutomaticId = numId
-		self._id             = "__" .. numId
-		self._automaticId    = true
+		el._id               = "__" .. numId
+		el._automaticId      = true
 	end
 
 	-- Set sounds table.
-	self._sounds = {}
+	el._sounds = {}
+
 	if elData.sounds ~= nil then
-		if not (type(elData.sounds) == "table") then  error("Assertion failed: type(elData.sounds) == \"table\"")  end
 		for soundK, sound in pairs(elData.sounds) do
 			checkValidSoundKey(soundK, 2)
-			self._sounds[soundK] = sound
+			el._sounds[soundK] = sound
 		end
 	end
 
 	-- Add tags.
-	self._tags = {}
+	el._tags = {}
+
 	if elData.tags ~= nil then
-		if not (type(elData.tags) == "table") then  error("Assertion failed: type(elData.tags) == \"table\"")  end
 		for _, tag in ipairs(elData.tags) do
-			self._tags[tag] = true
+			el._tags[tag] = true
 		end
 	end
 
-	if elData.mouseCursor ~= nil then  self:setMouseCursor(elData.mouseCursor)  end
-	if elData.tooltip     ~= nil then  self:setTooltip(elData.tooltip)          end
+	if elData.mouseCursor ~= nil then  el:setMouseCursor(elData.mouseCursor)  end
+	if elData.tooltip     ~= nil then  el:setTooltip(elData.tooltip)          end
 
 	-- Set initial offset.
 	if parent then
-		self._layoutImmediateOffsetX = parent._layoutImmediateOffsetX + parent._scrollX
-		self._layoutImmediateOffsetY = parent._layoutImmediateOffsetY + parent._scrollY
-		self._layoutOffsetX          = parent._layoutOffsetX          + parent._visualScrollX
-		self._layoutOffsetY          = parent._layoutOffsetY          + parent._visualScrollY
+		el._layoutImmediateOffsetX = parent._layoutImmediateOffsetX + parent._scrollX
+		el._layoutImmediateOffsetY = parent._layoutImmediateOffsetY + parent._scrollY
+		el._layoutOffsetX          = parent._layoutOffsetX          + parent._visualScrollX
+		el._layoutOffsetY          = parent._layoutOffsetY          + parent._visualScrollY
 	end
 
 	-- The 'here' debug attribute prints the path to the element.
-	if elData.here then  table.insert(gui._heres, self)  end
+	if elData.here then  table.insert(gui._heres, el)  end
 
 	if elData.debug then  gui.debug = true  end
 end
@@ -5570,43 +5564,43 @@ end
 
 
 -- INTERNAL  element:_update( deltaTime )
-function Cs.element:_update(dt)
+function Cs.element._update(el, dt)
 	-- void
 end
 
 
 
 -- INTERNAL  element:_draw( )
-function Cs.element:_draw()
-	local x, y, w, h = xywh(self)
+function Cs.element._draw(el)
+	local x, y, w, h = xywh(el)
 
-	if not self._gui.debug then
-		triggerIncludingAnimations(self, "beforedraw", x, y, w, h)
+	if not el._gui.debug then
+		triggerIncludingAnimations(el, "beforedraw", x, y, w, h)
 	end
 
-	drawLayoutBackground(self)
+	drawLayoutBackground(el)
 
-	if not self._gui.debug then
-		triggerIncludingAnimations(self, "afterdraw", x, y, w, h)
+	if not el._gui.debug then
+		triggerIncludingAnimations(el, "afterdraw", x, y, w, h)
 	end
 end
 
 -- INTERNAL  element:_drawDebug( red, green, blue [, backgroundOpacity=1 ] )
-function Cs.element:_drawDebug(r, g, b, bgOpacity)
-	local gui = self._gui
+function Cs.element._drawDebug(el, r, g, b, bgOpacity)
+	local gui = el._gui
 	if not gui.debug then  return  end
 
-	local isContainer = self:is(Cs.container)
-	local x, y, w, h  = xywh(self)
-	local paddingL    = isContainer and self._paddingLeft or 0
-	local paddingT    = isContainer and self._paddingTop  or 0
+	local isContainer = el:is(Cs.container)
+	local x, y, w, h  = xywh(el)
+	local paddingL    = isContainer and el._paddingLeft or 0
+	local paddingT    = isContainer and el._paddingTop  or 0
 	local lw          = math.max(math.min(paddingL, paddingT), 1) -- @Polish: Better border width.
 
 	local sbW = themeGet(gui, "scrollbarWidth")
 
-	if self:isKeyboardFocus() then
+	if el:isKeyboardFocus() then
 		r, g, b = 1, 1, 0
-	elseif self:isNavigationTarget() then
+	elseif el:isNavigationTarget() then
 		r, g, b = 1, 1, 1
 	end
 
@@ -5624,8 +5618,8 @@ function Cs.element:_drawDebug(r, g, b, bgOpacity)
 	setColor(r, g, b, .4)
 	love.graphics.rectangle("line", lw/2, lw/2, w-lw, h-lw)
 	if isContainer then
-		if self:hasScrollbarOnRight()  then  love.graphics.rectangle("fill", w-lw-sbW, lw, sbW, h-2*lw)  end
-		if self:hasScrollbarOnBottom() then  love.graphics.rectangle("fill", lw, h-lw-sbW, w-w*lw, sbW)  end
+		if el:hasScrollbarOnRight()  then  love.graphics.rectangle("fill", w-lw-sbW, lw, sbW, h-2*lw)  end
+		if el:hasScrollbarOnBottom() then  love.graphics.rectangle("fill", lw, h-lw-sbW, w-w*lw, sbW)  end
 	end
 	love.graphics.setLineWidth(1)
 	setColor(r, g, b, .6)
@@ -5637,19 +5631,19 @@ function Cs.element:_drawDebug(r, g, b, bgOpacity)
 	b = lerp(b, 1, .5)
 	love.graphics.setFont(gui._font or getDefaultFont())
 	setColor(r, g, b, .8)
-	if self._automaticId then
-		love.graphics.print(F("%d.%d"   , self:getDepth(), (self:getIndex() or 0)          ), 2, 1)
+	if el._automaticId then
+		love.graphics.print(F("%d.%d"   , el:getDepth(), (el:getIndex() or 0)        ), 2, 1)
 	else
-		love.graphics.print(F("%d.%d:%s", self:getDepth(), (self:getIndex() or 0), self._id), 2, 1)
+		love.graphics.print(F("%d.%d:%s", el:getDepth(), (el:getIndex() or 0), el._id), 2, 1)
 	end
 
 	love.graphics.pop()
 end
 
 -- INTERNAL  element:_drawTooltip( )
-function Cs.element:_drawTooltip()
-	local gui  = self._gui
-	local text = self._tooltip
+function Cs.element._drawTooltip(el)
+	local gui  = el._gui
+	local text = el._tooltip
 
 	if text == "" or gui._tooltipTime < gui.TOOLTIP_DELAY then  return  end
 
@@ -5658,16 +5652,16 @@ function Cs.element:_drawTooltip()
 	local font         = gui._font or getDefaultFont()
 	local textW, textH = getTextDimensions(font, text, 1/0)
 
-	local w, h = themeGetSize(self, "tooltip", textW, textH) -- @Speed: Get tooltip size when tooltip text changes.
+	local w, h = themeGetSize(el, "tooltip", textW, textH) -- @Speed: Get tooltip size when tooltip text changes.
 
-	local x = math.max(math.min(self._layoutX+self._layoutImmediateOffsetX, root._width-w), 0)
-	local y = self._layoutY + self._layoutHeight + self._layoutImmediateOffsetY
+	local x = math.max(math.min(el._layoutX+el._layoutImmediateOffsetX, root._width-w), 0)
+	local y = el._layoutY + el._layoutHeight + el._layoutImmediateOffsetY
 
 	if y+h > root._height then
-		y = math.max(y-h-self._layoutHeight, 0)
+		y = math.max(y-h-el._layoutHeight, 0)
 	end
 
-	themeRenderOnScreen(self, "tooltip", x, y, w, h, text, textW, textH, gui._tooltipTime-gui.TOOLTIP_DELAY)
+	themeRenderOnScreen(el, "tooltip", x, y, w, h, text, textW, textH, gui._tooltipTime-gui.TOOLTIP_DELAY)
 end
 
 
@@ -5686,7 +5680,7 @@ end
 --         end,
 --     })
 --
-function Cs.element:animate(duration, lockInteraction, callbacks)
+function Cs.element.animate(el, duration, lockInteraction, callbacks)
 	if type(duration)~="number" then argerror(2,1,"duration",duration,"number") end
 
 	if type(lockInteraction) == "table" then
@@ -5695,10 +5689,10 @@ function Cs.element:animate(duration, lockInteraction, callbacks)
 		if type(lockInteraction)~="boolean" then argerror(2,2,"lockInteraction",lockInteraction,"boolean") end
 	end
 
-	local gui = self._gui
+	local gui = el._gui
 
 	local anim = {
-		element         = self,
+		element         = el,
 		lockInteraction = lockInteraction,
 		callbacks       = callbacks,
 
@@ -5707,7 +5701,7 @@ function Cs.element:animate(duration, lockInteraction, callbacks)
 		duration        = duration,
 	}
 
-	table.insert(self._animations, anim)
+	table.insert(el._animations, anim)
 	table.insert(gui._allAnimations, anim)
 
 	if lockInteraction then
@@ -5719,33 +5713,33 @@ end
 
 -- success = element:close( )
 -- Trigger 'close' action, if possible.
-function Cs.element:close()
-	if not self:canClose() then
+function Cs.element.close(el)
+	if not el:canClose() then
 		return false
 	end
 
-	local preparedSound = prepareSound(self, "close")
-	if trigger(self, "close") then
+	local preparedSound = prepareSound(el, "close")
+	if trigger(el, "close") then
 		return false -- Suppress default behavior.
 	end
 
 	preparedSound()
-	self:hide()
-	self:triggerBubbling("closed", self)
+	el:hide()
+	el:triggerBubbling("closed", el)
 
 	return true
 end
 
 -- result = element:canClose( )
-function Cs.element:canClose()
-	return (self._closable and not self._gui._lockNavigation and self:isDisplayed())
+function Cs.element.canClose(el)
+	return el._closable and not el._gui._lockNavigation and el:isDisplayed()
 end
 
 
 
 -- bool = element:exists( )
-function Cs.element:exists()
-	return (self._parent ~= nil or self == self._gui._root)
+function Cs.element.exists(el)
+	return el._parent ~= nil or el == el._gui._root
 end
 
 
@@ -5753,58 +5747,59 @@ end
 -- anchorX, anchorY = element:getAnchor( )
 -- anchor = element:getAnchorX( )
 -- anchor = element:getAnchorY( )
-function Cs.element:getAnchor()
-	return self._anchorX, self._anchorY
+function Cs.element.getAnchor(el)
+	return el._anchorX, el._anchorY
 end
-function Cs.element:getAnchorX()
-	return self._anchorX
+function Cs.element.getAnchorX(el)
+	return el._anchorX
 end
-function Cs.element:getAnchorY()
-	return self._anchorY
+function Cs.element.getAnchorY(el)
+	return el._anchorY
 end
 
 -- element:setAnchor( anchorX, anchorY )
 -- element:setAnchorX( anchor )
 -- element:setAnchorY( anchor )
-function Cs.element:setAnchor(anchorX, anchorY)
-	if self._anchorX == anchorX and self._anchorY == anchorY then  return  end
-	self._anchorX, self._anchorY = anchorY
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setAnchor(el, anchorX, anchorY)
+	if el._anchorX == anchorX and el._anchorY == anchorY then  return  end
+	el._anchorX = anchorX
+	el._anchorY = anchorY
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setAnchorX(anchor)
-	if self._anchorX == anchor then  return  end
-	self._anchorX = anchor
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setAnchorX(el, anchor)
+	if el._anchorX == anchor then  return  end
+	el._anchorX = anchor
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setAnchorY(anchor)
-	if self._anchorY == anchor then  return  end
-	self._anchorY = anchor
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setAnchorY(el, anchor)
+	if el._anchorY == anchor then  return  end
+	el._anchorY = anchor
+	scheduleLayoutUpdateIfDisplayed(el)
 end
 
 
 
 -- callback|nil = element:getCallback( event )
-function Cs.element:getCallback(event)
-	return self._callbacks[event]
+function Cs.element.getCallback(el, event)
+	return el._callbacks[event]
 end
 
 -- element:setCallback( event, callback|nil )
-function Cs.element:setCallback(event, cb)
+function Cs.element.setCallback(el, event, cb)
 	if type(event)~="string" then argerror(2,1,"event",event,"string") end
 	if not(type(cb)=="function" or cb==nil) then argerror(2,2,"cb",cb,"function","nil") end
 
-	if not self._events[event] then
-		printerr(2, "Unknown event '%s'. (%s)", event, self:getPathDescription())
+	if not el._events[event] then
+		printerr(2, "Unknown event '%s'. (%s)", event, el:getPathDescription())
 		return
 	end
 
-	self._callbacks[event] = cb
+	el._callbacks[event] = cb
 
 	-- Since callbacks can only be attached to elements after the actual
 	-- initialization has happened we instead trigger the init event here.
 	if cb and event == "init" then
-		trigger(self, "init")
+		trigger(el, "init")
 	end
 end
 
@@ -5813,18 +5808,18 @@ end
 Cs.element.on = Cs.element.setCallback
 
 -- element:off( event )
-function Cs.element:off(event)
-	self:on(event, nil)
+function Cs.element.off(el, event)
+	el:on(event, nil)
 end
 
 -- value = element:trigger( event [, extraArgument1, ... ] )
-function Cs.element:trigger(event, ...)
+function Cs.element.trigger(el, event, ...)
 	if type(event)~="string" then argerror(2,1,"event",event,"string") end
-	if not self._events[event] then
-		printerr(2, "Unknown event '%s'. (%s)", event, self:getPathDescription())
+	if not el._events[event] then
+		printerr(2, "Unknown event '%s'. (%s)", event, el:getPathDescription())
 		return nil
 	end
-	return trigger(self, event, ...)
+	return (trigger(el, event, ...))
 end
 
 -- value = element:triggerBubbling( event [, extraArgument1, ... ] )
@@ -5902,7 +5897,7 @@ do
 	end
 
 	-- otherElement|nil = element:getClosestInDirection( angle [, elementType="widget", ignoreInputCaptureState=false, ignoreConfinement=false ] )
-	function Cs.element:getClosestInDirection(angle, elType, ignoreCapture, ignoreConfinement)
+	function Cs.element.getClosestInDirection(el, angle, elType, ignoreCapture, ignoreConfinement)
 		if type(angle)~="number" then argerror(2,1,"angle",angle,"number") end
 		if not(type(elType)=="string" or elType==nil) then argerror(2,2,"elType",elType,"string","nil") end
 		if not(type(ignoreCapture)=="boolean" or ignoreCapture==nil) then argerror(2,3,"ignoreCapture",ignoreCapture,"boolean","nil") end
@@ -5910,19 +5905,19 @@ do
 
 		local C = elType and requireElementClass(elType, 2) or Cs.widget
 
-		updateLayoutIfNeeded(self._gui)
+		updateLayoutIfNeeded(el._gui)
 
-		local navRoot = ignoreConfinement and self._gui._root or self:getNavigationRoot()
+		local navRoot = ignoreConfinement and el._gui._root or el:getNavigationRoot()
 
-		local centerX, centerY = self:getLayoutCenterPosition()
+		local centerX, centerY = el:getLayoutCenterPosition()
 
-		local fromX     = centerX + self._layoutOffsetX + .495*self._layoutWidth *math.cos(angle)
-		local fromY     = centerY + self._layoutOffsetY + .495*self._layoutHeight*math.sin(angle)
-		local closestEl = _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, self)
+		local fromX     = centerX + el._layoutOffsetX + .495*el._layoutWidth *math.cos(angle)
+		local fromY     = centerY + el._layoutOffsetY + .495*el._layoutHeight*math.sin(angle)
+		local closestEl = _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, el)
 
 		if not closestEl and not ignoreConfinement and navRoot._confineNavigation then
-			fromX     = centerX + self._layoutOffsetX - 10000*math.cos(angle)
-			fromY     = centerY + self._layoutOffsetY - 10000*math.sin(angle)
+			fromX     = centerX + el._layoutOffsetX - 10000*math.cos(angle)
+			fromY     = centerY + el._layoutOffsetY - 10000*math.sin(angle)
 			closestEl = _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, nil)
 		end
 
@@ -5931,29 +5926,29 @@ do
 end
 
 do
-	local function getNextOrPrevious(self, elType, ignoreCapture, usePrev)
+	local function getNextOrPrevious(el, elType, ignoreCapture, usePrev)
 		local C = elType and requireElementClass(elType, 3) or Cs.widget
 
-		local root = self._gui._root
+		local root = el._gui._root
 		if not root or root._hidden then  return nil  end
 
 		local foundSelf = false
 		local lastMatch = nil
 
-		for _, el in ipairs(self:getNavigationRoot():collectVisible(__STATIC9)) do
+		for _, otherEl in ipairs(el:getNavigationRoot():collectVisible(__STATIC9)) do
 			-- Note: Remember that we're traversing backwards.
 
-			local elIsValid = el:is(C)
-			if elIsValid and usePrev and foundSelf then  return el  end
+			local elIsValid = otherEl:is(C)
+			if elIsValid and usePrev and foundSelf then  return otherEl  end
 
-			foundSelf = (foundSelf or el == self)
+			foundSelf = (foundSelf or otherEl == el)
 			if not usePrev and foundSelf then
 				return lastMatch -- May be nil.
 			end
 
-			if elIsValid then  lastMatch = el  end
+			if elIsValid then  lastMatch = otherEl  end
 
-			if not ignoreCapture and (el._captureInput or el._captureGuiInput) then
+			if not ignoreCapture and (otherEl._captureInput or otherEl._captureGuiInput) then
 				break
 			end
 		end
@@ -5962,13 +5957,13 @@ do
 	end
 
 	-- otherElement = element:getNext( [ elType="widget", ignoreInputCaptureState=false ] )
-	function Cs.element:getNext(elType, ignoreCapture)
-		return (getNextOrPrevious(self, elType, ignoreCapture, false))
+	function Cs.element.getNext(el, elType, ignoreCapture)
+		return (getNextOrPrevious(el, elType, ignoreCapture, false))
 	end
 
 	-- otherElement = element:getPrevious( [ elType="widget", ignoreInputCaptureState=false ] )
-	function Cs.element:getPrevious(elType, ignoreCapture)
-		return (getNextOrPrevious(self, elType, ignoreCapture, true))
+	function Cs.element.getPrevious(el, elType, ignoreCapture)
+		return (getNextOrPrevious(el, elType, ignoreCapture, true))
 	end
 end
 
@@ -5976,24 +5971,24 @@ end
 
 -- value = element:getData( key )
 -- Note: element:getData(k) is the same as element.data[k]
-function Cs.element:getData(k)
+function Cs.element.getData(el, k)
 	-- @Memory: We probably don't need _data to always be set, but we'd probably
 	-- have to remove the element.data property and change some other things.
-	return self._data[k]
+	return el._data[k]
 end
 
 -- element:setData( key, value )
 -- Note: element:setData(key, value) is the same as element.data[key]=value
-function Cs.element:setData(k, v)
-	self._data[k] = v
+function Cs.element.setData(el, k, v)
+	el._data[k] = v
 end
 
 -- oldDataTable = element:swapData( newDataTable )
-function Cs.element:swapData(data)
+function Cs.element.swapData(el, data)
 	if type(data)~="table" then argerror(2,1,"data",data,"table") end
-	local oldData = self._data
-	self._data    = data
-	self.data     = data
+	local oldData = el._data
+	el._data      = data
+	el.data       = data
 	return oldData
 end
 
@@ -6002,37 +5997,38 @@ end
 -- width, height = element:getDimensions( )
 -- width  = element:getWidth( )
 -- height = element:getHeight( )
-function Cs.element:getDimensions()
-	return self._width, self._height
+function Cs.element.getDimensions(el)
+	return el._width, el._height
 end
-function Cs.element:getWidth()
-	return self._width
+function Cs.element.getWidth(el)
+	return el._width
 end
-function Cs.element:getHeight()
-	return self._height
+function Cs.element.getHeight(el)
+	return el._height
 end
 
 -- element:setDimensions( width, height )
 -- element:setWidth( width )
 -- element:setHeight( height )
-function Cs.element:setDimensions(w, h)
+function Cs.element.setDimensions(el, w, h)
 	if type(w)~="number" then argerror(2,1,"w",w,"number") end
 	if type(h)~="number" then argerror(2,2,"h",h,"number") end
-	if self._width == w and self._height == h then  return  end
-	self._width, self._height = w, h
-	scheduleLayoutUpdateIfDisplayed(self)
+	if el._width == w and el._height == h then  return  end
+	el._width  = w
+	el._height = h
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setWidth(w)
+function Cs.element.setWidth(el, w)
 	if type(w)~="number" then argerror(2,1,"w",w,"number") end
-	if self._width == w then  return  end
-	self._width = w
-	scheduleLayoutUpdateIfDisplayed(self)
+	if el._width == w then  return  end
+	el._width = w
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setHeight(h)
+function Cs.element.setHeight(el, h)
 	if type(h)~="number" then argerror(2,1,"h",h,"number") end
-	if self._height == h then  return  end
-	self._height = h
-	scheduleLayoutUpdateIfDisplayed(self)
+	if el._height == h then  return  end
+	el._height = h
+	scheduleLayoutUpdateIfDisplayed(el)
 end
 
 
@@ -6040,37 +6036,38 @@ end
 -- width, height = element:getRelativeDimensions( )
 -- width  = element:getRelativeWidth( )
 -- height = element:getRelativeHeight( )
-function Cs.element:getRelativeDimensions()
-	return self._relativeWidth, self._relativeHeight
+function Cs.element.getRelativeDimensions(el)
+	return el._relativeWidth, el._relativeHeight
 end
-function Cs.element:getRelativeWidth()
-	return self._relativeWidth
+function Cs.element.getRelativeWidth(el)
+	return el._relativeWidth
 end
-function Cs.element:getRelativeHeight()
-	return self._relativeHeight
+function Cs.element.getRelativeHeight(el)
+	return el._relativeHeight
 end
 
 -- element:setRelativeDimensions( width, height )
 -- element:setRelativeWidth( width )
 -- element:setRelativeHeight( height )
-function Cs.element:setRelativeDimensions(w, h)
+function Cs.element.setRelativeDimensions(el, w, h)
 	if type(w)~="number" then argerror(2,1,"w",w,"number") end
 	if type(h)~="number" then argerror(2,2,"h",h,"number") end
-	if self._relativeWidth == w and self._relativeHeight == h then  return  end
-	self._relativeWidth, self._relativeHeight = w, h
-	scheduleLayoutUpdateIfDisplayed(self)
+	if el._relativeWidth == w and el._relativeHeight == h then  return  end
+	el._relativeWidth  = w
+	el._relativeHeight = h
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setRelativeWidth(w)
+function Cs.element.setRelativeWidth(el, w)
 	if type(w)~="number" then argerror(2,1,"w",w,"number") end
-	if self._relativeWidth == w then  return  end
-	self._relativeWidth = w
-	scheduleLayoutUpdateIfDisplayed(self)
+	if el._relativeWidth == w then  return  end
+	el._relativeWidth = w
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setRelativeHeight(h)
+function Cs.element.setRelativeHeight(el, h)
 	if type(h)~="number" then argerror(2,1,"h",h,"number") end
-	if self._relativeHeight == h then  return  end
-	self._relativeHeight = h
-	scheduleLayoutUpdateIfDisplayed(self)
+	if el._relativeHeight == h then  return  end
+	el._relativeHeight = h
+	scheduleLayoutUpdateIfDisplayed(el)
 end
 
 
@@ -6080,13 +6077,13 @@ end
 -- spacing = element:getSpacingRight( )
 -- spacing = element:getSpacingTop( )
 -- spacing = element:getSpacingBottom( )
-function Cs.element:getSpacing()
-	return self._spacingLeft, self._spacingRight, self._spacingTop, self._spacingBottom
+function Cs.element.getSpacing(el)
+	return el._spacingLeft, el._spacingRight, el._spacingTop, el._spacingBottom
 end
-function Cs.element:getSpacingLeft  ()  return self._spacingLeft    end
-function Cs.element:getSpacingRight ()  return self._spacingRight   end
-function Cs.element:getSpacingTop   ()  return self._spacingTop     end
-function Cs.element:getSpacingBottom()  return self._spacingBottom  end
+function Cs.element.getSpacingLeft  (el)  return el._spacingLeft    end
+function Cs.element.getSpacingRight (el)  return el._spacingRight   end
+function Cs.element.getSpacingTop   (el)  return el._spacingTop     end
+function Cs.element.getSpacingBottom(el)  return el._spacingBottom  end
 
 -- element:setSpacing( spacing )
 -- element:setSpacing( spacingHorizontal, spacingVertical )
@@ -6095,7 +6092,7 @@ function Cs.element:getSpacingBottom()  return self._spacingBottom  end
 -- element:setSpacingRight( spacing )
 -- element:setSpacingTop( spacing )
 -- element:setSpacingBottom( spacing )
-function Cs.element:setSpacing(spacingL, spacingR, spacingT, spacingB)
+function Cs.element.setSpacing(el, spacingL, spacingR, spacingT, spacingB)
 	if type(spacingL)~="number" then argerror(2,1,"spacingL",spacingL,"number") end
 
 	if not spacingR then
@@ -6105,102 +6102,102 @@ function Cs.element:setSpacing(spacingL, spacingR, spacingT, spacingB)
 	end
 
 	if
-		self._spacingLeft   == spacingL and
-		self._spacingRight  == spacingR and
-		self._spacingTop    == spacingT and
-		self._spacingBottom == spacingB
+		el._spacingLeft   == spacingL and
+		el._spacingRight  == spacingR and
+		el._spacingTop    == spacingT and
+		el._spacingBottom == spacingB
 	then
 		return
 	end
 
-	self._spacingLeft   = spacingL
-	self._spacingRight  = spacingR
-	self._spacingTop    = spacingT
-	self._spacingBottom = spacingB
+	el._spacingLeft   = spacingL
+	el._spacingRight  = spacingR
+	el._spacingTop    = spacingT
+	el._spacingBottom = spacingB
 
-	scheduleLayoutUpdateIfDisplayed(self)
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setSpacingLeft(spacing)
+function Cs.element.setSpacingLeft(el, spacing)
 	if type(spacing)~="number" then argerror(2,1,"spacing",spacing,"number") end
-	if self._spacingLeft == spacing then  return  end
-	self._spacingLeft = spacing
-	scheduleLayoutUpdateIfDisplayed(self)
+	if el._spacingLeft == spacing then  return  end
+	el._spacingLeft = spacing
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setSpacingRight(spacing)
+function Cs.element.setSpacingRight(el, spacing)
 	if type(spacing)~="number" then argerror(2,1,"spacing",spacing,"number") end
-	if self._spacingRight == spacing then  return  end
-	self._spacingRight = spacing
-	scheduleLayoutUpdateIfDisplayed(self)
+	if el._spacingRight == spacing then  return  end
+	el._spacingRight = spacing
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setSpacingTop(spacing)
+function Cs.element.setSpacingTop(el, spacing)
 	if type(spacing)~="number" then argerror(2,1,"spacing",spacing,"number") end
-	if self._spacingTop == spacing then  return  end
-	self._spacingTop = spacing
-	scheduleLayoutUpdateIfDisplayed(self)
+	if el._spacingTop == spacing then  return  end
+	el._spacingTop = spacing
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setSpacingBottom(spacing)
+function Cs.element.setSpacingBottom(el, spacing)
 	if type(spacing)~="number" then argerror(2,1,"spacing",spacing,"number") end
-	if self._spacingBottom == spacing then  return  end
-	self._spacingBottom = spacing
-	scheduleLayoutUpdateIfDisplayed(self)
+	if el._spacingBottom == spacing then  return  end
+	el._spacingBottom = spacing
+	scheduleLayoutUpdateIfDisplayed(el)
 end
 
 
 
 -- weight = element:getWeight( )
-function Cs.element:getWeight()
-	return self._weight
+function Cs.element.getWeight(el)
+	return el._weight
 end
 
 -- element:setWeight( weight )
-function Cs.element:setWeight(weight)
+function Cs.element.setWeight(el, weight)
 	if type(weight)~="number" then argerror(2,1,"weight",weight,"number") end
-	if self._weight == weight then  return  end
-	self._weight = weight
-	scheduleLayoutUpdateIfDisplayed(self)
+	if el._weight == weight then  return  end
+	el._weight = weight
+	scheduleLayoutUpdateIfDisplayed(el)
 end
 
 
 
 -- gui = element:getGui( )
-function Cs.element:getGui()
-	return self._gui
+function Cs.element.getGui(el)
+	return el._gui
 end
 
 
 
 -- time = element:getGuiTime( )
 -- Alias for element:getGui():getTime().
-function Cs.element:getGuiTime()
-	return self._gui._time
+function Cs.element.getGuiTime(el)
+	return el._gui._time
 end
 
 
 
 -- id = element:getId( )
-function Cs.element:getId()
-	return self._id
+function Cs.element.getId(el)
+	return el._id
 end
 
 -- element:setId( id )
-function Cs.element:setId(id)
+function Cs.element.setId(el, id)
 	if type(id)~="string" then argerror(2,1,"id",id,"string") end
 	if id == "" then
-		local gui            = self._gui
+		local gui            = el._gui
 		local numId          = gui._lastAutomaticId + 1
 		gui._lastAutomaticId = numId
-		self._id             = "__" .. numId
-		self._automaticId    = true
+		el._id               = "__" .. numId
+		el._automaticId      = true
 	else
-		self._id             = id
-		self._automaticId    = false
+		el._id               = id
+		el._automaticId      = false
 	end
 end
 
--- bool = element:hasId( id [, id2, ... ] )
-function Cs.element:hasId(...)
+-- bool = element:hasId( id1, ... )
+function Cs.element.hasId(el, ...)
 	for i = 1, select("#", ...) do
-		if self._id == select(i, ...) then  return true  end
+		if el._id == select(i, ...) then  return true  end
 	end
 	return false
 end
@@ -6209,68 +6206,67 @@ end
 
 -- index|nil = element:getIndex( )
 -- Get the child index in the parent, if there is a parent.
-function Cs.element:getIndex()
-	local parent = self._parent
-	return (parent and parent:indexOf(self))
+function Cs.element.getIndex(el)
+	return el._parent and el._parent:indexOf(el)
 end
 
 -- depth = element:getDepth( )
-function Cs.element:getDepth()
-	local depth, current = 0, self
-	while true do
-		current = current._parent
-		if not current then
-			return depth
-		end
-		depth = depth+1
+function Cs.element.getDepth(el)
+	local depth = 0
+
+	while el._parent do
+		el    = el._parent
+		depth = depth + 1
 	end
+
+	return depth
 end
 
 
 
 -- x, y, width, height = element:getLayout( )
-function Cs.element:getLayout()
-	updateLayoutIfNeeded(self._gui)
-	return self._layoutX, self._layoutY, self._layoutWidth, self._layoutHeight
+function Cs.element.getLayout(el)
+	updateLayoutIfNeeded(el._gui)
+	return el._layoutX, el._layoutY, el._layoutWidth, el._layoutHeight
 end
 
 -- width, height = element:getLayoutDimensions( )
 -- width  = element:getLayoutWidth( )
 -- height = element:getLayoutHeight( )
-function Cs.element:getLayoutDimensions()
-	updateLayoutIfNeeded(self._gui)
-	return self._layoutWidth, self._layoutHeight
+function Cs.element.getLayoutDimensions(el)
+	updateLayoutIfNeeded(el._gui)
+	return el._layoutWidth, el._layoutHeight
 end
-function Cs.element:getLayoutWidth()
-	updateLayoutIfNeeded(self._gui)
-	return self._layoutWidth
+function Cs.element.getLayoutWidth(el)
+	updateLayoutIfNeeded(el._gui)
+	return el._layoutWidth
 end
-function Cs.element:getLayoutHeight()
-	updateLayoutIfNeeded(self._gui)
-	return self._layoutHeight
+function Cs.element.getLayoutHeight(el)
+	updateLayoutIfNeeded(el._gui)
+	return el._layoutHeight
 end
 
 -- x, y = element:getLayoutPosition( )
 -- x = element:getLayoutX( )
 -- y = element:getLayoutY( )
-function Cs.element:getLayoutPosition()
-	updateLayoutIfNeeded(self._gui)
-	return self._layoutX, self._layoutY
+function Cs.element.getLayoutPosition(el)
+	updateLayoutIfNeeded(el._gui)
+	return el._layoutX, el._layoutY
 end
-function Cs.element:getLayoutX()
-	updateLayoutIfNeeded(self._gui)
-	return self._layoutX
+function Cs.element.getLayoutX(el)
+	updateLayoutIfNeeded(el._gui)
+	return el._layoutX
 end
-function Cs.element:getLayoutY()
-	updateLayoutIfNeeded(self._gui)
-	return self._layoutY
+function Cs.element.getLayoutY(el)
+	updateLayoutIfNeeded(el._gui)
+	return el._layoutY
 end
 
 -- x, y = element:getLayoutCenterPosition( )
-function Cs.element:getLayoutCenterPosition()
-	updateLayoutIfNeeded(self._gui)
-	return self._layoutX + .5*self._layoutWidth,
-	       self._layoutY + .5*self._layoutHeight
+function Cs.element.getLayoutCenterPosition(el)
+	updateLayoutIfNeeded(el._gui)
+	return el._layoutX + .5*el._layoutWidth,
+	       el._layoutY + .5*el._layoutHeight
 end
 
 
@@ -6278,63 +6274,67 @@ end
 -- width, height = element:getMinDimensions( )
 -- width  = element:getMinWidth( )
 -- height = element:getMinHeight( )
-function Cs.element:getMinDimensions()
-	return self._minWidth, self._minHeight
+function Cs.element.getMinDimensions(el)
+	return el._minWidth, el._minHeight
 end
-function Cs.element:getMinWidth()
-	return self._minWidth
+function Cs.element.getMinWidth(el)
+	return el._minWidth
 end
-function Cs.element:getMinHeight()
-	return self._minHeight
+function Cs.element.getMinHeight(el)
+	return el._minHeight
 end
 
 -- element:setMinDimensions( width, height )
 -- element:setMinWidth( width )
 -- element:setMinHeight( height )
-function Cs.element:setMinDimensions(w, h)
-	w = math.max(w or 0, 0)
-	h = math.max(h or 0, 0)
-	if self._minWidth == w and self._minHeight == h then  return  end
-	self._minWidth  = w
-	self._minHeight = h
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setMinDimensions(el, w, h)
+	if type(w)~="number" then argerror(2,1,"w",w,"number") end
+	if type(h)~="number" then argerror(2,2,"h",h,"number") end
+	w = math.max(w, 0)
+	h = math.max(h, 0)
+	if el._minWidth == w and el._minHeight == h then  return  end
+	el._minWidth  = w
+	el._minHeight = h
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setMinWidth(w)
-	w = math.max(w or 0, 0)
-	if self._minWidth == w then  return  end
-	self._minWidth = w
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setMinWidth(el, w)
+	if type(w)~="number" then argerror(2,1,"w",w,"number") end
+	w = math.max(w, 0)
+	if el._minWidth == w then  return  end
+	el._minWidth = w
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setMinHeight(h)
-	h = math.max(h or 0, 0)
-	if self._minHeight == h then  return  end
-	self._minHeight = h
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setMinHeight(el, h)
+	if type(h)~="number" then argerror(2,1,"h",h,"number") end
+	h = math.max(h, 0)
+	if el._minHeight == h then  return  end
+	el._minHeight = h
+	scheduleLayoutUpdateIfDisplayed(el)
 end
 
 
 
 -- cursor|systemCursorType|nil = element:getMouseCursor( )
-function Cs.element:getMouseCursor()
-	return self._mouseCursor
+function Cs.element.getMouseCursor(el)
+	return el._mouseCursor
 end
 
 -- cursor|nil = getResultingMouseCursor( )
-function Cs.element:getResultingMouseCursor()
-	local cur = self._mouseCursor
+function Cs.element.getResultingMouseCursor(el)
+	local cur = el._mouseCursor
 	if type(cur) ~= "string" then  return cur  end
 	return love.mouse.getSystemCursor(cur)
 end
 
 -- element:setMouseCursor( cursor|systemCursorType|nil )
-function Cs.element:setMouseCursor(cur)
+function Cs.element.setMouseCursor(el, cur)
 	if not(type(cur)=="userdata" or type(cur)=="string" or cur==nil) then argerror(2,1,"cur",cur,"userdata","string","nil") end
 
 	if type(cur) == "string" and not pcall(love.mouse.getSystemCursor, cur) then
 		errorf(2, "Invalid system cursor type '%s'.", cur)
 	end
 
-	self._mouseCursor = cur
+	el._mouseCursor = cur
 end
 
 
@@ -6344,19 +6344,19 @@ end
 -- y = element:getMouseY( )
 -- Get the mouse position relative the element.
 -- Returns nil if the mouse position is unknown.
-function Cs.element:getMousePosition()
-	local gui = self._gui
+function Cs.element.getMousePosition(el)
+	local gui = el._gui
 	if gui._mouseX ==  -999999 then  return nil  end
-	local x, y = self:getPositionOnScreen()
+	local x, y = el:getPositionOnScreen()
 	return gui._mouseX-x, gui._mouseY-y
 end
-function Cs.element:getMouseX()
-	local x = self._gui._mouseX
-	return x ~=  -999999 and x-self:getXOnScreen() or nil
+function Cs.element.getMouseX(el)
+	local x = el._gui._mouseX
+	return x ~=  -999999 and x-el:getXOnScreen() or nil
 end
-function Cs.element:getMouseY()
-	local y = self._gui._mouseY
-	return y ~=  -999999 and y-self:getYOnScreen() or nil
+function Cs.element.getMouseY(el)
+	local y = el._gui._mouseY
+	return y ~=  -999999 and y-el:getYOnScreen() or nil
 end
 
 
@@ -6364,40 +6364,41 @@ end
 -- originX, originY = element:getOrigin( )
 -- origin = element:getOriginX( )
 -- origin = element:getOriginY( )
-function Cs.element:getOrigin()
-	return self._originX, self._originY
+function Cs.element.getOrigin(el)
+	return el._originX, el._originY
 end
-function Cs.element:getOriginX()
-	return self._originX
+function Cs.element.getOriginX(el)
+	return el._originX
 end
-function Cs.element:getOriginY()
-	return self._originY
+function Cs.element.getOriginY(el)
+	return el._originY
 end
 
 -- element:setOrigin( originX, originY )
 -- element:setOriginX( origin )
 -- element:setOriginY( origin )
-function Cs.element:setOrigin(originX, originY)
-	if self._originX == originX and self._originY == originY then  return  end
-	self._originX, self._originY = originX, originY
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setOrigin(el, originX, originY)
+	if el._originX == originX and el._originY == originY then  return  end
+	el._originX = originX
+	el._originY = originY
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setOriginX(originX)
-	if self._originX == originX then  return  end
-	self._originX = originX
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setOriginX(el, originX)
+	if el._originX == originX then  return  end
+	el._originX = originX
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setOriginY(originY)
-	if self._originY == originY then  return  end
-	self._originY = originY
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setOriginY(el, originY)
+	if el._originY == originY then  return  end
+	el._originY = originY
+	scheduleLayoutUpdateIfDisplayed(el)
 end
 
 
 
 -- container|nil = element:getParent( )
-function Cs.element:getParent()
-	return self._parent
+function Cs.element.getParent(el)
+	return el._parent
 end
 
 -- containers = element:getAllParents( )
@@ -6437,8 +6438,8 @@ function Cs.element.getParentWithId(el, id)
 end
 
 -- bool = element:hasParentWithId( id )
-function Cs.element:hasParentWithId(id)
-	return self:getParentWithId() ~= nil
+function Cs.element.hasParentWithId(el, id)
+	return el:getParentWithId(id) ~= nil
 end
 
 -- for index, container in element:parents( )
@@ -6457,8 +6458,8 @@ end
 
 -- for index, container in element:parentsr( )
 -- Iterate over parents in reverse, from grandparent to parent.
-function Cs.element:parentsr()
-	return ipairsr(self:getAllParents())
+function Cs.element.parentsr(el)
+	return ipairsr(el:getAllParents())
 end
 
 -- for index, element in element:lineageUp( )
@@ -6517,33 +6518,34 @@ end
 -- x, y = element:getPosition( )
 -- x = element:getX( )
 -- y = element:getY( )
-function Cs.element:getPosition()
-	return self._x, self._y
+function Cs.element.getPosition(el)
+	return el._x, el._y
 end
-function Cs.element:getX()
-	return self._x
+function Cs.element.getX(el)
+	return el._x
 end
-function Cs.element:getY()
-	return self._y
+function Cs.element.getY(el)
+	return el._y
 end
 
 -- element:setPosition( x, y )
 -- element:setX( x )
 -- element:setY( y )
-function Cs.element:setPosition(x, y)
-	if self._x == x and self._y == y then  return  end
-	self._x, self._y = x, y
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setPosition(el, x, y)
+	if el._x == x and el._y == y then  return  end
+	el._x = x
+	el._y = y
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setX(x)
-	if self._x == x then  return  end
-	self._x = x
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setX(el, x)
+	if el._x == x then  return  end
+	el._x = x
+	scheduleLayoutUpdateIfDisplayed(el)
 end
-function Cs.element:setY(y)
-	if self._y == y then  return  end
-	self._y = y
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.element.setY(el, y)
+	if el._y == y then  return  end
+	el._y = y
+	scheduleLayoutUpdateIfDisplayed(el)
 end
 
 
@@ -6551,29 +6553,23 @@ end
 -- x, y = element:getPositionOnScreen( [ ignoreSmoothScrolling=false ] )
 -- x = element:getXOnScreen( [ ignoreSmoothScrolling=false ] )
 -- y = element:getYOnScreen( [ ignoreSmoothScrolling=false ] )
-function Cs.element:getPositionOnScreen(ignoreSmoothScrolling)
-	updateLayoutIfNeeded(self._gui)
-	if ignoreSmoothScrolling then
-		return self._layoutX+self._layoutImmediateOffsetX, self._layoutY+self._layoutImmediateOffsetY
-	else
-		return self._layoutX+self._layoutOffsetX, self._layoutY+self._layoutOffsetY
-	end
+function Cs.element.getPositionOnScreen(el, ignoreSmoothScrolling)
+	updateLayoutIfNeeded(el._gui)
+	if    ignoreSmoothScrolling
+	then  return el._layoutX+el._layoutImmediateOffsetX, el._layoutY+el._layoutImmediateOffsetY
+	else  return el._layoutX+el._layoutOffsetX, el._layoutY+el._layoutOffsetY  end
 end
-function Cs.element:getXOnScreen(ignoreSmoothScrolling)
-	updateLayoutIfNeeded(self._gui)
-	if ignoreSmoothScrolling then
-		return self._layoutX+self._layoutImmediateOffsetX
-	else
-		return self._layoutX+self._layoutOffsetX
-	end
+function Cs.element.getXOnScreen(el, ignoreSmoothScrolling)
+	updateLayoutIfNeeded(el._gui)
+	if    ignoreSmoothScrolling
+	then  return el._layoutX+el._layoutImmediateOffsetX
+	else  return el._layoutX+el._layoutOffsetX  end
 end
-function Cs.element:getYOnScreen(ignoreSmoothScrolling)
-	updateLayoutIfNeeded(self._gui)
-	if ignoreSmoothScrolling then
-		return self._layoutY+self._layoutImmediateOffsetY
-	else
-		return self._layoutY+self._layoutOffsetY
-	end
+function Cs.element.getYOnScreen(el, ignoreSmoothScrolling)
+	updateLayoutIfNeeded(el._gui)
+	if    ignoreSmoothScrolling
+	then  return el._layoutY+el._layoutImmediateOffsetY
+	else  return el._layoutY+el._layoutOffsetY  end
 end
 
 
@@ -6590,8 +6586,8 @@ function Cs.element.getRoot(el)
 end
 
 -- container = element:getNavigationRoot( )
-function Cs.element:getNavigationRoot()
-	local container = self._parent
+function Cs.element.getNavigationRoot(el)
+	local container = el._parent
 	if not container then  return nil  end -- Should we allow returning self if we're a container?
 
 	while container._parent do
@@ -6606,34 +6602,34 @@ end
 
 -- sibling = element:getSibling( offset )
 -- getSibling(1) returns the next sibling etc.
-function Cs.element:getSibling(offset)
-	local i = self:getIndex()
-	return i and self._parent[i+offset]
+function Cs.element.getSibling(el, offset)
+	local i = el:getIndex()
+	return i and el._parent[i+offset]
 end
 
 
 
 -- sound|nil = element:getSound( soundKey )
-function Cs.element:getSound(soundK)
+function Cs.element.getSound(el, soundK)
 	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
-	return self._sounds[soundK]
+	return el._sounds[soundK]
 end
 
 -- sound|nil = element:getResultingSound( soundKey )
-function Cs.element:getResultingSound(soundK)
+function Cs.element.getResultingSound(el, soundK)
 	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
 
-	local sound = self._sounds[soundK]
+	local sound = el._sounds[soundK]
 
 	if sound == nil then
-		for _, parent in self:parents() do
+		for _, parent in el:parents() do
 			sound = parent._sounds[soundK]
 			if sound ~= nil then  break  end
 		end
-		if sound == nil and self._gui then
-			sound = self._gui._defaultSounds[soundK]
+		if sound == nil and el._gui then
+			sound = el._gui._defaultSounds[soundK]
 		end
 	end
 
@@ -6644,143 +6640,142 @@ end
 
 -- element:setSound( soundKey, sound )
 -- element:setSound( soundKey, nil ) -- Remove sound.
-function Cs.element:setSound(soundK, sound)
+function Cs.element.setSound(el, soundK, sound)
 	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
-	self._sounds[soundK] = sound
+	el._sounds[soundK] = sound
 end
 
 
 
 -- style = element:getStyle( )
-function Cs.element:getStyle()
-	return self._style
+function Cs.element.getStyle(el)
+	return el._style
 end
 
 
 
 -- duration = element:getTimeSinceBecomingVisible( )
-function Cs.element:getTimeSinceBecomingVisible()
-	return self._gui._time-self._timeBecomingVisible
+function Cs.element.getTimeSinceBecomingVisible(el)
+	return el._gui._time - el._timeBecomingVisible
 end
 
 
 
 -- tooltip = element:getTooltip( )
-function Cs.element:getTooltip()
-	return self._tooltip
+function Cs.element.getTooltip(el)
+	return el._tooltip
 end
 
 -- element:setTooltip( text )
-function Cs.element:setTooltip(unprocessedText)
+function Cs.element.setTooltip(el, unprocessedText)
 	unprocessedText = tostring(unprocessedText == nil and "" or unprocessedText)
 
-	local text = preprocessText(self._gui, unprocessedText, self, false)
-	if self._tooltip == text then  return  end
+	local text = preprocessText(el._gui, unprocessedText, el, false)
+	if el._tooltip == text then  return  end -- @Speed: Maybe do this check for the unprocessedText?
 
-	self._tooltip            = text
-	self._unprocessedTooltip = unprocessedText
+	el._tooltip            = text
+	el._unprocessedTooltip = unprocessedText
 end
 
 -- element:drawTooltip( x, y )
-function Cs.element:drawTooltip(x, y)
-	love.graphics.print(self._tooltip, x, y)
+function Cs.element.drawTooltip(el, x, y)
+	love.graphics.print(el._tooltip, x, y)
 end
 
 
 
 -- font = element:getTooltipFont( )
-function Cs.element:getTooltipFont()
-	return (self._gui._fontTooltip or getDefaultFont())
+function Cs.element.getTooltipFont(el)
+	return el._gui._fontTooltip or getDefaultFont()
 end
 
 -- element:useTooltipFont( )
 -- Tell LÖVE to use the tooltip font.
-function Cs.element:useTooltipFont()
-	love.graphics.setFont(self:getTooltipFont())
+function Cs.element.useTooltipFont(el)
+	love.graphics.setFont(el:getTooltipFont())
 end
 
 
 
 -- bool = element:hasTag( tag )
-function Cs.element:hasTag(tag)
-	return self._tags[tag] ~= nil -- @Memory: _tags probably don't need to be set at all times. :NilTagsTable
+function Cs.element.hasTag(el, tag)
+	return el._tags[tag] ~= nil -- @Memory: _tags probably don't need to be set at all times. :NilTagsTable
 end
 
 -- element:addTag( tag )
-function Cs.element:addTag(tag)
-	self._tags[tag] = true
+function Cs.element.addTag(el, tag)
+	el._tags[tag] = true
 end
 
 -- element:removeTag( tag )
 -- element:removeAllTags( )
-function Cs.element:removeTag(tag)
-	self._tags[tag] = nil
+function Cs.element.removeTag(el, tag)
+	el._tags[tag] = nil
 end
-function Cs.element:removeAllTags()
-	self._tags = {} -- @Memory :NilTagsTable
+function Cs.element.removeAllTags(el)
+	if next(el._tags) then
+		el._tags = {} -- @Memory :NilTagsTable
+	end
 end
 
 -- element:setTag( tag, bool )
-function Cs.element:setTag(tag, state)
-	if state then
-		self:addTag(tag)
-	else
-		self:removeTag(tag)
-	end
+function Cs.element.setTag(el, tag, state)
+	if state then  el:addTag(tag)
+	else           el:removeTag(tag)  end
 end
 
 
 
 -- bool = element:isAt( x, y )
-function Cs.element:isAt(x, y)
-	updateLayoutIfNeeded(self._gui)
+function Cs.element.isAt(el, x, y)
+	updateLayoutIfNeeded(el._gui)
 
-	x = x - self._layoutOffsetX
-	y = y - self._layoutOffsetY
+	x = x - el._layoutOffsetX
+	y = y - el._layoutOffsetY
 
-	return x >= self._layoutX
-	   and y >= self._layoutY
-	   and x <  self._layoutX + self._layoutWidth
-	   and y <  self._layoutY + self._layoutHeight
+	return x >= el._layoutX
+	   and y >= el._layoutY
+	   and x <  el._layoutX + el._layoutWidth
+	   and y <  el._layoutY + el._layoutHeight
 end
 
 
 
 -- handled, grabKeyboardFocus = element:_keypressed( key, scancode, isRepeat )
-function Cs.element:_keypressed(key, scancode, isRepeat)
+function Cs.element._keypressed(el, key, scancode, isRepeat)
 	return false, false
 end
 
 -- INTERNAL  element:_keyreleased( key, scancode )
-function Cs.element:_keyreleased(key, scancode)
+function Cs.element._keyreleased(el, key, scancode)
 	-- void
 end
 
 -- handled = element:_textinput( text )
-function Cs.element:_textinput(text)
+function Cs.element._textinput(el, text)
 	return false
 end
 
 
 
 -- handled, grabMouseFocus = element:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
-function Cs.element:_mousepressed(mx, my, mbutton, pressCount)
+function Cs.element._mousepressed(el, mx, my, mbutton, pressCount)
 	return false, false
 end
 
 -- INTERNAL  element:_mousemoved( mouseX, mouseY )
-function Cs.element:_mousemoved(mx, my)
+function Cs.element._mousemoved(el, mx, my)
 	-- void
 end
 
 -- INTERNAL  element:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
-function Cs.element:_mousereleased(mx, my, mbutton, pressCount)
+function Cs.element._mousereleased(el, mx, my, mbutton, pressCount)
 	-- void
 end
 
 -- handled = element:_wheelmoved( deltaX, deltaY )
-function Cs.element:_wheelmoved(dx, dy)
+function Cs.element._wheelmoved(el, dx, dy)
 	return false
 end
 
@@ -6799,16 +6794,15 @@ end
 
 -- hiddenElement|nil = element:getClosestHiddenElement( )
 -- hiddenElement|nil = element:getFarthestHiddenElement( )
-function Cs.element:getClosestHiddenElement()
-	local el = self
+function Cs.element.getClosestHiddenElement(el)
 	repeat
 		if el._hidden then  return el  end
 		el = el._parent
 	until not el
 	return nil
 end
-function Cs.element:getFarthestHiddenElement()
-	local el, hiddenEl = self, nil
+function Cs.element.getFarthestHiddenElement(el)
+	local hiddenEl = nil
 	repeat
 		if el._hidden then  hiddenEl = el  end
 		el = el._parent
@@ -6820,34 +6814,33 @@ end
 
 -- bool = element:isFirst( )
 -- bool = element:isLast( )
-function Cs.element:isFirst()
-	return (not self._parent or self:getIndex() == 1)
+function Cs.element.isFirst(el)
+	return not el._parent or el:getIndex() == 1
 end
-function Cs.element:isLast()
-	local parent = self._parent
-	return (not parent or self:getIndex() == #parent)
+function Cs.element.isLast(el)
+	return not el._parent or el:getIndex() == #el._parent
 end
 
 
 
 -- bool = element:isHidden( )
 -- bool = element:isVisible( )
-function Cs.element:isHidden()
-	return self._hidden
+function Cs.element.isHidden(el)
+	return el._hidden
 end
-function Cs.element:isVisible()
-	return (not self._hidden)
+function Cs.element.isVisible(el)
+	return not el._hidden
 end
 
 -- stateChanged = element:setHidden( bool )
-function Cs.element:setHidden(hidden)
+function Cs.element.setHidden(el, hidden)
 	if type(hidden)~="boolean" then argerror(2,1,"hidden",hidden,"boolean") end
-	if self._hidden == hidden then  return false  end
+	if el._hidden == hidden then  return false  end
 
-	local wasDisplayed = self:isDisplayed()
-	self._hidden       = hidden
-	local isDisplayed  = self:isDisplayed()
-	local gui          = self._gui
+	local wasDisplayed = el:isDisplayed()
+	el._hidden         = hidden
+	local isDisplayed  = el:isDisplayed()
+	local gui          = el._gui
 
 	if wasDisplayed or isDisplayed then
 		if wasDisplayed then  validateNavigationTarget(gui)  end
@@ -6857,160 +6850,87 @@ function Cs.element:setHidden(hidden)
 		if isDisplayed then
 			local time = gui._time
 
-			self._timeBecomingVisible = time
+			el._timeBecomingVisible = time
 
-			if self:is(Cs.container) then
-				self:visitVisible(__LAMBDA3(time))
+			if el:is(Cs.container) then
+				el:visitVisible(__LAMBDA3(time))
 			end
 		end
 	end
 
-	trigger(self, (hidden and "hide" or "show"))
+	trigger(el, (hidden and "hide" or "show"))
 	return true
 end
 
 -- stateChanged = element:setVisible( bool )
-function Cs.element:setVisible(visible)
-	return self:setHidden(not visible)
+function Cs.element.setVisible(el, visible)
+	return el:setHidden(not visible)
 end
 
 -- stateChanged = element:show( )
 -- stateChanged = element:hide( )
 -- stateChanged = element:toggleHidden( )
-function Cs.element:show()
-	return self:setHidden(false)
+function Cs.element.show(el)
+	return el:setHidden(false)
 end
-function Cs.element:hide()
-	return self:setHidden(true)
+function Cs.element.hide(el)
+	return el:setHidden(true)
 end
-function Cs.element:toggleHidden()
-	return self:setHidden(not self._hidden)
+function Cs.element.toggleHidden(el)
+	return el:setHidden(not el._hidden)
 end
 
 
 
 -- bool = element:isHovered( [ ignoreMouseFocus=false ] )
-function Cs.element:isHovered(ignoreMouseFocus)
-	local gui = self._gui
+function Cs.element.isHovered(el, ignoreMouseFocus)
+	local gui = el._gui
 	updateLayoutIfNeeded(gui) -- Updates hovered element.
-	return self == gui._hoveredElement and (ignoreMouseFocus or self == (gui._mouseFocus or self))
+	return el == gui._hoveredElement and (ignoreMouseFocus or el == (gui._mouseFocus or el))
 end
 
 
 
 -- bool = element:isMouseFocus( )
 -- bool = element:isKeyboardFocus( )
-function Cs.element:isMouseFocus()
-	return self == self._gui._mouseFocus
+function Cs.element.isMouseFocus(el)
+	return el == el._gui._mouseFocus
 end
-function Cs.element:isKeyboardFocus()
-	return self == self._gui._keyboardFocus
+function Cs.element.isKeyboardFocus(el)
+	return el == el._gui._keyboardFocus
 end
 
 
 
 -- bool = element:isNavigationTarget( )
-function Cs.element:isNavigationTarget()
-	return (self == self._gui._navigationTarget)
-end
-
-
-
--- bool = element:isScrollbarXHovered( )
--- bool = element:isScrollbarYHovered( )
-function Cs.element:isScrollbarXHovered()
-	local gui  = self._gui
-	local x, y = gui._mouseX, gui._mouseY
-	if x ==  -999999 then  return false  end
-
-	local x1, y1 = self:getPositionOnScreen()
-	local x2, y2 = x1+self:getChildAreaWidth(), y1+self._layoutHeight
-	y1           = y2 - themeGet(self._gui, "scrollbarWidth")
-
-	return (x >= x1 and x < x2 and y >= y1 and y < y2)
-end
-function Cs.element:isScrollbarYHovered()
-	local gui  = self._gui
-	local x, y = gui._mouseX, gui._mouseY
-	if x ==  -999999 then  return false  end
-
-	local x1, y1 = self:getPositionOnScreen()
-	local x2, y2 = x1+self._layoutWidth, y1+self:getChildAreaHeight()
-	x1           = x2 - themeGet(self._gui, "scrollbarWidth")
-
-	return (x >= x1 and x < x2 and y >= y1 and y < y2)
-end
-
--- bool = element:isScrollbarXHandleHovered( )
--- bool = element:isScrollbarYHandleHovered( )
-function Cs.element:isScrollbarXHandleHovered()
-	local gui  = self._gui
-	local x, y = gui._mouseX, gui._mouseY
-	if x ==  -999999 then  return false  end
-
-	local handlePos, handleLen = self:getScrollHandleX()
-	local x1, y1               = self:getPositionOnScreen()
-
-	x1       = x1 + handlePos
-	local x2 = x1 + handleLen
-
-	local y2 = y1 + self._layoutHeight
-	y1       = y2 - themeGet(self._gui, "scrollbarWidth")
-
-	return x >= x1 and x < x2 and y >= y1 and y < y2
-end
-function Cs.element:isScrollbarYHandleHovered()
-	local gui  = self._gui
-	local x, y = gui._mouseX, gui._mouseY
-	if x ==  -999999 then  return false  end
-
-	local handlePos, handleLen = self:getScrollHandleY()
-	local x1, y1               = self:getPositionOnScreen()
-
-	local x2 = x1 + self._layoutWidth
-	x1       = x2 - themeGet(self._gui, "scrollbarWidth")
-
-	y1       = y1 + handlePos
-	local y2 = y1 + handleLen
-
-	return x >= x1 and x < x2 and y >= y1 and y < y2
-end
-
-
-
--- bool = element:isScrollingX( )
--- bool = element:isScrollingY( )
-function Cs.element:isScrollingX()
-	return self._mouseScrollDirection == "x"
-end
-function Cs.element:isScrollingY()
-	return self._mouseScrollDirection == "y"
+function Cs.element.isNavigationTarget(el)
+	return el == el._gui._navigationTarget
 end
 
 
 
 -- bool = element:isSolid( )
 -- If the element has collision or not.
-function Cs.element:isSolid()
+function Cs.element.isSolid(el)
 	return false
 end
 
 
 
 -- bool = element:isType( elementType )
-function Cs.element:isType(elType)
-	return self:is(requireElementClass(elType, 2))
+function Cs.element.isType(el, elType)
+	return el:is(requireElementClass(elType, 2))
 end
 
 
 
 -- element:playSound( soundKey )
-function Cs.element:playSound(soundK)
+function Cs.element.playSound(el, soundK)
 	if type(soundK)~="string" then argerror(2,1,"soundK",soundK,"string") end
 	checkValidSoundKey(soundK, 2)
 
-	local soundPlayer = self._gui   and self._gui._soundPlayer
-	local sound       = soundPlayer and self:getResultingSound(soundK)
+	local soundPlayer = el._gui     and el._gui._soundPlayer
+	local sound       = soundPlayer and el:getResultingSound(soundK)
 
 	if sound ~= nil then  soundPlayer(sound)  end
 end
@@ -7019,14 +6939,14 @@ end
 
 -- element:refresh( )
 -- Trigger helper event "refresh".
-function Cs.element:refresh()
-	trigger(self, "refresh")
+function Cs.element.refresh(el)
+	trigger(el, "refresh")
 end
 
 
 
 -- handled = element:_ok( )
-function Cs.element:_ok()
+function Cs.element._ok(el)
 	return false
 end
 
@@ -7034,10 +6954,10 @@ end
 
 -- element:remove( )
 -- Remove element from parent.
-function Cs.element:remove()
-	local parent = self._parent
+function Cs.element.remove(el)
+	local parent = el._parent
 	if parent then
-		parent:removeAt(parent:indexOf(self))
+		parent:removeAt(parent:indexOf(el))
 	end
 end
 
@@ -7045,8 +6965,8 @@ end
 
 -- element:reprocessTexts( )
 -- Manually re-preprocess texts. Also see gui:reprocessTexts().
-function Cs.element:reprocessTexts()
-	self:setTooltip(self._unprocessedTooltip)
+function Cs.element.reprocessTexts(el)
+	el:setTooltip(el._unprocessedTooltip)
 end
 
 
@@ -7113,20 +7033,20 @@ end
 -- element:setScissor( ) -- Only applies scissors from parent scrollables.
 -- Helper function for themes' drawing functions.
 -- Note that each call replaces the previous scissor.
-function Cs.element:setScissor(x, y, w, h, ignoreScrollables)
-	local gui = self._gui
+function Cs.element.setScissor(el, x, y, w, h, ignoreScrollables)
+	local gui = el._gui
 
-	self:unsetScissor()
+	el:unsetScissor()
 
 	if x then
-		setScissor(gui, self:getXOnScreen()+x, self:getYOnScreen()+y, w, h)
+		setScissor(gui, el:getXOnScreen()+x, el:getYOnScreen()+y, w, h)
 		gui._elementScissorIsSet = true
 	end
 
 	if not ignoreScrollables then
-		local parent = self._parent
-		while parent do
+		local parent = el._parent
 
+		while parent do
 			if not parent then  break  end
 
 			if parent:hasAnyScrollbar() then
@@ -7136,9 +7056,8 @@ function Cs.element:setScissor(x, y, w, h, ignoreScrollables)
 					setScissor(gui, parentX, parentY, parent:getChildAreaDimensions())
 					gui._elementScissorIsSet = true
 				else
-					intersectScissor(self._gui, parentX, parentY, parent:getChildAreaDimensions())
+					intersectScissor(el._gui, parentX, parentY, parent:getChildAreaDimensions())
 				end
-
 			end
 
 			parent = parent._parent
@@ -7149,8 +7068,8 @@ end
 -- element:unsetScissor( )
 -- Remove scissor set by element:setScissor().
 -- Helper function for themes' drawing functions.
-function Cs.element:unsetScissor()
-	local gui = self._gui
+function Cs.element.unsetScissor(el)
+	local gui = el._gui
 	if gui._elementScissorIsSet then
 		setScissor(gui, nil)
 		gui._elementScissorIsSet = false
@@ -7164,7 +7083,7 @@ end
 -- items       = { itemText1, ... }
 -- items       = { { itemText1, itemExtraText1 }, ... }
 -- callback    = function( index, itemText ) -- 'index' will be 0 if no item was chosen.
-function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
+function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 	if type(items)~="table" then argerror(2,1,"items",items,"table") end
 
 	-- showMenu( items, highlightedIndex,   offsetX, offsetY, callback )
@@ -7195,8 +7114,8 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 	end
 
 
-	local gui  = self._gui
-	local root = self:getRoot()
+	local gui  = el._gui
+	local root = el:getRoot()
 
 	updateLayoutIfNeeded(gui) -- So we get the correct self size and position here below.
 
@@ -7205,7 +7124,7 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 	local menu = root:insert{
 		type="container", style="_MENU", relativeWidth=1, relativeHeight=1,
 		closable=true, captureGuiInput=true, confineNavigation=true,
-		[1] = {type="vbar", minWidth=self._layoutWidth, maxHeight=root._height},
+		[1] = {type="vbar", minWidth=el._layoutWidth, maxHeight=root._height},
 	}
 
 	menu:on("closed", function(button, event)
@@ -7350,8 +7269,8 @@ function Cs.element:showMenu(items, hlIndices, offsetX, offsetY, cb)
 	menu:_calculateNaturalSize() -- Expanding and positioning of the whole menu isn't necessary right here.
 
 	buttons:setPosition(
-		math.max(math.min(self:getXOnScreen()+offsetX, root._width -buttons._layoutWidth ), 0),
-		math.max(math.min(self:getYOnScreen()+offsetY, root._height-buttons._layoutHeight), 0)
+		math.max(math.min(el:getXOnScreen()+offsetX, root._width -buttons._layoutWidth ), 0),
+		math.max(math.min(el:getYOnScreen()+offsetY, root._height-buttons._layoutHeight), 0)
 	)
 
 	local button = buttons:getToggledChild()
@@ -7365,22 +7284,22 @@ end
 -- FINAL  element:updateLayout( )
 -- Force a layout update. (Should never be needed as it's done automatically.)
 -- Also see gui:updateLayout().
-function Cs.element:updateLayout()
-	return updateLayout(self)
+function Cs.element.updateLayout(el)
+	updateLayout(el)
 end
 
 -- INTERNAL  element:_calculateNaturalSize( )
 -- (Subclasses should replace this method.)
-function Cs.element:_calculateNaturalSize()
+function Cs.element._calculateNaturalSize(el)
 	-- void
 end
 
 -- INTERNAL  element:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
-function Cs.element:_expandSelfAndPositionChildren(expandW, expandH, floating)
-	self._layoutWidth  = expandW or self._layoutWidth
-	self._layoutHeight = expandH or self._layoutHeight
+function Cs.element._expandSelfAndPositionChildren(el, expandW, expandH, floating)
+	el._layoutWidth  = expandW or el._layoutWidth
+	el._layoutHeight = expandH or el._layoutHeight
 
-	if floating then  updateFloatingElementPosition(self)  end
+	if floating then  updateFloatingElementPosition(el)  end
 end
 
 
@@ -7425,142 +7344,137 @@ Cs.container = newElementClass(false, "GuiContainer", Cs.element, {}, {
 	-- void
 })
 
-function Cs.container:init(gui, elData, parent)
-	Cs.container.super.init(self, gui, elData, parent)
+function Cs.container.init(container, gui, elData, parent)
+	Cs.container.super.init(container, gui, elData, parent)
 
-	if elData.confineNavigation ~= nil then self._confineNavigation = elData.confineNavigation end
-	if elData.maxWidth ~= nil then self._maxWidth = elData.maxWidth end if elData.maxHeight ~= nil then self._maxHeight = elData.maxHeight end
-	-- @@retrieve(self, elData, _paddingLeft, _paddingRight, _paddingTop, _paddingBottom)
-	if elData.solid ~= nil then self._solid = elData.solid end
+	if elData.confineNavigation ~= nil then container._confineNavigation = elData.confineNavigation end
+	if elData.maxWidth ~= nil then container._maxWidth = elData.maxWidth end if elData.maxHeight ~= nil then container._maxHeight = elData.maxHeight end
+	-- @@retrieve(container, elData, _paddingLeft, _paddingRight, _paddingTop, _paddingBottom)
+	if elData.solid ~= nil then container._solid = elData.solid end
 
-	self._paddingLeft   = elData.paddingLeft   or elData.paddingHorizontal or elData.padding
-	self._paddingRight  = elData.paddingRight  or elData.paddingHorizontal or elData.padding
-	self._paddingTop    = elData.paddingTop    or elData.paddingVertical   or elData.padding
-	self._paddingBottom = elData.paddingBottom or elData.paddingVertical   or elData.padding
+	container._paddingLeft   = elData.paddingLeft   or elData.paddingHorizontal or elData.padding
+	container._paddingRight  = elData.paddingRight  or elData.paddingHorizontal or elData.padding
+	container._paddingTop    = elData.paddingTop    or elData.paddingVertical   or elData.padding
+	container._paddingBottom = elData.paddingBottom or elData.paddingVertical   or elData.padding
 
 	for i, childData in ipairs(elData) do
-		local C     = Cs[getTypeFromElementData(childData)] or errorf("Bad GUI type '%s'.", getTypeFromElementData(childData))
-		local child = C(gui, childData, self)
-		self[i]     = child
+		local C      = Cs[getTypeFromElementData(childData)] or errorf("Bad element type '%s'.", getTypeFromElementData(childData))
+		local child  = C(gui, childData, container)
+		container[i] = child
 	end
 end
 
 
 
 -- INTERNAL OVERRIDE  container:_update( deltaTime )
-function Cs.container:_update(dt)
-	Cs.container.super._update(self, dt)
+function Cs.container._update(container, dt)
+	Cs.container.super._update(container, dt)
 
-	for _, child in ipairs(self) do
+	for _, child in ipairs(container) do
 		child:_update(dt)
 	end
 
-	local scrollX = self._scrollX
-	local scrollY = self._scrollY
+	local scrollX = container._scrollX
+	local scrollY = container._scrollY
 
-	local visualScrollX = self._visualScrollX
-	local visualScrollY = self._visualScrollY
+	local visualScrollX = container._visualScrollX
+	local visualScrollY = container._visualScrollY
 
 	local didScroll = false
 
 	if visualScrollX ~= scrollX then
-		visualScrollX = scrollX+self.SCROLL_SMOOTHNESS*(visualScrollX-scrollX)
-		if math.abs(visualScrollX-scrollX) < 0.5 then
-			visualScrollX = scrollX
-		end
+		visualScrollX = scrollX + container.SCROLL_SMOOTHNESS * (visualScrollX - scrollX)
+		if math.abs(visualScrollX-scrollX) < .5 then  visualScrollX = scrollX  end
 		didScroll = true
 	end
-
 	if visualScrollY ~= scrollY then
-		visualScrollY = scrollY+self.SCROLL_SMOOTHNESS*(visualScrollY-scrollY)
-		if math.abs(visualScrollY-scrollY) < 0.5 then
-			visualScrollY = scrollY
-		end
+		visualScrollY = scrollY + container.SCROLL_SMOOTHNESS * (visualScrollY - scrollY)
+		if math.abs(visualScrollY-scrollY) < .5 then  visualScrollY = scrollY  end
 		didScroll = true
 	end
 
 	if didScroll then
-		setVisualScroll(self, visualScrollX, visualScrollY)
+		setVisualScroll(container, visualScrollX, visualScrollY)
 	end
 end
 
 
 
 -- INTERNAL REPLACE  container:_draw( )
-function Cs.container:_draw()
-	if self._hidden then  return  end
+function Cs.container._draw(container)
+	if container._hidden then  return  end
 
-	local gui        = self._gui
-	local x, y, w, h = xywh(self)
+	local gui        = container._gui
+	local x, y, w, h = xywh(container)
 
-	local maxW      , maxH       = self._maxWidth, self._maxHeight
-	local childAreaW, childAreaH = self:getChildAreaDimensions()
+	local maxW      , maxH       = container._maxWidth, container._maxHeight
+	local childAreaW, childAreaH = container:getChildAreaDimensions()
 
 	local sbW    = themeGet(gui, "scrollbarWidth")
 	local sbMinW = themeGet(gui, "scrollbarMinLength")
 
-	if not self._gui.debug then
-		triggerIncludingAnimations(self, "beforedraw", x, y, w, h)
+	if not container._gui.debug then
+		triggerIncludingAnimations(container, "beforedraw", x, y, w, h)
 	end
 
-	drawLayoutBackground(self)
-	self:_drawDebug(0, 0, 1)
+	drawLayoutBackground(container)
+	container:_drawDebug(0, 0, 1)
 
 	if maxW >= 0 or maxH >= 0 then
 		setScissor(gui, x, y, childAreaW, childAreaH)
 	end
-	for _, child in ipairs(self) do
+	for _, child in ipairs(container) do
 		child:_draw()
 	end
 	if maxW >= 0 or maxH >= 0 then
 		setScissor(gui, nil)
 	end
 
-	if not self._gui.debug then
+	if not container._gui.debug then
 		-- Horizontal scrollbar.
 		if maxW >= 0 then
-			local handlePos, handleLen = self:getScrollHandleX()
-			themeRenderArea(self, "scrollbar", 0, h-sbW, childAreaW, sbW, "x", round(handlePos), handleLen)
+			local handlePos, handleLen = container:getScrollHandleX()
+			themeRenderArea(container, "scrollbar", 0, h-sbW, childAreaW, sbW, "x", round(handlePos), handleLen)
 		end
 
 		-- Vertical scrollbar.
 		if maxH >= 0 then
-			local handlePos, handleLen = self:getScrollHandleY()
-			themeRenderArea(self, "scrollbar", w-sbW, 0, sbW, childAreaH, "y", round(handlePos), handleLen)
+			local handlePos, handleLen = container:getScrollHandleY()
+			themeRenderArea(container, "scrollbar", w-sbW, 0, sbW, childAreaH, "y", round(handlePos), handleLen)
 		end
 
 		if maxW >= 0 and maxH >= 0 then
-			themeRenderArea(self, "scrollbardeadzone", w-sbW, h-sbW, sbW, sbW)
+			themeRenderArea(container, "scrollbardeadzone", w-sbW, h-sbW, sbW, sbW)
 		end
 
-		triggerIncludingAnimations(self, "afterdraw", x, y, w, h)
+		triggerIncludingAnimations(container, "afterdraw", x, y, w, h)
 	end
 end
 
 
 
 -- element|nil = container:find( id )
-function Cs.container:find(id)
-	for el in self:traverse() do
+function Cs.container.find(container, id)
+	for el in container:traverse() do
 		if el._id == id then  return el  end
 	end
 	return nil
 end
 
 -- elements = container:findAll( id )
-function Cs.container:findAll(id)
+function Cs.container.findAll(container, id)
 	local els = {}
-	for el in self:traverse() do
+	for el in container:traverse() do
 		if el._id == id then  table.insert(els, el)  end
 	end
 	return els
 end
 
 -- element|nil = container:findType( elementType )
-function Cs.container:findType(elType)
+function Cs.container.findType(container, elType)
 	local C = requireElementClass(elType, 2)
 
-	for el in self:traverse() do
+	for el in container:traverse() do
 		if el:is(C) then  return el  end
 	end
 
@@ -7568,16 +7482,16 @@ function Cs.container:findType(elType)
 end
 
 -- widget|nil = container:findActive( )
-function Cs.container:findActive()
-	for el in self:traverse() do
+function Cs.container.findActive(container)
+	for el in container:traverse() do
 		if el:is(Cs.widget) and el._active then  return el  end
 	end
 	return nil
 end
 
 -- button|nil = container:findToggled( )
-function Cs.container:findToggled()
-	for el in self:traverse() do
+function Cs.container.findToggled(container)
+	for el in container:traverse() do
 		if el:is(Cs.button) and el._toggled then  return el  end
 	end
 	return nil
@@ -7587,16 +7501,16 @@ end
 -- selector    = "elementType #id .tag" -- Sequence of space-separated element types, IDs and tags.
 -- Match an element using a CSS-like selector.
 -- Note: Element types include subtypes (e.g. 'bar' includes both 'vbar' and 'hbar').
-function Cs.container:match(selector, includeSelf)
+function Cs.container.match(container, selector, includeSelf)
 	local selPath = parseSelector(selector)
 	if not selPath then  return nil  end
 
-	local breakElement = (not includeSelf and self or self._parent)
-	if includeSelf and isElementMatchingSelectorPath(self, selPath, breakElement) then
-		return self
+	local breakElement = (not includeSelf) and container or container._parent
+	if includeSelf and isElementMatchingSelectorPath(container, selPath, breakElement) then
+		return container
 	end
 
-	for el in self:traverse() do
+	for el in container:traverse() do
 		if isElementMatchingSelectorPath(el, selPath, breakElement) then
 			return el
 		end
@@ -7609,17 +7523,17 @@ end
 -- selector = "elementType #id .tag" -- Sequence of space-separated element types, IDs and tags.
 -- Match elements using a CSS-like selector.
 -- Note: Element types include subtypes (e.g. 'bar' includes both 'vbar' and 'hbar').
-function Cs.container:matchAll(selector, includeSelf)
+function Cs.container.matchAll(container, selector, includeSelf)
 	local elements = {}
-	local selPath = parseSelector(selector)
+	local selPath  = parseSelector(selector)
 
 	if selPath then
-		local breakElement = (not includeSelf and self or self._parent)
-		if includeSelf and isElementMatchingSelectorPath(self, selPath, breakElement) then
-			table.insert(elements, self)
+		local breakElement = (not includeSelf) and container or container._parent
+		if includeSelf and isElementMatchingSelectorPath(container, selPath, breakElement) then
+			table.insert(elements, container)
 		end
 
-		for el in self:traverse() do
+		for el in container:traverse() do
 			if isElementMatchingSelectorPath(el, selPath, breakElement) then
 				table.insert(elements, el)
 			end
@@ -7634,25 +7548,25 @@ end
 -- spaceX, spaceY = container:getInnerSpace( )
 -- space = container:getInnerSpaceX( )
 -- space = container:getInnerSpaceY( )
-function Cs.container:getInnerSpace()
-	local spaceX = self._paddingLeft + self._paddingRight
-	local spaceY = self._paddingTop  + self._paddingBottom
-	local sbW    = themeGet(self._gui, "scrollbarWidth")
-	if self:hasScrollbarOnRight()  then  spaceX = spaceX + sbW  end
-	if self:hasScrollbarOnBottom() then  spaceY = spaceY + sbW  end
+function Cs.container.getInnerSpace(container)
+	local spaceX = container._paddingLeft + container._paddingRight
+	local spaceY = container._paddingTop  + container._paddingBottom
+	local sbW    = themeGet(container._gui, "scrollbarWidth")
+	if container:hasScrollbarOnRight()  then  spaceX = spaceX + sbW  end
+	if container:hasScrollbarOnBottom() then  spaceY = spaceY + sbW  end
 	return spaceX, spaceY
 end
-function Cs.container:getInnerSpaceX()
-	local space = self._paddingLeft + self._paddingRight
-	if self:hasScrollbarOnRight() then
-		space = space + themeGet(self._gui, "scrollbarWidth")
+function Cs.container.getInnerSpaceX(container)
+	local space = container._paddingLeft + container._paddingRight
+	if container:hasScrollbarOnRight() then
+		space = space + themeGet(container._gui, "scrollbarWidth")
 	end
 	return space
 end
-function Cs.container:getInnerSpaceY()
-	local space = self._paddingTop + self._paddingBottom
-	if self:hasScrollbarOnBottom() then
-		space = space + themeGet(self._gui, "scrollbarWidth")
+function Cs.container.getInnerSpaceY(container)
+	local space = container._paddingTop + container._paddingBottom
+	if container:hasScrollbarOnBottom() then
+		space = space + themeGet(container._gui, "scrollbarWidth")
 	end
 	return space
 end
@@ -7662,42 +7576,39 @@ end
 -- width, height = container:getMaxDimensions( )
 -- width  = container:getMaxWidth( )
 -- height = container:getMaxHeight( )
-function Cs.container:getMaxDimensions()
-	return self._maxWidth, self._maxHeight
+function Cs.container.getMaxDimensions(container)
+	return container._maxWidth, container._maxHeight
 end
-function Cs.container:getMaxWidth()
-	return self._maxWidth
+function Cs.container.getMaxWidth(container)
+	return container._maxWidth
 end
-function Cs.container:getMaxHeight()
-	return self._maxHeight
+function Cs.container.getMaxHeight(container)
+	return container._maxHeight
 end
 
 -- container:setMaxDimensions( width, height )
 -- container:setMaxWidth( width )
 -- container:setMaxHeight( height )
 -- Negative values remove restrictions.
-function Cs.container:setMaxDimensions(w, h)
+function Cs.container.setMaxDimensions(container, w, h)
 	if type(w)~="number" then argerror(2,1,"w",w,"number") end
 	if type(h)~="number" then argerror(2,2,"h",h,"number") end
-	if self._maxWidth == w and self._maxHeight == h then  return  end
-
-	self._maxWidth  = w
-	self._maxHeight = h
-	scheduleLayoutUpdateIfDisplayed(self)
+	if container._maxWidth == w and container._maxHeight == h then  return  end
+	container._maxWidth  = w
+	container._maxHeight = h
+	scheduleLayoutUpdateIfDisplayed(container)
 end
-function Cs.container:setMaxWidth(w)
+function Cs.container.setMaxWidth(container, w)
 	if type(w)~="number" then argerror(2,1,"w",w,"number") end
-	if self._maxWidth == w then  return  end
-
-	self._maxWidth = w
-	scheduleLayoutUpdateIfDisplayed(self)
+	if container._maxWidth == w then  return  end
+	container._maxWidth = w
+	scheduleLayoutUpdateIfDisplayed(container)
 end
-function Cs.container:setMaxHeight(h)
+function Cs.container.setMaxHeight(container, h)
 	if type(h)~="number" then argerror(2,1,"h",h,"number") end
-	if self._maxHeight == h then  return  end
-
-	self._maxHeight = h
-	scheduleLayoutUpdateIfDisplayed(self)
+	if container._maxHeight == h then  return  end
+	container._maxHeight = h
+	scheduleLayoutUpdateIfDisplayed(container)
 end
 
 
@@ -7707,13 +7618,13 @@ end
 -- padding = container:getPaddingRight( )
 -- padding = container:getPaddingTop( )
 -- padding = container:getPaddingBottom( )
-function Cs.container:getPadding()
-	return self._paddingLeft, self._paddingRight, self._paddingTop, self._paddingBottom
+function Cs.container.getPadding(container)
+	return container._paddingLeft, container._paddingRight, container._paddingTop, container._paddingBottom
 end
-function Cs.container:getPaddingLeft  ()  return self._paddingLeft    end
-function Cs.container:getPaddingRight ()  return self._paddingRight   end
-function Cs.container:getPaddingTop   ()  return self._paddingTop     end
-function Cs.container:getPaddingBottom()  return self._paddingBottom  end
+function Cs.container.getPaddingLeft  (container)  return container._paddingLeft    end
+function Cs.container.getPaddingRight (container)  return container._paddingRight   end
+function Cs.container.getPaddingTop   (container)  return container._paddingTop     end
+function Cs.container.getPaddingBottom(container)  return container._paddingBottom  end
 
 -- container:setPadding( padding )
 -- container:setPadding( paddingHorizontal, paddingVertical )
@@ -7722,7 +7633,7 @@ function Cs.container:getPaddingBottom()  return self._paddingBottom  end
 -- container:setPaddingRight( padding )
 -- container:setPaddingTop( padding )
 -- container:setPaddingBottom( padding )
-function Cs.container:setPadding(paddingL, paddingR, paddingT, paddingB)
+function Cs.container.setPadding(container, paddingL, paddingR, paddingT, paddingB)
 	if type(paddingL)~="number" then argerror(2,1,"paddingL",paddingL,"number") end
 
 	if not paddingR then
@@ -7732,44 +7643,117 @@ function Cs.container:setPadding(paddingL, paddingR, paddingT, paddingB)
 	end
 
 	if
-		self._paddingLeft   == paddingL and
-		self._paddingRight  == paddingR and
-		self._paddingTop    == paddingT and
-		self._paddingBottom == paddingB
+		container._paddingLeft   == paddingL and
+		container._paddingRight  == paddingR and
+		container._paddingTop    == paddingT and
+		container._paddingBottom == paddingB
 	then
 		return
 	end
 
-	self._paddingLeft   = paddingL
-	self._paddingRight  = paddingR
-	self._paddingTop    = paddingT
-	self._paddingBottom = paddingB
+	container._paddingLeft   = paddingL
+	container._paddingRight  = paddingR
+	container._paddingTop    = paddingT
+	container._paddingBottom = paddingB
 
-	scheduleLayoutUpdateIfDisplayed(self)
+	scheduleLayoutUpdateIfDisplayed(container)
 end
-function Cs.container:setPaddingLeft(padding)
+function Cs.container.setPaddingLeft(container, padding)
 	if type(padding)~="number" then argerror(2,1,"padding",padding,"number") end
-	if self._paddingLeft == padding then  return  end
-	self._paddingLeft = padding
-	scheduleLayoutUpdateIfDisplayed(self)
+	if container._paddingLeft == padding then  return  end
+	container._paddingLeft = padding
+	scheduleLayoutUpdateIfDisplayed(container)
 end
-function Cs.container:setPaddingRight(padding)
+function Cs.container.setPaddingRight(container, padding)
 	if type(padding)~="number" then argerror(2,1,"padding",padding,"number") end
-	if self._paddingRight == padding then  return  end
-	self._paddingRight = padding
-	scheduleLayoutUpdateIfDisplayed(self)
+	if container._paddingRight == padding then  return  end
+	container._paddingRight = padding
+	scheduleLayoutUpdateIfDisplayed(container)
 end
-function Cs.container:setPaddingTop(padding)
+function Cs.container.setPaddingTop(container, padding)
 	if type(padding)~="number" then argerror(2,1,"padding",padding,"number") end
-	if self._paddingTop == padding then  return  end
-	self._paddingTop = padding
-	scheduleLayoutUpdateIfDisplayed(self)
+	if container._paddingTop == padding then  return  end
+	container._paddingTop = padding
+	scheduleLayoutUpdateIfDisplayed(container)
 end
-function Cs.container:setPaddingBottom(padding)
+function Cs.container.setPaddingBottom(container, padding)
 	if type(padding)~="number" then argerror(2,1,"padding",padding,"number") end
-	if self._paddingBottom == padding then  return  end
-	self._paddingBottom = padding
-	scheduleLayoutUpdateIfDisplayed(self)
+	if container._paddingBottom == padding then  return  end
+	container._paddingBottom = padding
+	scheduleLayoutUpdateIfDisplayed(container)
+end
+
+
+
+-- bool = container:isScrollbarXHovered( )
+-- bool = container:isScrollbarYHovered( )
+function Cs.container.isScrollbarXHovered(container)
+	local gui  = container._gui
+	local x, y = gui._mouseX, gui._mouseY
+	if x ==  -999999 then  return false  end
+
+	local x1, y1 = container:getPositionOnScreen()
+	local x2, y2 = x1+container:getChildAreaWidth(), y1+container._layoutHeight
+	y1           = y2 - themeGet(container._gui, "scrollbarWidth")
+
+	return (x >= x1 and x < x2 and y >= y1 and y < y2)
+end
+function Cs.container.isScrollbarYHovered(container)
+	local gui  = container._gui
+	local x, y = gui._mouseX, gui._mouseY
+	if x ==  -999999 then  return false  end
+
+	local x1, y1 = container:getPositionOnScreen()
+	local x2, y2 = x1+container._layoutWidth, y1+container:getChildAreaHeight()
+	x1           = x2 - themeGet(container._gui, "scrollbarWidth")
+
+	return (x >= x1 and x < x2 and y >= y1 and y < y2)
+end
+
+-- bool = container:isScrollbarXHandleHovered( )
+-- bool = container:isScrollbarYHandleHovered( )
+function Cs.container.isScrollbarXHandleHovered(container)
+	local gui  = container._gui
+	local x, y = gui._mouseX, gui._mouseY
+	if x ==  -999999 then  return false  end
+
+	local handlePos, handleLen = container:getScrollHandleX()
+	local x1, y1               = container:getPositionOnScreen()
+
+	x1       = x1 + handlePos
+	local x2 = x1 + handleLen
+
+	local y2 = y1 + container._layoutHeight
+	y1       = y2 - themeGet(container._gui, "scrollbarWidth")
+
+	return x >= x1 and x < x2 and y >= y1 and y < y2
+end
+function Cs.container.isScrollbarYHandleHovered(container)
+	local gui  = container._gui
+	local x, y = gui._mouseX, gui._mouseY
+	if x ==  -999999 then  return false  end
+
+	local handlePos, handleLen = container:getScrollHandleY()
+	local x1, y1               = container:getPositionOnScreen()
+
+	local x2 = x1 + container._layoutWidth
+	x1       = x2 - themeGet(container._gui, "scrollbarWidth")
+
+	y1       = y1 + handlePos
+	local y2 = y1 + handleLen
+
+	return x >= x1 and x < x2 and y >= y1 and y < y2
+end
+
+
+
+-- bool = container:isScrollingX( )
+-- bool = container:isScrollingY( )
+function Cs.container.isScrollingX(container)
+	return container._mouseScrollDirection == "x"
+end
+function Cs.container.isScrollingY(container)
+	return container._mouseScrollDirection == "y"
 end
 
 
@@ -7777,41 +7761,45 @@ end
 -- x, y = container:getScroll( )
 -- x = container:getScrollX( )
 -- y = container:getScrollY( )
-function Cs.container:getScroll()
-	return self._scrollX, self._scrollY
+function Cs.container.getScroll(container)
+	return container._scrollX, container._scrollY
 end
-function Cs.container:getScrollX()
-	return self._scrollX
+function Cs.container.getScrollX(container)
+	return container._scrollX
 end
-function Cs.container:getScrollY()
-	return self._scrollY
+function Cs.container.getScrollY(container)
+	return container._scrollY
 end
 
 -- scrollChanged = container:setScroll( x, y [, immediate=false ] )
-function Cs.container:setScroll(scrollX, scrollY, immediate)
+function Cs.container.setScroll(container, scrollX, scrollY, immediate)
 	if type(scrollX)~="number" then argerror(2,1,"scrollX",scrollX,"number") end
 	if type(scrollY)~="number" then argerror(2,2,"scrollY",scrollY,"number") end
-	updateLayoutIfNeeded(self._gui)
+	updateLayoutIfNeeded(container._gui)
 
-	-- Limit scrolling
-	local limitX, limitY = self:getScrollLimit()
-	scrollX = math.min(math.max(scrollX, limitX), 0)
-	scrollY = math.min(math.max(scrollY, limitY), 0)
-	local dx, dy = scrollX-self._scrollX, scrollY-self._scrollY
+	-- Limit scrolling.
+	local limitX, limitY = container:getScrollLimit()
+
+	scrollX  = math.min(math.max(scrollX, limitX), 0)
+	scrollY  = math.min(math.max(scrollY, limitY), 0)
+	local dx = scrollX - container._scrollX
+	local dy = scrollY - container._scrollY
+
 	if dx == 0 and dy == 0 then  return false  end
+	--
 
-	self._scrollX, self._scrollY = scrollX, scrollY
+	container._scrollX, container._scrollY = scrollX, scrollY
 
-	for el in self:traverse() do
+	for el in container:traverse() do
 		el._layoutImmediateOffsetX = el._layoutImmediateOffsetX+dx
 		el._layoutImmediateOffsetY = el._layoutImmediateOffsetY+dy
 	end
 
-	if immediate then  setVisualScroll(self, scrollX, scrollY)  end
+	if immediate then  setVisualScroll(container, scrollX, scrollY)  end
 
-	if self:isDisplayed() then
-		self:playSound("scroll") -- @Robustness: May have to add more limitations to whether "scroll" sound plays or not.
-		updateHoveredElement(self._gui)
+	if container:isDisplayed() then
+		container:playSound("scroll") -- @Robustness: May have to add more limitations to whether "scroll" sound plays or not.
+		updateHoveredElement(container._gui)
 	end
 
 	return true
@@ -7819,33 +7807,33 @@ end
 
 -- scrollChanged = container:setScrollX( x [, immediate=false ] )
 -- scrollChanged = container:setScrollY( y [, immediate=false ] )
-function Cs.container:setScrollX(scrollX, immediate)
-	return self:setScroll(scrollX, self._scrollY, immediate)
+function Cs.container.setScrollX(container, scrollX, immediate)
+	return (container:setScroll(scrollX, container._scrollY, immediate))
 end
-function Cs.container:setScrollY(scrollY, immediate)
-	return self:setScroll(self._scrollX, scrollY, immediate)
+function Cs.container.setScrollY(container, scrollY, immediate)
+	return (container:setScroll(container._scrollX, scrollY, immediate))
 end
 
 -- scrollChanged = container:scroll( deltaX, deltaY [, immediate=false ] )
-function Cs.container:scroll(dx, dy, immediate)
-	return self:setScroll(self._scrollX+dx, self._scrollY+dy, immediate)
+function Cs.container.scroll(container, dx, dy, immediate)
+	return (container:setScroll(container._scrollX+dx, container._scrollY+dy, immediate))
 end
 
 -- scrollChanged = container:updateScroll( [, immediate=false ] )
 -- @Incomplete: Update scroll automatically when elements change size etc.
-function Cs.container:updateScroll(immediate)
-	return self:scroll(0, 0, immediate)
+function Cs.container.updateScroll(container, immediate)
+	return (container:scroll(0, 0, immediate))
 end
 
 
 
 do
-	local function getScrollHandle(self, padding, childAreaSize, contentSize, scroll)
+	local function getScrollHandle(container, padding, childAreaSize, contentSize, scroll)
 		local insideSize = childAreaSize - padding
 
 		local handleLen = math.max(
 			round(childAreaSize * insideSize / contentSize),
-			themeGet(self._gui, "scrollbarMinLength")
+			themeGet(container._gui, "scrollbarMinLength")
 		)
 
 		local handlePos    = 0
@@ -7864,13 +7852,13 @@ do
 	-- position, length, maxPosition = container:getScrollHandleX( )
 	-- position, length, maxPosition = container:getScrollHandleY( )
 	-- Units are in pixels.
-	function Cs.container:getScrollHandleX()
-		updateLayoutIfNeeded(self._gui)
-		return getScrollHandle(self, self._paddingLeft+self._paddingRight, self:getChildAreaWidth(), self._contentWidth, self._scrollX)
+	function Cs.container.getScrollHandleX(container)
+		updateLayoutIfNeeded(container._gui)
+		return getScrollHandle(container, container._paddingLeft+container._paddingRight, container:getChildAreaWidth(), container._contentWidth, container._scrollX)
 	end
-	function Cs.container:getScrollHandleY()
-		updateLayoutIfNeeded(self._gui)
-		return getScrollHandle(self, self._paddingTop+self._paddingBottom, self:getChildAreaHeight(), self._contentHeight, self._scrollY)
+	function Cs.container.getScrollHandleY(container)
+		updateLayoutIfNeeded(container._gui)
+		return getScrollHandle(container, container._paddingTop+container._paddingBottom, container:getChildAreaHeight(), container._contentHeight, container._scrollY)
 	end
 end
 
@@ -7879,25 +7867,25 @@ end
 -- x, y = container:getScrollLimit( )
 -- x = container:getScrollLimitX( )
 -- y = container:getScrollLimitY( )
-function Cs.container:getScrollLimit()
-	local childAreaW, childAreaH = self:getChildAreaDimensions()
+function Cs.container.getScrollLimit(container)
+	local w, h = container:getChildAreaDimensions()
 	return
-		childAreaW - (self._paddingLeft+self._paddingRight) - self._contentWidth,
-		childAreaH - (self._paddingTop+self._paddingBottom) - self._contentHeight
+		w - (container._paddingLeft+container._paddingRight) - container._contentWidth,
+		h - (container._paddingTop+container._paddingBottom) - container._contentHeight
 end
-function Cs.container:getScrollLimitX()
-	return self:getChildAreaWidth()  - (self._paddingLeft+self._paddingRight) - self._contentWidth
+function Cs.container.getScrollLimitX(container)
+	return container:getChildAreaWidth()  - (container._paddingLeft+container._paddingRight) - container._contentWidth
 end
-function Cs.container:getScrollLimitY()
-	return self:getChildAreaHeight() - (self._paddingTop+self._paddingBottom) - self._contentHeight
+function Cs.container.getScrollLimitY(container)
+	return container:getChildAreaHeight() - (container._paddingTop+container._paddingBottom) - container._contentHeight
 end
 
 
 
 -- child = container:getVisibleChild( [ number=1 ] )
-function Cs.container:getVisibleChild(n)
-	n = (n or 1)
-	for _, child in ipairs(self) do
+function Cs.container.getVisibleChild(container, n)
+	n = n or 1
+	for _, child in ipairs(container) do
 		if not child._hidden then
 			n = n - 1
 			if n == 0 then  return child  end
@@ -7907,9 +7895,9 @@ function Cs.container:getVisibleChild(n)
 end
 
 -- number = container:getVisibleChildNumber( child )
-function Cs.container:getVisibleChildNumber(el)
+function Cs.container.getVisibleChildNumber(container, el)
 	local n = 0
-	for _, child in ipairs(self) do
+	for _, child in ipairs(container) do
 		if not child._hidden then
 			n = n + 1
 			if child == el then  return n  end
@@ -7919,9 +7907,9 @@ function Cs.container:getVisibleChildNumber(el)
 end
 
 -- count = container:getVisibleChildCount( )
-function Cs.container:getVisibleChildCount()
+function Cs.container.getVisibleChildCount(container)
 	local count = 0
-	for _, child in ipairs(self) do
+	for _, child in ipairs(container) do
 		if not child._hidden then  count = count + 1  end
 	end
 	return count
@@ -7930,9 +7918,9 @@ end
 -- visibleChild = container:setVisibleChild( id )
 -- If multiple children have the specified ID then the last one is returned.
 -- @Cleanup: Rename to setVisibleChildById()? Maybe more functions should be changed too.
-function Cs.container:setVisibleChild(id)
+function Cs.container.setVisibleChild(container, id)
 	local visibleChild = nil
-	for _, child in ipairs(self) do
+	for _, child in ipairs(container) do
 		if child._id == id then
 			child:show()
 			visibleChild = child
@@ -7948,14 +7936,14 @@ end
 -- x, y = container:getVisualScroll( )
 -- x = container:getVisualScrollX( )
 -- y = container:getVisualScrollY( )
-function Cs.container:getVisualScroll()
-	return self._visualScrollX, self._visualScrollY
+function Cs.container.getVisualScroll(container)
+	return container._visualScrollX, container._visualScrollY
 end
-function Cs.container:getVisualScrollX()
-	return self._visualScrollX
+function Cs.container.getVisualScrollX(container)
+	return container._visualScrollX
 end
-function Cs.container:getVisualScrollY()
-	return self._visualScrollY
+function Cs.container.getVisualScrollY(container)
+	return container._visualScrollY
 end
 
 
@@ -7963,14 +7951,14 @@ end
 -- bool = hasAnyScrollbar( )
 -- bool = hasScrollbarOnRight( )
 -- bool = hasScrollbarOnBottom( )
-function Cs.container:hasAnyScrollbar()
-	return self:hasScrollbarOnRight() or self:hasScrollbarOnBottom()
+function Cs.container.hasAnyScrollbar(container)
+	return container._maxHeight >= 0 or container._maxWidth >= 0
 end
-function Cs.container:hasScrollbarOnRight()
-	return self._maxHeight >= 0
+function Cs.container.hasScrollbarOnRight(container)
+	return container._maxHeight >= 0
 end
-function Cs.container:hasScrollbarOnBottom()
-	return self._maxWidth >= 0
+function Cs.container.hasScrollbarOnBottom(container)
+	return container._maxWidth >= 0
 end
 
 
@@ -7982,8 +7970,8 @@ Cs.container.indexOf = indexOf
 
 
 -- REPLACE  bool = container:isSolid( )
-function Cs.container:isSolid()
-	return self._solid or self._background ~= "" or self._maxWidth >= 0 or self._maxHeight >= 0
+function Cs.container.isSolid(container)
+	return container._solid or container._background ~= "" or container._maxWidth >= 0 or container._maxHeight >= 0
 end
 
 
@@ -7992,53 +7980,53 @@ end
 -- child, index = container:get( id )
 -- Note: container:get(index) is the same as container[index].
 -- Returns nil if no child matches.
-function Cs.container:get(iOrId)
+function Cs.container.get(container, iOrId)
 	if type(iOrId) == "string" then
-		for i, child in ipairs(self) do
+		for i, child in ipairs(container) do
 			if child._id == iOrId then  return child, i  end
 		end
 		return nil
 	else
-		local child = self[iOrId]
+		local child = container[iOrId]
 		return child, (child and iOrId or nil)
 	end
 end
 
 -- for index, child in container:children( )
-function Cs.container:children()
-	return ipairs(self)
-end
+Cs.container.children = ipairs
 
 
 
 -- width, height = container:getChildAreaDimensions( )
 -- width  = container:getChildAreaWidth( )
 -- height = container:getChildAreaHeight( )
-function Cs.container:getChildAreaDimensions()
-	updateLayoutIfNeeded(self._gui)
-	local sbW = themeGet(self._gui, "scrollbarWidth")
+function Cs.container.getChildAreaDimensions(container)
+	updateLayoutIfNeeded(container._gui)
+	local sbW = themeGet(container._gui, "scrollbarWidth")
 	return
-		(self._maxHeight >= 0 and self._layoutWidth -sbW or self._layoutWidth),
-		(self._maxWidth  >= 0 and self._layoutHeight-sbW or self._layoutHeight)
+		(container._maxHeight >= 0 and container._layoutWidth -sbW or container._layoutWidth ),
+		(container._maxWidth  >= 0 and container._layoutHeight-sbW or container._layoutHeight)
 end
-function Cs.container:getChildAreaWidth()
-	updateLayoutIfNeeded(self._gui)
+function Cs.container.getChildAreaWidth(container)
+	updateLayoutIfNeeded(container._gui)
 	return
-		self:hasScrollbarOnRight() and self._layoutWidth-themeGet(self._gui, "scrollbarWidth")
-		or self._layoutWidth
+		container:hasScrollbarOnRight()
+		and container._layoutWidth - themeGet(container._gui, "scrollbarWidth")
+		or  container._layoutWidth
 end
-function Cs.container:getChildAreaHeight()
-	updateLayoutIfNeeded(self._gui)
+function Cs.container.getChildAreaHeight(container)
+	updateLayoutIfNeeded(container._gui)
 	return
-		self:hasScrollbarOnBottom() and self._layoutHeight-themeGet(self._gui, "scrollbarWidth")
-		or self._layoutHeight
+		container:hasScrollbarOnBottom()
+		and container._layoutHeight - themeGet(container._gui, "scrollbarWidth")
+		or  container._layoutHeight
 end
 
 
 
 -- child|nil = container:getChildWithData( dataKey, dataValue )
-function Cs.container:getChildWithData(k, v)
-	for _, child in ipairs(self) do
+function Cs.container.getChildWithData(container, k, v)
+	for _, child in ipairs(container) do
 		if child._data[k] == v then  return child  end
 	end
 	return nil
@@ -8047,13 +8035,13 @@ end
 
 
 -- element|nil = container:getElementAt( x, y [, includeNonSolid=false ] )
-function Cs.container:getElementAt(x, y, nonSolid)
-	updateLayoutIfNeeded(self._gui)
+function Cs.container.getElementAt(container, x, y, nonSolid)
+	updateLayoutIfNeeded(container._gui)
 
-	if self._maxWidth  >= 0 and (x < self._layoutX or x >= self._layoutX+self._layoutWidth ) then  return nil  end
-	if self._maxHeight >= 0 and (y < self._layoutY or y >= self._layoutY+self._layoutHeight) then  return nil  end
+	if container._maxWidth  >= 0 and (x < container._layoutX or x >= container._layoutX+container._layoutWidth ) then  return nil  end
+	if container._maxHeight >= 0 and (y < container._layoutY or y >= container._layoutY+container._layoutHeight) then  return nil  end
 
-	for _, el in ipairs(self:_collectVisibleUntilInputCapture(__STATIC10)) do
+	for _, el in ipairs(container:_collectVisibleUntilInputCapture(__STATIC10)) do
 		if ((nonSolid or el:isSolid()) and el:isAt(x, y)) or (el._captureInput or el._captureGuiInput) then
 			return el
 		end
@@ -8066,18 +8054,18 @@ end
 
 -- child = container:insert( elementData [, index=atEnd ] )
 -- See gui:load() for the elementData format.
-function Cs.container:insert(childData, i)
+function Cs.container.insert(container, childData, i)
 	if type(childData)~="table" then argerror(2,1,"childData",childData,"table") end
 	if not(type(i)=="number" or i==nil) then argerror(2,2,"i",i,"number","nil") end
 
 	local C     = Cs[getTypeFromElementData(childData)] or errorf("Bad element type '%s'.", getTypeFromElementData(childData))
-	local child = C(self._gui, childData, self)
-	table.insert(self, (i or #self+1), child)
+	local child = C(container._gui, childData, container)
+	table.insert(container, (i or #container+1), child)
 
-	printHeres(self._gui)
+	printHeres(container._gui)
 	scheduleLayoutUpdateIfDisplayed(child)
 
-	local themeInit = themeGet(self._gui, "init")
+	local themeInit = themeGet(container._gui, "init")
 	themeInit(child)
 	if child:is(Cs.container) then
 		for el in child:traverse() do
@@ -8085,7 +8073,7 @@ function Cs.container:insert(childData, i)
 		end
 	end
 
-	validateNavigationTarget(self._gui)
+	validateNavigationTarget(container._gui)
 	scheduleLayoutUpdateIfDisplayed(child)
 
 	return child
@@ -8093,10 +8081,10 @@ end
 
 -- REPLACE  container:removeAt( index )
 -- Note that grandchildren are also removed from their parent. (Is this good?)
-function Cs.container:removeAt(i)
+function Cs.container.removeAt(container, i)
 	if type(i)~="number" then argerror(2,1,"i",i,"number") end
 
-	local child = self[i]
+	local child = container[i]
 	if not child then
 		printerr(2, "Child index %d is out of bounds.", i)
 		return
@@ -8108,47 +8096,46 @@ function Cs.container:removeAt(i)
 
 	-- Note: The child still keeps the reference to the GUI.
 	child._parent = nil
-	table.remove(self, i)
+	table.remove(container, i)
 
-	validateNavigationTarget(self._gui)
-	scheduleLayoutUpdateIfDisplayed(self)
+	validateNavigationTarget(container._gui)
+	scheduleLayoutUpdateIfDisplayed(container)
 end
 
 -- container:empty( )
 -- Note that children are also emptied recursively. (Is this good?)
-function Cs.container:empty()
-	for i = #self, 1, -1 do
-		self:removeAt(i)
+function Cs.container.empty(container)
+	for i = #container, 1, -1 do
+		container:removeAt(i)
 	end
 end
 
 
 
 -- INTERNAL REPLACE  handled, grabMouseFocus = container:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
-function Cs.container:_mousepressed(mx, my, mbutton, pressCount)
+function Cs.container._mousepressed(container, mx, my, mbutton, pressCount)
 	if mbutton == 1 then
-		local x0        , y0         = self:getPositionOnScreen()
-		local childAreaW, childAreaH = self:getChildAreaDimensions()
-		local sbW                    = themeGet(self._gui, "scrollbarWidth")
+		local x0        , y0         = container:getPositionOnScreen()
+		local childAreaW, childAreaH = container:getChildAreaDimensions()
+		local sbW                    = themeGet(container._gui, "scrollbarWidth")
 
 		-- Horizontal scrolling.
 		----------------------------------------------------------------
-		local x2, y2 = x0+childAreaW, y0+self._layoutHeight
+		local x2, y2 = x0+childAreaW, y0+container._layoutHeight
 		local x1, y1 = x0           , y2-sbW
 
 		if mx >= x1 and mx < x2 and my >= y1 and my < y2 then
-			local handlePos, handleLen, handleMaxPos = self:getScrollHandleX()
-
-			self._mouseScrollDirection = "x"
+			local handlePos, handleLen, handleMaxPos = container:getScrollHandleX()
+			container._mouseScrollDirection          = "x"
 
 			-- Drag handle.
 			if mx >= x1+handlePos and mx < x1+handlePos+handleLen then
-				self._mouseScrollOffset = mx-x1-handlePos
+				container._mouseScrollOffset = mx-x1-handlePos
 
 			-- Jump and drag.
 			else
-				self._mouseScrollOffset = handleLen/2
-				self:_mousemoved(mx, my)
+				container._mouseScrollOffset = handleLen/2
+				container:_mousemoved(mx, my)
 			end
 
 			return true, true
@@ -8156,22 +8143,21 @@ function Cs.container:_mousepressed(mx, my, mbutton, pressCount)
 
 		-- Vertical scrolling.
 		----------------------------------------------------------------
-		local x2, y2 = x0+self._layoutWidth, y0+childAreaH
-		local x1, y1 = x2-sbW              , y0
+		local x2, y2 = x0+container._layoutWidth, y0+childAreaH
+		local x1, y1 = x2-sbW                   , y0
 
 		if mx >= x1 and mx < x2 and my >= y1 and my < y2 then
-			local handlePos, handleLen, handleMaxPos = self:getScrollHandleY()
-
-			self._mouseScrollDirection = "y"
+			local handlePos, handleLen, handleMaxPos = container:getScrollHandleY()
+			container._mouseScrollDirection          = "y"
 
 			-- Drag handle.
 			if my >= y1+handlePos and my < y1+handlePos+handleLen then
-				self._mouseScrollOffset = my-y1-handlePos
+				container._mouseScrollOffset = my-y1-handlePos
 
 			-- Jump and drag.
 			else
-				self._mouseScrollOffset = handleLen/2
-				self:_mousemoved(mx, my)
+				container._mouseScrollOffset = handleLen/2
+				container:_mousemoved(mx, my)
 			end
 
 			return true, true
@@ -8184,33 +8170,33 @@ function Cs.container:_mousepressed(mx, my, mbutton, pressCount)
 end
 
 -- INTERNAL REPLACE  container:_mousemoved( mouseX, mouseY )
-function Cs.container:_mousemoved(mx, my)
+function Cs.container._mousemoved(container, mx, my)
 	-- Horizontal scrolling.
-	if self._mouseScrollDirection == "x" then
-		local _, _, handleMaxPos = self:getScrollHandleX()
-		self:setScrollX((mx - self:getXOnScreen() - self._mouseScrollOffset) * self:getScrollLimitX() / handleMaxPos, true)
+	if container._mouseScrollDirection == "x" then
+		local _, _, handleMaxPos = container:getScrollHandleX()
+		container:setScrollX((mx - container:getXOnScreen() - container._mouseScrollOffset) * container:getScrollLimitX() / handleMaxPos, true)
 
 	-- Vertical scrolling.
-	elseif self._mouseScrollDirection == "y" then
-		local _, _, handleMaxPos = self:getScrollHandleY()
-		self:setScrollY((my - self:getYOnScreen() - self._mouseScrollOffset) * self:getScrollLimitY() / handleMaxPos, true)
+	elseif container._mouseScrollDirection == "y" then
+		local _, _, handleMaxPos = container:getScrollHandleY()
+		container:setScrollY((my - container:getYOnScreen() - container._mouseScrollOffset) * container:getScrollLimitY() / handleMaxPos, true)
 	end
 end
 
 -- INTERNAL REPLACE  container:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
-function Cs.container:_mousereleased(mx, my, mbutton, pressCount)
+function Cs.container._mousereleased(container, mx, my, mbutton, pressCount)
 	if mbutton == 1 then
-		self._mouseScrollDirection = ""
-		self._mouseScrollOffset    = 0
+		container._mouseScrollDirection = ""
+		container._mouseScrollOffset    = 0
 	end
 end
 
 -- INTERNAL REPLACE  handled = container:_wheelmoved( deltaX, deltaY )
-function Cs.container:_wheelmoved(dx, dy)
-	if (dx ~= 0 and self._maxWidth >= 0) or (dy ~= 0 and self._maxHeight >= 0) then
-		if self:scroll(
-			self._gui._scrollSpeedX * self.SCROLL_SPEED_X * dx, -- @Incomplete: Scroll relative to font size instead of SCROLL_SPEED_*.
-			self._gui._scrollSpeedY * self.SCROLL_SPEED_Y * dy
+function Cs.container._wheelmoved(container, dx, dy)
+	if (dx ~= 0 and container._maxWidth >= 0) or (dy ~= 0 and container._maxHeight >= 0) then
+		if container:scroll(
+			container._gui._scrollSpeedX * container.SCROLL_SPEED_X * dx, -- @Incomplete: Scroll relative to font size instead of SCROLL_SPEED_*.
+			container._gui._scrollSpeedY * container.SCROLL_SPEED_Y * dy
 		) then
 			return true
 		end
@@ -8221,19 +8207,19 @@ end
 
 
 -- OVERRIDE  container:remove( )
-function Cs.container:remove(_removeAt_i)
+function Cs.container.remove(container, _removeAt_i)
 	if _removeAt_i ~= nil then
 		printerr(2, "WARNING: container:remove() called with an argument. Did you mean to call container:removeAt(index)?")
 	end
-	return Cs.container.super.remove(self)
+	return Cs.container.super.remove(container)
 end
 
 
 
 -- OVERRIDE  container:reprocessTexts( )
-function Cs.container:reprocessTexts()
-	Cs.container.super.reprocessTexts(self)
-	for _, child in ipairs(self) do
+function Cs.container.reprocessTexts(container)
+	Cs.container.super.reprocessTexts(container)
+	for _, child in ipairs(container) do
 		child:reprocessTexts()
 	end
 end
@@ -8241,8 +8227,8 @@ end
 
 
 -- container:setChildrenActive( bool )
-function Cs.container:setChildrenActive(active)
-	for _, child in ipairs(self) do
+function Cs.container.setChildrenActive(container, active)
+	for _, child in ipairs(container) do
 		if child:is(Cs.widget) then  child:setActive(active)  end
 	end
 end
@@ -8250,8 +8236,8 @@ end
 
 
 -- container:setChildrenHidden( bool )
-function Cs.container:setChildrenHidden(hidden)
-	for _, child in ipairs(self) do
+function Cs.container.setChildrenHidden(container, hidden)
+	for _, child in ipairs(container) do
 		child:setHidden(hidden)
 	end
 end
@@ -8259,13 +8245,13 @@ end
 
 
 -- button|nil = container:getToggledChild( [ includeGrandchildren=false ] )
-function Cs.container:getToggledChild(deep)
+function Cs.container.getToggledChild(container, deep)
 	if deep then
-		for button in self:traverseType"button" do
+		for button in container:traverseType"button" do
 			if button:isToggled() then  return button  end
 		end
 	else
-		for _, child in ipairs(self) do
+		for _, child in ipairs(container) do
 			if child:is(Cs.button) and child:isToggled() then  return child  end
 		end
 	end
@@ -8274,10 +8260,10 @@ end
 
 -- button|nil = container:setToggledChild( id [, includeGrandchildren=false ] )
 -- If multiple children have the specified ID then the last one is returned.
-function Cs.container:setToggledChild(id, deep)
+function Cs.container.setToggledChild(container, id, deep)
 	local toggledChild = nil
 	if deep then
-		for button in self:traverseType"button" do
+		for button in container:traverseType"button" do
 			if button._id == id then
 				button:setToggled(true)
 				toggledChild = button
@@ -8286,7 +8272,7 @@ function Cs.container:setToggledChild(id, deep)
 			end
 		end
 	else
-		for _, child in ipairs(self) do
+		for _, child in ipairs(container) do
 			if child:is(Cs.button) then
 				if child._id == id then
 					child:setToggled(true)
@@ -8304,21 +8290,21 @@ end
 
 -- container:sort( sortFunction )
 -- aIsLessThanB = sortFunction( elementA, elementB )
-function Cs.container:sort(f)
-	if type(f)~="function" then argerror(2,1,"f",f,"function") end
-	table.sort(self, f)
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.container.sort(container, func)
+	if type(func)~="function" then argerror(2,1,"func",func,"function") end
+	table.sort(container, func)
+	scheduleLayoutUpdateIfDisplayed(container)
 end
 
 
 
 -- for element in container:traverse( )
-function Cs.container:traverse()
+function Cs.container.traverse(container)
 
-	local stack = {self, 0}
+	local stack = {container, 0} -- @Memory
 	local len   = 2
 
-	return function()
+	return function() -- @Memory
 		local child
 
 
@@ -8346,13 +8332,13 @@ function Cs.container:traverse()
 end
 
 -- for element in container:traverseType( elementType )
-function Cs.container:traverseType(elType)
+function Cs.container.traverseType(container, elType)
 	local C = requireElementClass(elType, 2)
 
-	local stack = {self, 0}
+	local stack = {container, 0} -- @Memory
 	local len   = 2
 
-	return function()
+	return function() -- @Memory
 		local child
 
 		repeat
@@ -8558,39 +8544,39 @@ do
 
 	-- for element in container:traverseVisible( )
 	-- for element in container:traverseVisible( x, y )
-	function Cs.container:traverseVisible(x, y)
-		if x then  return newIteratorCoroutine(_traverseVisibleAt, self, x, y, themeGet(self._gui, "scrollbarWidth"))
-		else       return newIteratorCoroutine(_traverseVisible  , self)  end
+	function Cs.container.traverseVisible(container, x, y)
+		if x then  return newIteratorCoroutine(_traverseVisibleAt, container, x, y, themeGet(container._gui, "scrollbarWidth"))
+		else       return newIteratorCoroutine(_traverseVisible  , container)  end
 	end
 
 	-- container:visitVisible( callback )
 	-- container:visitVisible( x, y, callback )
 	-- traversalAction = callback( element )
 	-- traversalAction = "continue" | "stop" -- Returning nil means "continue".
-	function Cs.container:visitVisible(x, y, cb)
-		if y then  _visitVisibleAt(self, x, y, themeGet(self._gui, "scrollbarWidth"), cb)
-		else       _visitVisible  (self, x)  end
+	function Cs.container.visitVisible(container, x, y, cb)
+		if y then  _visitVisibleAt(container, x, y, themeGet(container._gui, "scrollbarWidth"), cb)
+		else       _visitVisible  (container, x)  end
 	end
 
 	-- elements = container:collectVisible( [ array={} ] )
 	-- elements = container:collectVisible( x, y, [, array={} ] )
-	function Cs.container:collectVisible(x, y, elements)
+	function Cs.container.collectVisible(container, x, y, elements)
 		if y then
 			elements = elements or {}
 			for i = 1, #elements do  elements[i] = nil  end
-			_collectVisibleAt(self, x, y, themeGet(self._gui, "scrollbarWidth"), elements)
+			_collectVisibleAt(container, x, y, themeGet(container._gui, "scrollbarWidth"), elements)
 		else
 			elements = x or {}
 			for i = 1, #elements do  elements[i] = nil  end
-			_collectVisible(self, elements)
+			_collectVisible(container, elements)
 		end
 		return elements
 	end
 
 	-- INTERNAL  elements = container:_collectVisibleUntilInputCapture( array )
-	function Cs.container:_collectVisibleUntilInputCapture(elements)
+	function Cs.container._collectVisibleUntilInputCapture(container, elements)
 		for i = 1, #elements do  elements[i] = nil  end
-		_collectVisibleUntilInputCapture(self, elements)
+		_collectVisibleUntilInputCapture(container, elements)
 		return elements
 	end
 end
@@ -8598,13 +8584,13 @@ end
 
 
 -- INTERNAL REPLACE  container:_calculateNaturalSize( )
-function Cs.container:_calculateNaturalSize()
-	calculateContainerChildNaturalSizes(self)
+function Cs.container._calculateNaturalSize(container)
+	calculateContainerChildNaturalSizes(container)
 
 	local maxX = 0
 	local maxY = 0
 
-	for _, child in ipairs(self) do
+	for _, child in ipairs(container) do
 		if not (child._hidden or child._floating) then
 			-- Note: We don't consider the anchor as we only care about the size here.
 			-- We do treat the position offset as part of the size (added to the top left of the child).
@@ -8614,13 +8600,13 @@ function Cs.container:_calculateNaturalSize()
 		end
 	end
 
-	updateContainerNaturalSize(self, maxX, maxY)
+	updateContainerNaturalSize(container, maxX, maxY)
 end
 
 -- INTERNAL REPLACE  container:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
-function Cs.container:_expandSelfAndPositionChildren(expandW, expandH, floating)
-	expandAndPositionContainer(self, expandW, expandH, floating, true)
-	expandAndPositionChildrenOfNonLayoutContainer(self)
+function Cs.container._expandSelfAndPositionChildren(container, expandW, expandH, floating)
+	expandAndPositionContainer(container, expandW, expandH, floating, true)
+	expandAndPositionChildrenOfNonLayoutContainer(container)
 end
 
 
@@ -8645,11 +8631,11 @@ Cs.bar = newElementClass(true, "GuiBar", Cs.container, {}, {
 	-- void
 })
 
-function Cs.bar:init(gui, elData, parent)
-	Cs.bar.super.init(self, gui, elData, parent)
+function Cs.bar.init(bar, gui, elData, parent)
+	Cs.bar.super.init(bar, gui, elData, parent)
 
-	if elData.expandPerpendicular ~= nil then self._expandPerpendicular = elData.expandPerpendicular end
-	if elData.homogeneous ~= nil then self._homogeneous = elData.homogeneous end
+	if elData.expandPerpendicular ~= nil then bar._expandPerpendicular = elData.expandPerpendicular end
+	if elData.homogeneous ~= nil then bar._homogeneous = elData.homogeneous end
 end
 
 
@@ -8671,61 +8657,61 @@ Cs.vbar = newElementClass(false, "GuiVerticalBar", Cs.bar, {}, {
 	-- void
 })
 
--- function Cs.hbar:init(gui, elData, parent)
--- 	Cs.hbar.super.init(self, gui, elData, parent)
+-- function Cs.hbar.init(bar, gui, elData, parent)
+-- 	Cs.hbar.super.init(bar, gui, elData, parent)
 -- end
--- function Cs.vbar:init(gui, elData, parent)
--- 	Cs.vbar.super.init(self, gui, elData, parent)
+-- function Cs.vbar.init(bar, gui, elData, parent)
+-- 	Cs.vbar.super.init(bar, gui, elData, parent)
 -- end
 
 
 
 -- INTERNAL REPLACE  hbar:_calculateNaturalSize( )
 -- INTERNAL REPLACE  vbar:_calculateNaturalSize( )
-function Cs.hbar:_calculateNaturalSize()
-	calculateContainerChildNaturalSizes(self)
+function Cs.hbar._calculateNaturalSize(bar)
+	calculateContainerChildNaturalSizes(bar)
 
 	local staticW, dynamicW, highestW, highestDynamicW, sumSx,
 	      staticH, dynamicH, highestH, highestDynamicH, sumSy,
-	      totalWeight = getBarNaturalSizeValues(self)
+	      totalWeight = getBarNaturalSizeValues(bar)
 
-	local innerW = (self._homogeneous and highestDynamicW*totalWeight or dynamicW) + staticW + sumSx
+	local innerW = (bar._homogeneous and highestDynamicW*totalWeight or dynamicW) + staticW + sumSx
 
-	innerW   = math.max(innerW,   self._minWidth -self:getInnerSpaceX())
-	highestH = math.max(highestH, self._minHeight-self:getInnerSpaceY())
+	innerW   = math.max(innerW,   bar._minWidth -bar:getInnerSpaceX())
+	highestH = math.max(highestH, bar._minHeight-bar:getInnerSpaceY())
 
-	self._layoutInnerStaticHeight, self._layoutInnerStaticWidth = 0, staticW
-	self._layoutInnerSpacingsY   , self._layoutInnerSpacingsX   = 0, sumSx
+	bar._layoutInnerStaticHeight, bar._layoutInnerStaticWidth = 0, staticW
+	bar._layoutInnerSpacingsY   , bar._layoutInnerSpacingsX   = 0, sumSx
 
-	updateContainerNaturalSize(self, innerW, highestH)
+	updateContainerNaturalSize(bar, innerW, highestH)
 end
-function Cs.vbar:_calculateNaturalSize()
-	calculateContainerChildNaturalSizes(self)
+function Cs.vbar._calculateNaturalSize(bar)
+	calculateContainerChildNaturalSizes(bar)
 
 	local staticW, dynamicW, highestW, highestDynamicW, sumSx,
 	      staticH, dynamicH, highestH, highestDynamicH, sumSy,
-	      totalWeight = getBarNaturalSizeValues(self)
+	      totalWeight = getBarNaturalSizeValues(bar)
 
-	local innerH = (self._homogeneous and highestDynamicH*totalWeight or dynamicH) + staticH + sumSy
+	local innerH = (bar._homogeneous and highestDynamicH*totalWeight or dynamicH) + staticH + sumSy
 
-	innerH   = math.max(innerH,   self._minHeight-self:getInnerSpaceY())
-	highestW = math.max(highestW, self._minWidth -self:getInnerSpaceX())
+	innerH   = math.max(innerH,   bar._minHeight-bar:getInnerSpaceY())
+	highestW = math.max(highestW, bar._minWidth -bar:getInnerSpaceX())
 
-	self._layoutInnerStaticWidth, self._layoutInnerStaticHeight = 0, staticH
-	self._layoutInnerSpacingsX  , self._layoutInnerSpacingsY    = 0, sumSy
+	bar._layoutInnerStaticWidth, bar._layoutInnerStaticHeight = 0, staticH
+	bar._layoutInnerSpacingsX  , bar._layoutInnerSpacingsY    = 0, sumSy
 
-	updateContainerNaturalSize(self, highestW, innerH)
+	updateContainerNaturalSize(bar, highestW, innerH)
 end
 
 
 
 -- INTERNAL REPLACE  hbar:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
 -- INTERNAL REPLACE  vbar:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
-function Cs.hbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
+function Cs.hbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 
 
 
-	expandAndPositionContainer(self, expandW, expandH, floating, false)
+	expandAndPositionContainer(bar, expandW, expandH, floating, false)
 
 	--
 	-- Calculate amount of space for children to expand into (total if homogeneous,
@@ -8733,11 +8719,11 @@ function Cs.hbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
 	--
 	local childSizeSum    = 0
 	local expansionWeight = 0
-	local innerSize       = (expandW or self._layoutWidth) - self:getInnerSpaceX() - self._layoutInnerSpacingsX
-	local staticSize      = self._layoutInnerStaticWidth
-	local homogeneous     = self._homogeneous
+	local innerSize       = (expandW or bar._layoutWidth) - bar:getInnerSpaceX() - bar._layoutInnerSpacingsX
+	local staticSize      = bar._layoutInnerStaticWidth
+	local homogeneous     = bar._homogeneous
 
-	for _, child in ipairs(self) do
+	for _, child in ipairs(bar) do
 		if not (child._hidden or child._floating) then
 			if child._relativeWidth >= 0 and not (child._weight > 0 and homogeneous) then
 				local size   = round(child._relativeWidth*innerSize)
@@ -8750,19 +8736,19 @@ function Cs.hbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
 		end
 	end
 
-	local expandPerp     = self._expandPerpendicular and ((expandH or self._layoutHeight) - self:getInnerSpaceY() - self._layoutInnerSpacingsY) or nil
+	local expandPerp     = bar._expandPerpendicular and ((expandH or bar._layoutHeight) - bar:getInnerSpaceY() - bar._layoutInnerSpacingsY) or nil
 	local expansionSpace = innerSize - (homogeneous and staticSize or childSizeSum)
 
 	--
 	-- Expand and position children.
 	--
-	local x        = self._layoutX + self._paddingLeft
-	local y        = self._layoutY + self._paddingTop
+	local x        = bar._layoutX + bar._paddingLeft
+	local y        = bar._layoutY + bar._paddingTop
 	local margin   = 0
 	local first    = true
 
 
-	for _, child in ipairs(self) do
+	for _, child in ipairs(bar) do
 		if child._hidden then
 			-- void
 
@@ -8800,11 +8786,11 @@ function Cs.hbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
 	end
 
 end
-function Cs.vbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
+function Cs.vbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 
 
 
-	expandAndPositionContainer(self, expandW, expandH, floating, false)
+	expandAndPositionContainer(bar, expandW, expandH, floating, false)
 
 	--
 	-- Calculate amount of space for children to expand into (total if homogeneous,
@@ -8812,11 +8798,11 @@ function Cs.vbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
 	--
 	local childSizeSum    = 0
 	local expansionWeight = 0
-	local innerSize       = (expandH or self._layoutHeight) - self:getInnerSpaceY() - self._layoutInnerSpacingsY
-	local staticSize      = self._layoutInnerStaticHeight
-	local homogeneous     = self._homogeneous
+	local innerSize       = (expandH or bar._layoutHeight) - bar:getInnerSpaceY() - bar._layoutInnerSpacingsY
+	local staticSize      = bar._layoutInnerStaticHeight
+	local homogeneous     = bar._homogeneous
 
-	for _, child in ipairs(self) do
+	for _, child in ipairs(bar) do
 		if not (child._hidden or child._floating) then
 			if child._relativeHeight >= 0 and not (child._weight > 0 and homogeneous) then
 				local size   = round(child._relativeHeight*innerSize)
@@ -8829,19 +8815,19 @@ function Cs.vbar:_expandSelfAndPositionChildren(expandW, expandH, floating)
 		end
 	end
 
-	local expandPerp     = self._expandPerpendicular and ((expandW or self._layoutWidth) - self:getInnerSpaceX() - self._layoutInnerSpacingsX) or nil
+	local expandPerp     = bar._expandPerpendicular and ((expandW or bar._layoutWidth) - bar:getInnerSpaceX() - bar._layoutInnerSpacingsX) or nil
 	local expansionSpace = innerSize - (homogeneous and staticSize or childSizeSum)
 
 	--
 	-- Expand and position children.
 	--
-	local x        = self._layoutX + self._paddingLeft
-	local y        = self._layoutY + self._paddingTop
+	local x        = bar._layoutX + bar._paddingLeft
+	local y        = bar._layoutY + bar._paddingTop
 	local margin   = 0
 	local first    = true
 
 
-	for _, child in ipairs(self) do
+	for _, child in ipairs(bar) do
 		if child._hidden then
 			-- void
 
@@ -8895,31 +8881,31 @@ Cs.root = newElementClass(false, "GuiRoot", Cs.container, {}, {
 	-- void
 })
 
--- function Cs.root:init(gui, elData, parent)
--- 	Cs.root.super.init(self, gui, elData, parent)
+-- function Cs.root.init(root, gui, elData, parent)
+-- 	Cs.root.super.init(root, gui, elData, parent)
 -- end
 
 
 
 -- INTERNAL REPLACE  root:_draw( )
-function Cs.root:_draw()
-	if self._hidden then  return  end
+function Cs.root._draw(root)
+	if root._hidden then  return  end
 
-	local x, y, w, h = xywh(self)
+	local x, y, w, h = xywh(root)
 
-	if not self._gui.debug then
-		triggerIncludingAnimations(self, "beforedraw", x, y, w, h)
+	if not root._gui.debug then
+		triggerIncludingAnimations(root, "beforedraw", x, y, w, h)
 	end
 
-	drawLayoutBackground(self)
-	self:_drawDebug(0, 0, 1, 0)
+	drawLayoutBackground(root)
+	root:_drawDebug(0, 0, 1, 0)
 
-	for _, child in ipairs(self) do
+	for _, child in ipairs(root) do
 		child:_draw()
 	end
 
-	if not self._gui.debug then
-		triggerIncludingAnimations(self, "afterdraw", x, y, w, h)
+	if not root._gui.debug then
+		triggerIncludingAnimations(root, "afterdraw", x, y, w, h)
 	end
 end
 
@@ -8928,33 +8914,33 @@ end
 -- OVERRIDE  root:setDimensions( width, height )
 -- OVERRIDE  root:setWidth( width )
 -- OVERRIDE  root:setHeight( height )
-function Cs.root:setDimensions(w, h)
+function Cs.root.setDimensions(root, w, h)
 	if type(w)~="number" then argerror(2,1,"w",w,"number") end
 	if type(h)~="number" then argerror(2,2,"h",h,"number") end
-	Cs.root.super.setDimensions(self, math.max(w, 0), math.max(h, 0))
+	Cs.root.super.setDimensions(root, math.max(w, 0), math.max(h, 0))
 end
-function Cs.root:setWidth(w)
+function Cs.root.setWidth(root, w)
 	if type(w)~="number" then argerror(2,1,"w",w,"number") end
-	Cs.root.super.setWidth(self, math.max(w, 0))
+	Cs.root.super.setWidth(root, math.max(w, 0))
 end
-function Cs.root:setHeight(h)
+function Cs.root.setHeight(root, h)
 	if type(h)~="number" then argerror(2,1,"h",h,"number") end
-	Cs.root.super.setHeight(self, math.max(h, 0))
+	Cs.root.super.setHeight(root, math.max(h, 0))
 end
 
 
 
 -- INTERNAL REPLACE  root:_calculateNaturalSize( )
-function Cs.root:_calculateNaturalSize()
-	self._layoutWidth  = self._width
-	self._layoutHeight = self._height
-	calculateContainerChildNaturalSizes(self)
+function Cs.root._calculateNaturalSize(root)
+	root._layoutWidth  = root._width
+	root._layoutHeight = root._height
+	calculateContainerChildNaturalSizes(root)
 end
 
 -- INTERNAL REPLACE  root:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
 -- The arguments are ignored as the root always has a fixed non-expanding size and position.
-function Cs.root:_expandSelfAndPositionChildren(expandW, expandH, floating)
-	expandAndPositionChildrenOfNonLayoutContainer(self)
+function Cs.root._expandSelfAndPositionChildren(root, expandW, expandH, floating)
+	expandAndPositionChildrenOfNonLayoutContainer(root)
 end
 
 
@@ -8987,45 +8973,45 @@ Cs.leaf = newElementClass(true, "GuiLeaf", Cs.element, {}, {
 	-- void
 })
 
-function Cs.leaf:init(gui, elData, parent)
-	Cs.leaf.super.init(self, gui, elData, parent)
+function Cs.leaf.init(leaf, gui, elData, parent)
+	Cs.leaf.super.init(leaf, gui, elData, parent)
 
-	if elData.align ~= nil then self._align = elData.align end
-	if elData.bold ~= nil then self._bold = elData.bold end if elData.small ~= nil then self._small = elData.small end if elData.large ~= nil then self._large = elData.large end
-	if elData.mnemonics ~= nil then self._mnemonics = elData.mnemonics end
-	-- @@retrieve(self, elData, _text)
-	if elData.textColor ~= nil then self._textColor = elData.textColor end
+	if elData.align ~= nil then leaf._align = elData.align end
+	if elData.bold ~= nil then leaf._bold = elData.bold end if elData.small ~= nil then leaf._small = elData.small end if elData.large ~= nil then leaf._large = elData.large end
+	if elData.mnemonics ~= nil then leaf._mnemonics = elData.mnemonics end
+	-- @@retrieve(leaf, elData, _text)
+	if elData.textColor ~= nil then leaf._textColor = elData.textColor end
 
 	if elData.text ~= nil then
-		self:setText(elData.text)
+		leaf:setText(elData.text)
 	end
 end
 
 
 
 -- align = leaf:getAlign( )
-function Cs.leaf:getAlign()
-	return self._align
+function Cs.leaf.getAlign(leaf)
+	return leaf._align
 end
 
 -- leaf:setAlign( align )
-function Cs.leaf:setAlign(align)
-	self._align = align -- Note: We shouldn't have to update the layout after changing the alignment.
+function Cs.leaf.setAlign(leaf, align)
+	leaf._align = align -- Note: We shouldn't have to update the layout after changing the alignment.
 end
 
 
 
 -- font = leaf:getFont( )
-function Cs.leaf:getFont()
-	local k = (self._large and "_fontLarge")
-	       or (self._small and "_fontSmall")
-	       or (self._bold  and "_fontBold" )
+function Cs.leaf.getFont(leaf)
+	local k = (leaf._large and "_fontLarge")
+	       or (leaf._small and "_fontSmall")
+	       or (leaf._bold  and "_fontBold" )
 	       or                  "_font"
 
-	local font = self._gui[k] or getDefaultFont()
+	local font = leaf._gui[k] or getDefaultFont()
 
-	-- if self:isType"input" then
-	-- 	self._field:setFont(font) -- @Robustness: Do this in appropriate places. (Maybe not here...)
+	-- if leaf:isType"input" then
+	-- 	leaf._field:setFont(font) -- @Robustness: Do this in appropriate places. (Maybe not here... Probably in _calculateNaturalSize()...)
 	-- end
 
 	return font
@@ -9033,8 +9019,8 @@ end
 
 -- Tell LÖVE to use the font.
 -- fontBeingUsed = leaf:useFont( )
-function Cs.leaf:useFont()
-	local font = self:getFont()
+function Cs.leaf.useFont(leaf)
+	local font = leaf:getFont()
 	love.graphics.setFont(font)
 	return font
 end
@@ -9043,14 +9029,14 @@ end
 
 -- offsetX, offsetY, width = leaf:getMnemonicOffset( )
 -- Returns nil if there's no mnemonic.
-function Cs.leaf:getMnemonicOffset()
-	if not self._mnemonicBytePosition then  return nil  end
+function Cs.leaf.getMnemonicOffset(leaf)
+	if not leaf._mnemonicBytePosition then  return nil  end
 
-	local font = self:getFont()
-	local text = self._text
+	local font = leaf:getFont()
+	local text = leaf._text
 
 	-- @Incomplete: Handle kerning.
-	local    i1 = self._mnemonicBytePosition
+	local    i1 = leaf._mnemonicBytePosition
 	local _, i2 = text:find("^[%z\1-\127\194-\244][\128-\191]*", i1)
 	local x1    = font:getWidth(text:sub(1, i1-1)) -- @Speed @Memory
 	local x2    = font:getWidth(text:sub(1, i2  ))
@@ -9061,34 +9047,34 @@ end
 
 
 -- text = leaf:getText( )
-function Cs.leaf:getText()
-	return self._text
+function Cs.leaf.getText(leaf)
+	return leaf._text
 end
 
 -- text = leaf:getUnprocessedText( )
 -- Also see gui:setTextPreprocessor().
-function Cs.leaf:getUnprocessedText()
-	return self._unprocessedText
+function Cs.leaf.getUnprocessedText(leaf)
+	return leaf._unprocessedText
 end
 
 -- leaf:setText( text )
-function Cs.leaf:setText(unprocessedText)
+function Cs.leaf.setText(leaf, unprocessedText)
 	unprocessedText = tostring(unprocessedText == nil and "" or unprocessedText)
 
-	local text = preprocessText(self._gui, unprocessedText, self, self._mnemonics)
-	if self._text == text then  return  end
+	local text = preprocessText(leaf._gui, unprocessedText, leaf, leaf._mnemonics)
+	if leaf._text == text then  return  end
 
 	-- Check text for mnemonics (using "&").
-	self._mnemonicBytePosition = nil
+	leaf._mnemonicBytePosition = nil
 
-	if self._mnemonics then
+	if leaf._mnemonics then
 		local matchCount    = 0
 		local mnemonicCount = 0
 
 		local cleanText = text:gsub("()&(.)", function(pos, c)
 			if c ~= "&" then
 				if mnemonicCount == 0 then
-					self._mnemonicBytePosition = pos - matchCount
+					leaf._mnemonicBytePosition = pos - matchCount
 				end
 				mnemonicCount = mnemonicCount + 1
 			end
@@ -9103,56 +9089,56 @@ function Cs.leaf:setText(unprocessedText)
 		text = cleanText
 	end
 
-	self._text            = text
-	self._unprocessedText = unprocessedText
+	leaf._text            = text
+	leaf._unprocessedText = unprocessedText
 
-	local oldW      = self._textWidth
-	self._textWidth = self:getFont():getWidth(text)
+	local oldW      = leaf._textWidth
+	leaf._textWidth = leaf:getFont():getWidth(text)
 
-	if self._textWidth ~= oldW then
-		scheduleLayoutUpdateIfDisplayed(self)
+	if leaf._textWidth ~= oldW then
+		scheduleLayoutUpdateIfDisplayed(leaf)
 	end
 end
 
 -- leaf:drawText( x, y )
-function Cs.leaf:drawText(x, y)
-	love.graphics.print(self._text, x, y)
+function Cs.leaf.drawText(leaf, x, y)
+	love.graphics.print(leaf._text, x, y)
 end
 
--- leaf:drawAlignedText( areaX, areaY, areaWidth [, align=self:getAlign() ] )
-function Cs.leaf:drawAlignedText(x, y, w, align)
-	align = align or self._align
+-- leaf:drawAlignedText( areaX, areaY, areaWidth [, align=leaf:getAlign() ] )
+function Cs.leaf.drawAlignedText(leaf, x, y, w, align)
+	align = align or leaf._align
 	if align == "right" then
-		x = x + w - self._textWidth
+		x = x + w - leaf._textWidth
 	elseif align == "center" then
-		x = x + math.floor((w-self._textWidth)/2)
+		x = x + math.floor((w-leaf._textWidth)/2)
 	end
-	self:drawText(x, y)
+	leaf:drawText(x, y)
 end
 
 
 
 -- colorTable|nil = leaf:getTextColor( )
-function Cs.leaf:getTextColor()
-	return self._textColor
+function Cs.leaf.getTextColor(leaf)
+	return leaf._textColor
 end
 
 -- leaf:setTextColor( colorTable|nil )
-function Cs.leaf:setTextColor(color)
-	self._textColor = color
+function Cs.leaf.setTextColor(leaf, color)
+	leaf._textColor = color
 end
 
 -- bool = leaf:hasTextColor( )
-function Cs.leaf:hasTextColor()
-	return (self._textColor ~= nil)
+function Cs.leaf.hasTextColor(leaf)
+	return leaf._textColor ~= nil
 end
 
 -- Tell LÖVE to use the text color.
 -- hasTextColor = leaf:useTextColor( [ alphaMultiplier=1 ] )
-function Cs.leaf:useTextColor(opacity)
-	local color = self._textColor
+function Cs.leaf.useTextColor(leaf, opacity)
+	local color = leaf._textColor
 	useColor((color or COLOR_WHITE), opacity)
-	return (color ~= nil)
+	return color ~= nil
 end
 
 
@@ -9160,50 +9146,50 @@ end
 -- bool = leaf:isBold( )
 -- bool = leaf:isLarge( )
 -- bool = leaf:isSmall( )
-function Cs.leaf:isBold(text)
-	return self._bold
+function Cs.leaf.isBold(leaf, text)
+	return leaf._bold
 end
-function Cs.leaf:isLarge(text)
-	return self._large
+function Cs.leaf.isLarge(leaf, text)
+	return leaf._large
 end
-function Cs.leaf:isSmall(text)
-	return self._small
+function Cs.leaf.isSmall(leaf, text)
+	return leaf._small
 end
 
 -- leaf:setBold ( bool )
 -- leaf:setLarge( bool )
 -- leaf:setSmall( bool )
-function Cs.leaf:setBold(bold)
-	if self._bold == bold then  return  end
-	self._bold = bold
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.leaf.setBold(leaf, bold)
+	if leaf._bold == bold then  return  end
+	leaf._bold = bold
+	scheduleLayoutUpdateIfDisplayed(leaf)
 end
-function Cs.leaf:setLarge(large)
-	if self._large == large then  return  end
-	self._large = large
-	scheduleLayoutUpdateIfDisplayed(self)
+function Cs.leaf.setLarge(leaf, large)
+	if leaf._large == large then  return  end
+	leaf._large = large
+	scheduleLayoutUpdateIfDisplayed(leaf)
 end
-function Cs.leaf:setSmall(small)
-	if self._small == small then
+function Cs.leaf.setSmall(leaf, small)
+	if leaf._small == small then
 		return
 	end
-	self._small = small
-	scheduleLayoutUpdateIfDisplayed(self)
+	leaf._small = small
+	scheduleLayoutUpdateIfDisplayed(leaf)
 end
 
 
 
 -- REPLACE  bool = leaf:isSolid( )
-function Cs.leaf:isSolid()
+function Cs.leaf.isSolid(leaf)
 	return true
 end
 
 
 
 -- OVERRIDE  leaf:reprocessTexts( )
-function Cs.leaf:reprocessTexts()
-	Cs.leaf.super.reprocessTexts(self)
-	self:setText(self._unprocessedText)
+function Cs.leaf.reprocessTexts(leaf)
+	Cs.leaf.super.reprocessTexts(leaf)
+	leaf:setText(leaf._unprocessedText)
 end
 
 
@@ -9221,36 +9207,38 @@ Cs.canvas = newElementClass(false, "GuiCanvas", Cs.leaf, {}, {
 	"draw", -- function( canvasElement, event, drawAreaWidth, drawAreaHeight )
 })
 
-function Cs.canvas:init(gui, elData, parent)
-	Cs.canvas.super.init(self, gui, elData, parent)
+function Cs.canvas.init(canvas, gui, elData, parent)
+	Cs.canvas.super.init(canvas, gui, elData, parent)
 
-	if elData.canvasBackgroundColor ~= nil then self._canvasBackgroundColor = elData.canvasBackgroundColor end
+	if elData.canvasBackgroundColor ~= nil then canvas._canvasBackgroundColor = elData.canvasBackgroundColor end
 end
 
 
 
 -- INTERNAL REPLACE  canvas:_draw( )
-function Cs.canvas:_draw()
-	if self._hidden then  return  end
+function Cs.canvas._draw(canvas)
+	if canvas._hidden then  return  end
 
-	local gui = self._gui
-	if gui.debug then  return self:_drawDebug(1, 0, 0)  end
+	local gui = canvas._gui
+	if gui.debug then  return canvas:_drawDebug(1, 0, 0)  end
 
-	local x, y, w, h = xywh(self)
+	local x, y, w, h = xywh(canvas)
 
-	triggerIncludingAnimations(self, "beforedraw", x, y, w, h)
-	drawLayoutBackground(self)
+	triggerIncludingAnimations(canvas, "beforedraw", x, y, w, h)
+	drawLayoutBackground(canvas)
 
 	-- Draw canvas.
 	-- We don't call themeRender() for canvases as they should only draw things through the "draw" event.
-	local cw = (self._width  >= 0) and self._width  or w
-	local ch = (self._height >= 0) and self._height or h
+	local cw = (canvas._width  >= 0) and canvas._width  or w
+	local ch = (canvas._height >= 0) and canvas._height or h
 
 	if cw > 0 and ch > 0 then
 		love.graphics.push("all")
 
-		local cx, cy  = x+math.floor((w-cw)/2), y+math.floor((h-ch)/2)
-		local bgColor = self._canvasBackgroundColor
+		local cx      = x + math.floor((w-cw)/2)
+		local cy      = y + math.floor((h-ch)/2)
+		local bgColor = canvas._canvasBackgroundColor
+
 		if bgColor then
 			setColor(bgColor)
 			love.graphics.rectangle("fill", cx, cy, cw, ch)
@@ -9260,42 +9248,42 @@ function Cs.canvas:_draw()
 		love.graphics.translate(cx, cy)
 		setColor(1, 1, 1)
 
-		triggerIncludingAnimations(self, "draw", cw, ch)
-		self:unsetScissor()
+		triggerIncludingAnimations(canvas, "draw", cw, ch)
+		canvas:unsetScissor()
 
-		setScissor(gui, nil)
+		setScissor(gui, nil) -- Why do we call unsetScissor() and then this? 2022-04-04
 		love.graphics.pop()
 	end
 
-	triggerIncludingAnimations(self, "afterdraw", x, y, w, h)
+	triggerIncludingAnimations(canvas, "afterdraw", x, y, w, h)
 end
 
 
 
 -- colorTable|nil = canvas:getCanvasBackgroundColor( )
-function Cs.canvas:getCanvasBackgroundColor()
-	return self._canvasBackgroundColor
+function Cs.canvas.getCanvasBackgroundColor(canvas)
+	return canvas._canvasBackgroundColor
 end
 
 -- canvas:setCanvasBackgroundColor( colorTable|nil )
-function Cs.canvas:setCanvasBackgroundColor(color)
-	self._canvasBackgroundColor = color
+function Cs.canvas.setCanvasBackgroundColor(canvas, color)
+	canvas._canvasBackgroundColor = color
 end
 
 
 
 -- INTERNAL REPLACE  handled, grabMouseFocus = canvas:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
-function Cs.canvas:_mousepressed(mx, my, mbutton, pressCount)
+function Cs.canvas._mousepressed(canvas, mx, my, mbutton, pressCount)
 	return true, true
 end
 
 
 
 -- INTERNAL REPLACE  canvas:_calculateNaturalSize( )
-function Cs.canvas:_calculateNaturalSize()
-	-- We don't call themeGetSize() for canvases as they always have their own private "theme".
-	self._layoutWidth  = math.max(self._width , 0)
-	self._layoutHeight = math.max(self._height, 0)
+function Cs.canvas._calculateNaturalSize(canvas)
+	-- We don't call themeGetSize() for canvases - they always have their own private "theme".
+	canvas._layoutWidth  = math.max(canvas._width , 0)
+	canvas._layoutHeight = math.max(canvas._height, 0)
 end
 
 
@@ -9312,54 +9300,57 @@ Cs.image = newElementClass(false, "GuiImage", Cs.leaf, {"imageInclude"}, {
 	-- void
 })
 
-function Cs.image:init(gui, elData, parent)
-	Cs.image.super.init(self, gui, elData, parent)
-	initImageInclude(self, elData)
+function Cs.image.init(imageEl, gui, elData, parent)
+	Cs.image.super.init(imageEl, gui, elData, parent)
+	initImageInclude(imageEl, elData)
 end
 
 
 
 -- INTERNAL OVERRIDE  image:_update( deltaTime )
-function Cs.image:_update(dt)
-	Cs.image.super._update(self, dt)
-	local sprite = self._sprite
+function Cs.image._update(imageEl, dt)
+	Cs.image.super._update(imageEl, dt)
+	local sprite = imageEl._sprite
 	if sprite then  updateSprite(sprite, dt)  end
 end
 
 
 
 -- INTERNAL REPLACE  image:_draw( )
-function Cs.image:_draw()
-	if self._hidden then  return  end
-	if self._gui.debug then  return self:_drawDebug(1, 0, 0)  end
+function Cs.image._draw(imageEl)
+	if imageEl._hidden    then  return  end
+	if imageEl._gui.debug then  return imageEl:_drawDebug(1, 0, 0)  end
 
-	local x, y, w, h = xywh(self)
+	local x, y, w, h = xywh(imageEl)
 
-	triggerIncludingAnimations(self, "beforedraw", x, y, w, h)
+	triggerIncludingAnimations(imageEl, "beforedraw", x, y, w, h)
+	drawLayoutBackground(imageEl)
 
-	drawLayoutBackground(self)
+	local image = nil
+	local quad  = nil
+	local iw    = 0
+	local ih    = 0
 
-	local image, quad, iw, ih = nil, nil, 0, 0
-	if self._sprite then
-		image, quad, iw, ih = getCurrentViewOfSprite(self._sprite)
+	if imageEl._sprite then
+		image, quad, iw, ih = getCurrentViewOfSprite(imageEl._sprite)
 	end
-	themeRender(self, "image", iw*self._imageScaleX, ih*self._imageScaleY)
+	themeRender(imageEl, "image", round(iw*imageEl._imageScaleX), round(ih*imageEl._imageScaleY))
 
-	triggerIncludingAnimations(self, "afterdraw", x, y, w, h)
+	triggerIncludingAnimations(imageEl, "afterdraw", x, y, w, h)
 end
 
 
 
 -- INTERNAL REPLACE  image:_calculateNaturalSize( )
-function Cs.image:_calculateNaturalSize()
+function Cs.image._calculateNaturalSize(imageEl)
 	local w, h
-	if self._width < 0 or self._height < 0 then
-		local iw, ih = self:getImageDimensions()
-		w, h         = themeGetSize(self, "image", iw*self._imageScaleX, ih*self._imageScaleX)
+	if imageEl._width < 0 or imageEl._height < 0 then
+		local iw, ih = imageEl:getImageDimensions()
+		w, h         = themeGetSize(imageEl, "image", round(iw*imageEl._imageScaleX), round(ih*imageEl._imageScaleY))
 	end
 
-	self._layoutWidth  = (self._width  >= 0) and self._width  or math.max(w, self._minWidth )
-	self._layoutHeight = (self._height >= 0) and self._height or math.max(h, self._minHeight)
+	imageEl._layoutWidth  = (imageEl._width  >= 0) and imageEl._width  or math.max(w, imageEl._minWidth )
+	imageEl._layoutHeight = (imageEl._height >= 0) and imageEl._height or math.max(h, imageEl._minHeight)
 end
 
 
@@ -9378,47 +9369,46 @@ Cs.text = newElementClass(false, "GuiText", Cs.leaf, {}, {
 	-- void
 })
 
-function Cs.text:init(gui, elData, parent)
-	Cs.text.super.init(self, gui, elData, parent)
+function Cs.text.init(textEl, gui, elData, parent)
+	Cs.text.super.init(textEl, gui, elData, parent)
 
-	if elData.wrapText ~= nil then self._wrapText = elData.wrapText end if elData.textWrapLimit ~= nil then self._textWrapLimit = elData.textWrapLimit end
+	if elData.wrapText ~= nil then textEl._wrapText = elData.wrapText end if elData.textWrapLimit ~= nil then textEl._textWrapLimit = elData.textWrapLimit end
 end
 
 
 
 -- INTERNAL REPLACE  text:_draw( )
-function Cs.text:_draw()
-	if self._hidden    then  return  end
-	if self._gui.debug then  return self:_drawDebug(1, 0, 0)  end
+function Cs.text._draw(textEl)
+	if textEl._hidden    then  return  end
+	if textEl._gui.debug then  return textEl:_drawDebug(1, 0, 0)  end
 
-	local x, y, w, h = xywh(self)
+	local x, y, w, h = xywh(textEl)
 
-	triggerIncludingAnimations(self, "beforedraw", x, y, w, h)
+	triggerIncludingAnimations(textEl, "beforedraw", x, y, w, h)
+	drawLayoutBackground(textEl)
 
-	drawLayoutBackground(self)
+	local textIndent = themeGet(textEl._gui, "textIndentation")
+	themeRender(textEl, "text", textIndent, textEl._textWidth, textEl._textHeight)
 
-	local textIndent = themeGet(self._gui, "textIndentation")
-	themeRender(self, "text", textIndent, self._textWidth, self._textHeight)
-
-	triggerIncludingAnimations(self, "afterdraw", x, y, w, h)
+	triggerIncludingAnimations(textEl, "afterdraw", x, y, w, h)
 end
 
 
 
 -- INTERNAL REPLACE  text:_calculateNaturalSize( )
-function Cs.text:_calculateNaturalSize()
-	local wrapLimit = self._textWrapLimit
+function Cs.text._calculateNaturalSize(textEl)
+	local wrapLimit = textEl._textWrapLimit
 	if wrapLimit < 0 then  wrapLimit = 1/0  end
 
-	if wrapLimit == 1/0 and self._wrapText then
+	if wrapLimit == 1/0 and textEl._wrapText then
 		local innerSpaceSum = 0
 
-		for _, parent in self:parents() do
+		for _, parent in textEl:parents() do
 			innerSpaceSum = innerSpaceSum + parent:getInnerSpaceX()
 
 			-- At most this will be the root, as the root always has a fixed size.
 			if parent._width >= 0 then
-				wrapLimit = parent._width - innerSpaceSum - 2*themeGet(self._gui, "textIndentation")
+				wrapLimit = parent._width - innerSpaceSum - 2*themeGet(textEl._gui, "textIndentation")
 
 				if wrapLimit <= 0 then
 					-- Maybe the root's size is 0x0?
@@ -9430,28 +9420,28 @@ function Cs.text:_calculateNaturalSize()
 		end
 	end
 
-	local textW, textH = getTextDimensions(self:getFont(), self._text, wrapLimit)
-	self._textWidth    = textW
-	self._textHeight   = textH
+	local textW, textH = getTextDimensions(textEl:getFont(), textEl._text, wrapLimit)
+	textEl._textWidth  = textW
+	textEl._textHeight = textH
 
 	local w, h
-	if self._width < 0 or self._height < 0 then
-		local textIndent = themeGet(self._gui, "textIndentation")
-		w, h             = themeGetSize(self, "text", textIndent, textW, textH)
+	if textEl._width < 0 or textEl._height < 0 then
+		local textIndent = themeGet(textEl._gui, "textIndentation")
+		w, h             = themeGetSize(textEl, "text", textIndent, textW, textH)
 	end
 
-	self._layoutWidth  = (self._width  >= 0) and self._width  or math.max(w, self._minWidth )
-	self._layoutHeight = (self._height >= 0) and self._height or math.max(h, self._minHeight)
+	textEl._layoutWidth  = (textEl._width  >= 0) and textEl._width  or math.max(w, textEl._minWidth )
+	textEl._layoutHeight = (textEl._height >= 0) and textEl._height or math.max(h, textEl._minHeight)
 end
 
 
 
 -- REPLACE  text:drawText( x, y )
-function Cs.text:drawText(x, y)
-	if self._wrapText or self._textWrapLimit >= 0 then
-		love.graphics.printf(self._text, x, y, self._textWidth, self._align)
+function Cs.text.drawText(textEl, x, y)
+	if textEl._wrapText or textEl._textWrapLimit >= 0 then
+		love.graphics.printf(textEl._text, x, y, textEl._textWidth, textEl._align)
 	else
-		love.graphics.print(self._text, x, y)
+		love.graphics.print(textEl._text, x, y)
 	end
 end
 
@@ -9472,36 +9462,36 @@ Cs.widget = newElementClass(true, "GuiWidget", Cs.leaf, {}, {
 	"navupdate", --            function( widgetElement, event, deltaTime )
 })
 
-function Cs.widget:init(gui, elData, parent)
-	Cs.widget.super.init(self, gui, elData, parent)
+function Cs.widget.init(widget, gui, elData, parent)
+	Cs.widget.super.init(widget, gui, elData, parent)
 
-	if elData.active ~= nil then self._active = elData.active end
-	if elData.priority ~= nil then self._priority = elData.priority end
+	if elData.active ~= nil then widget._active = elData.active end
+	if elData.priority ~= nil then widget._priority = elData.priority end
 end
 
 
 
 -- priority = widget:getPriority( )
-function Cs.widget:getPriority()
-	return self._priority
+function Cs.widget.getPriority(widget)
+	return widget._priority
 end
 
 -- widget:setPriority( priority )
-function Cs.widget:setPriority(priority)
-	self._priority = priority
+function Cs.widget.setPriority(widget, priority)
+	widget._priority = priority
 end
 
 
 
 -- bool = widget:isActive( )
-function Cs.widget:isActive()
-	return self._active
+function Cs.widget.isActive(widget)
+	return widget._active
 end
 
 -- stateChanged = widget:setActive( bool )
-function Cs.widget:setActive(active)
-	if self._active == active then  return false  end
-	self._active = active
+function Cs.widget.setActive(widget, active)
+	if widget._active == active then  return false  end
+	widget._active = active
 	return true
 end
 
@@ -9542,181 +9532,184 @@ Cs.button = newElementClass(false, "GuiButton", Cs.widget, {"imageInclude"}, {
 	"toggle", -- function( buttonElement, event )
 })
 
-function Cs.button:init(gui, elData, parent)
-	Cs.button.super.init(self, gui, elData, parent)
-	initImageInclude(self, elData)
+function Cs.button.init(button, gui, elData, parent)
+	Cs.button.super.init(button, gui, elData, parent)
+	initImageInclude(button, elData)
 
-	if elData.arrow ~= nil then self._arrow = elData.arrow end
-	if elData.canToggle ~= nil then self._canToggle = elData.canToggle end
-	if elData.close ~= nil then self._close = elData.close end
-	if elData.imagePadding ~= nil then self._imagePadding = elData.imagePadding end
-	if elData.pressable ~= nil then self._pressable = elData.pressable end
-	-- @@retrieve(self, elData, _text2)
-	if elData.toggled ~= nil then self._toggled = elData.toggled end
-	if elData.toggledSprite ~= nil then self._toggledSprite = elData.toggledSprite end if elData.untoggledSprite ~= nil then self._untoggledSprite = elData.untoggledSprite end
+	if elData.arrow ~= nil then button._arrow = elData.arrow end
+	if elData.canToggle ~= nil then button._canToggle = elData.canToggle end
+	if elData.close ~= nil then button._close = elData.close end
+	if elData.imagePadding ~= nil then button._imagePadding = elData.imagePadding end
+	if elData.pressable ~= nil then button._pressable = elData.pressable end
+	-- @@retrieve(button, elData, _text2)
+	if elData.toggled ~= nil then button._toggled = elData.toggled end
+	if elData.toggledSprite ~= nil then button._toggledSprite = elData.toggledSprite end if elData.untoggledSprite ~= nil then button._untoggledSprite = elData.untoggledSprite end
 
 	if elData.sprite then
 		-- void
-	elseif self._toggledSprite and self._toggled then
-		self:setSprite(self._toggledSprite)
-	elseif self._untoggledSprite and not self._toggled then
-		self:setSprite(self._untoggledSprite)
+	elseif button._toggledSprite and button._toggled then
+		button:setSprite(button._toggledSprite)
+	elseif button._untoggledSprite and not button._toggled then
+		button:setSprite(button._untoggledSprite)
 	end
 
 	if elData.text2 ~= nil then
-		self:setText2(elData.text2)
+		button:setText2(elData.text2)
 	end
 end
 
 
 
 -- INTERNAL OVERRIDE  button:_update( deltaTime )
-function Cs.button:_update(dt)
-	Cs.button.super._update(self, dt)
-	local sprite = self._sprite
+function Cs.button._update(button, dt)
+	Cs.button.super._update(button, dt)
+	local sprite = button._sprite
 	if sprite then  updateSprite(sprite, dt)  end
 end
 
 
 
 -- INTERNAL REPLACE  button:_draw( )
-function Cs.button:_draw()
-	if self._hidden then  return  end
-	if self._gui.debug then  return self:_drawDebug(0, 180, 0)  end
+function Cs.button._draw(button)
+	if button._hidden    then  return  end
+	if button._gui.debug then  return button:_drawDebug(0, 180, 0)  end
 
-	local x, y, w, h = xywh(self)
+	local x, y, w, h = xywh(button)
 
-	triggerIncludingAnimations(self, "beforedraw", x, y, w, h)
-	drawLayoutBackground(self)
+	triggerIncludingAnimations(button, "beforedraw", x, y, w, h)
+	drawLayoutBackground(button)
 
-	local image, quad, iw, ih = nil, nil, 0, 0
-	if self._sprite then
-		image, quad, iw, ih = getCurrentViewOfSprite(self._sprite)
+	local image = nil
+	local quad  = nil
+	local iw    = 0
+	local ih    = 0
+
+	if button._sprite then
+		image, quad, iw, ih = getCurrentViewOfSprite(button._sprite)
 	end
 	themeRender(
-		self, "button", self._textWidth1, self._textWidth2, self._textHeight,
-		iw*self._imageScaleX+2*self._imagePadding, ih*self._imageScaleY+2*self._imagePadding
+		button, "button", button._textWidth1, button._textWidth2, button._textHeight,
+		round(iw*button._imageScaleX+2*button._imagePadding),
+		round(ih*button._imageScaleY+2*button._imagePadding)
 	)
 
-	triggerIncludingAnimations(self, "afterdraw", x, y, w, h)
+	triggerIncludingAnimations(button, "afterdraw", x, y, w, h)
 end
 
 
 
 -- arrow|nil = button:getArrow( )
-function Cs.button:getArrow()
-	return self._arrow
+function Cs.button.getArrow(button)
+	return button._arrow
 end
 
 
 
 -- text2 = button:getText2( )
-function Cs.button:getText2()
-	return self._text2
+function Cs.button.getText2(button)
+	return button._text2
 end
 
 -- text = button:getUnprocessedText2( )
-function Cs.button:getUnprocessedText2()
-	return self._unprocessedText2
+function Cs.button.getUnprocessedText2(button)
+	return button._unprocessedText2
 end
 
 -- OVERRIDE  button:setText( text )
-function Cs.button:setText(text)
-	local oldText = self._text
-	local oldW = self._textWidth
+function Cs.button.setText(button, text)
+	local oldText = button._text
+	local oldW    = button._textWidth
 
-	Cs.button.super.setText(self, text)
+	Cs.button.super.setText(button, text)
 	text = nil -- Don't use this anymore!
 
-	if self._text == oldText then
-		return
-	end
+	if button._text == oldText then  return  end
 
-	self._textWidth1 = self._textWidth
-	self._textWidth = self._textWidth1+self._textWidth2
+	button._textWidth1 = button._textWidth
+	button._textWidth  = button._textWidth1 + button._textWidth2
 
-	if self._textWidth ~= oldW then
-		scheduleLayoutUpdateIfDisplayed(self)
+	if button._textWidth ~= oldW then
+		scheduleLayoutUpdateIfDisplayed(button)
 	end
 end
 
 -- button:setText2( text )
-function Cs.button:setText2(unprocessedText)
+function Cs.button.setText2(button, unprocessedText)
 	unprocessedText = tostring(unprocessedText == nil and "" or unprocessedText)
 
-	local text = preprocessText(self._gui, unprocessedText, self, false)
-	if self._text2 == text then  return  end
+	local text = preprocessText(button._gui, unprocessedText, button, false)
+	if button._text2 == text then  return  end
 
-	self._text2            = text
-	self._unprocessedText2 = unprocessedText
+	button._text2            = text
+	button._unprocessedText2 = unprocessedText
 
-	local oldW       = self._textWidth
-	self._textWidth2 = self:getFont():getWidth(text)
-	self._textWidth  = self._textWidth1+self._textWidth2
+	local oldW         = button._textWidth
+	button._textWidth2 = button:getFont():getWidth(text)
+	button._textWidth  = button._textWidth1 + button._textWidth2
 
-	if self._textWidth ~= oldW then
-		scheduleLayoutUpdateIfDisplayed(self)
+	if button._textWidth ~= oldW then
+		scheduleLayoutUpdateIfDisplayed(button)
 	end
 end
 
 -- button:drawText2( x, y )
-function Cs.button:drawText2(x, y)
-	love.graphics.print(self._text2, x, y)
+function Cs.button.drawText2(button, x, y)
+	love.graphics.print(button._text2, x, y)
 end
 
--- button:drawAlignedText2( areaX, areaY, areaWidth [, align=self:getAlign() ] )
-function Cs.button:drawAlignedText2(x, y, w, align)
-	align = align or self._align
+-- button:drawAlignedText2( areaX, areaY, areaWidth [, align=button:getAlign() ] )
+function Cs.button.drawAlignedText2(button, x, y, w, align)
+	align = align or button._align
 	if align == "right" then
-		x = x + w - self._textWidth2
+		x = x + w - button._textWidth2
 	elseif align == "center" then
-		x = x + math.floor((w-self._textWidth2)/2)
+		x = x + math.floor((w-button._textWidth2)/2)
 	end
-	self:drawText(x, y)
+	button:drawText(x, y)
 end
 
 
 
 -- bool = button:isPressable( )
-function Cs.button:isPressable()
-	return self._pressable
+function Cs.button.isPressable(button)
+	return button._pressable
 end
 
 -- button:setPressable( bool )
-function Cs.button:setPressable(pressable)
-	self._pressable = pressable
+function Cs.button.setPressable(button, pressable)
+	button._pressable = pressable
 end
 
 
 
 -- bool = button:isToggled( )
-function Cs.button:isToggled()
-	return self._toggled
+function Cs.button.isToggled(button)
+	return button._toggled
 end
 
 -- button:setToggled( bool )
-function Cs.button:setToggled(toggled)
-	if self._toggled == toggled then  return  end
+function Cs.button.setToggled(button, toggled)
+	if button._toggled == toggled then  return  end
 
-	self._toggled = toggled
+	button._toggled = toggled
 
-	if toggled and self._toggledSprite then
-		self:setSprite(self._toggledSprite)
-	elseif not toggled and self._untoggledSprite then
-		self:setSprite(self._untoggledSprite)
+	if toggled and button._toggledSprite then
+		button:setSprite(button._toggledSprite)
+	elseif not toggled and button._untoggledSprite then
+		button:setSprite(button._untoggledSprite)
 	end
 
-	trigger(self, "toggle")
+	trigger(button, "toggle")
 end
 
 
 
 -- INTERNAL REPLACE  handled, grabMouseFocus = button:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
-function Cs.button:_mousepressed(mx, my, mbutton, pressCount)
+function Cs.button._mousepressed(button, mx, my, mbutton, pressCount)
 	if mbutton == 1 then
-		if not self._active then  return true, false  end
+		if not button._active then  return true, false  end
 
-		self._isPressed = true
+		button._isPressed = true
 		return true, true
 	end
 
@@ -9724,66 +9717,66 @@ function Cs.button:_mousepressed(mx, my, mbutton, pressCount)
 end
 
 -- -- INTERNAL REPLACE  button:_mousemoved( mouseX, mouseY )
--- function Cs.button:_mousemoved(mx, my)
+-- function Cs.button._mousemoved(button, mx, my)
 -- end
 
 -- INTERNAL REPLACE  button:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
-function Cs.button:_mousereleased(mx, my, mbutton, pressCount)
+function Cs.button._mousereleased(button, mx, my, mbutton, pressCount)
 	if mbutton == 1 then
-		self._isPressed = false
-		if self:isHovered() then  self:press()  end
+		button._isPressed = false
+		if button:isHovered() then  button:press()  end
 	end
 end
 
 
 
 -- INTERNAL REPLACE  handled = button:_ok( )
-function Cs.button:_ok()
-	self:press()
+function Cs.button._ok(button)
+	button:press()
 	return true
 end
 
 
 
 -- success = button:press( [ ignoreActiveState=false ] )
-function Cs.button:press(ignoreActiveState)
-	if not ignoreActiveState and not (self._active and self._pressable) then
+function Cs.button.press(button, ignoreActiveState)
+	if not ignoreActiveState and not (button._active and button._pressable) then
 		return false
 	end
 
 	-- Press/toggle the button
-	local preparedSound = prepareSound(self, "press")
+	local preparedSound = prepareSound(button, "press")
 
-	if self._canToggle then
-		local toggled = not self._toggled
-		self._toggled = toggled -- We need to toggle before the press event in case the callback uses the value.
+	if button._canToggle then
+		local toggled   = not button._toggled
+		button._toggled = toggled -- We need to toggle before the press event in case the callback uses the value.
 
-		if toggled and self._toggledSprite then
-			self:setSprite(self._toggledSprite)
-		elseif not toggled and self._untoggledSprite then
-			self:setSprite(self._untoggledSprite)
+		if toggled and button._toggledSprite then
+			button:setSprite(button._toggledSprite)
+		elseif not toggled and button._untoggledSprite then
+			button:setSprite(button._untoggledSprite)
 		end
 	end
 
-	self._gui._ignoreKeyboardInputThisFrame = true
+	button._gui._ignoreKeyboardInputThisFrame = true
 
-	trigger(self, "press")
-	if self._canToggle then  trigger(self, "toggle")  end
+	trigger(button, "press")
+	if button._canToggle then  trigger(button, "toggle")  end
 
-	self:triggerBubbling("pressed", self)
+	button:triggerBubbling("pressed", button)
 
-	-- Close closest closable
+	-- Close closest closable. heh
 	local closedAnything = false
 
-	if self._close then
-		if self:canClose() then
-			closedAnything = self:close()
-		else
-			for _, parent in self:parents() do
-				if parent:canClose() then
-					closedAnything = parent:close()
-					break
-				end
+	if not button._close then
+		-- void
+	elseif button:canClose() then
+		closedAnything = button:close()
+	else
+		for _, parent in button:parents() do
+			if parent:canClose() then
+				closedAnything = parent:close()
+				break
 			end
 		end
 	end
@@ -9795,40 +9788,40 @@ function Cs.button:press(ignoreActiveState)
 end
 
 -- bool = button:isPressed( )
-function Cs.button:isPressed()
-	return self._isPressed
+function Cs.button.isPressed(button)
+	return button._isPressed
 end
 
 
 
 -- OVERRIDE  button:reprocessTexts( )
-function Cs.button:reprocessTexts()
-	Cs.button.super.reprocessTexts(self)
-	self:setText2(self._unprocessedText2)
+function Cs.button.reprocessTexts(button)
+	Cs.button.super.reprocessTexts(button)
+	button:setText2(button._unprocessedText2)
 end
 
 
 
 -- INTERNAL REPLACE  button:_calculateNaturalSize( )
-function Cs.button:_calculateNaturalSize()
-	local font       = self:getFont()
-	self._textWidth1 = font:getWidth(self._text)
-	self._textWidth2 = font:getWidth(self._text2)
-	self._textWidth  = self._textWidth1 + self._textWidth2 -- This value is pretty useless...
-	self._textHeight = font:getHeight()
+function Cs.button._calculateNaturalSize(button)
+	local font         = button:getFont()
+	button._textWidth1 = font:getWidth(button._text)
+	button._textWidth2 = font:getWidth(button._text2)
+	button._textWidth  = button._textWidth1 + button._textWidth2 -- This value is pretty useless...
+	button._textHeight = font:getHeight()
 
 	local w, h
-	if self._width < 0 or self._height < 0 then
-		local iw, ih = self:getImageDimensions()
+	if button._width < 0 or button._height < 0 then
+		local iw, ih = button:getImageDimensions()
 		w, h = themeGetSize(
-			self, "button", self._textWidth1, self._textWidth2, self._textHeight,
-			round(iw*self._imageScaleX+2*self._imagePadding),
-			round(ih*self._imageScaleY+2*self._imagePadding)
+			button, "button", button._textWidth1, button._textWidth2, button._textHeight,
+			round(iw*button._imageScaleX+2*button._imagePadding),
+			round(ih*button._imageScaleY+2*button._imagePadding)
 		)
 	end
 
-	self._layoutWidth  = (self._width  >= 0) and self._width  or math.max(w, self._minWidth )
-	self._layoutHeight = (self._height >= 0) and self._height or math.max(h, self._minHeight)
+	button._layoutWidth  = (button._width  >= 0) and button._width  or math.max(w, button._minWidth )
+	button._layoutHeight = (button._height >= 0) and button._height or math.max(h, button._minHeight)
 end
 
 
@@ -9865,94 +9858,94 @@ Cs.input = newElementClass(false, "GuiInput", Cs.widget, {}, {
 	"valuechange", -- function( inputElement, event )
 })
 
-function Cs.input:init(gui, elData, parent)
-	Cs.input.super.init(self, gui, elData, parent)
+function Cs.input.init(inputEl, gui, elData, parent)
+	Cs.input.super.init(inputEl, gui, elData, parent)
 
-	-- @@retrieve(self, elData, _password) -- This is saved in the field instead.
-	if elData.mask ~= nil then self._mask = elData.mask end
-	if elData.placeholder ~= nil then self._placeholder = elData.placeholder end
-	if elData.spin ~= nil then self._spin = elData.spin end
-	if elData.spinMin ~= nil then self._spinMin = elData.spinMin end if elData.spinMax ~= nil then self._spinMax = elData.spinMax end
+	-- @@retrieve(inputEl, elData, _password) -- This is saved in the field instead.
+	if elData.mask ~= nil then inputEl._mask = elData.mask end
+	if elData.placeholder ~= nil then inputEl._placeholder = elData.placeholder end
+	if elData.spin ~= nil then inputEl._spin = elData.spin end
+	if elData.spinMin ~= nil then inputEl._spinMin = elData.spinMin end if elData.spinMax ~= nil then inputEl._spinMax = elData.spinMax end
 
-	self._field = InputField((elData.value and tostring(elData.value) or ""), (elData.password and "password" or "normal"))
-	self._field:setFont(self:getFont())
-	self._field:setFontFilteringActive(true)
+	inputEl._field = InputField((elData.value and tostring(elData.value) or ""), (elData.password and "password" or "normal"))
+	inputEl._field:setFont(inputEl:getFont())
+	inputEl._field:setFontFilteringActive(true)
 end
 
 
 
 -- INTERNAL OVERRIDE  input:_update( deltaTime )
-function Cs.input:_update(dt)
-	Cs.input.super._update(self, dt)
-	self._field:update(dt)
+function Cs.input._update(inputEl, dt)
+	Cs.input.super._update(inputEl, dt)
+	inputEl._field:update(dt)
 end
 
 
 
 -- INTERNAL REPLACE  input:_draw( )
-function Cs.input:_draw()
-	if self._hidden    then  return  end
-	if self._gui.debug then  return self:_drawDebug(0, 180, 0)  end
+function Cs.input._draw(inputEl)
+	if inputEl._hidden    then  return  end
+	if inputEl._gui.debug then  return inputEl:_drawDebug(0, 180, 0)  end
 
-	local inputIndent     = themeGet(self._gui, "inputIndentation")
-	local x, y, w, h      = xywh(self)
-	local curOffset       = self:getCursorOffset()
-	local selOffset, selW = self:getSelectionOffset()
+	local inputIndent     = themeGet(inputEl._gui, "inputIndentation")
+	local x, y, w, h      = xywh(inputEl)
+	local curOffset       = inputEl:getCursorOffset()
+	local selOffset, selW = inputEl:getSelectionOffset()
 
-	triggerIncludingAnimations(self, "beforedraw", x, y, w, h)
+	triggerIncludingAnimations(inputEl, "beforedraw", x, y, w, h)
 
-	drawLayoutBackground(self)
-	themeRender(self, "input", inputIndent, self:getFont():getHeight(), curOffset, selOffset, selW)
+	drawLayoutBackground(inputEl)
+	themeRender(inputEl, "input", inputIndent, inputEl:getFont():getHeight(), curOffset, selOffset, selW)
 
-	triggerIncludingAnimations(self, "afterdraw", x, y, w, h)
+	triggerIncludingAnimations(inputEl, "afterdraw", x, y, w, h)
 end
 
 
 
 -- input:focus( )
-function Cs.input:focus()
-	local gui = self._gui
-	if gui._keyboardFocus == self then  return  end
+function Cs.input.focus(inputEl)
+	local gui = inputEl._gui
+	if gui._keyboardFocus == inputEl then  return  end
 
-	self._savedValue     = self:getValue()
-	self._savedKeyRepeat = love.keyboard.hasKeyRepeat()
+	inputEl._savedValue     = inputEl:getValue()
+	inputEl._savedKeyRepeat = love.keyboard.hasKeyRepeat()
 
-	gui:navigateTo(gui._navigationTarget and self or nil)
+	gui:navigateTo(gui._navigationTarget and inputEl or nil)
 	gui._lockNavigation = true
 
-	setKeyboardFocus(gui, self)
+	setKeyboardFocus(gui, inputEl)
 
 	love.keyboard.setKeyRepeat(true)
-	self._field:resetBlinking()
+	inputEl._field:resetBlinking()
 
-	self:playSound("focus")
-	self:triggerBubbling("focused", self)
+	inputEl:playSound("focus")
+	inputEl:triggerBubbling("focused", inputEl)
 end
 
 -- success = input:blur( )
-function Cs.input:blur()
-	local gui = self._gui
-	if gui._keyboardFocus ~= self then  return false  end
+function Cs.input.blur(inputEl)
+	local gui = inputEl._gui
+	if gui._keyboardFocus ~= inputEl then  return false  end
 
 	blurKeyboardFocus(gui)
 	gui._lockNavigation = false
 
-	love.keyboard.setKeyRepeat(self._savedKeyRepeat)
+	love.keyboard.setKeyRepeat(inputEl._savedKeyRepeat)
 
-	self._field:setScroll(0, 0)
+	inputEl._field:setScroll(0, 0)
 
-	local v = self:getValue()
-	if v ~= self._savedValue then
-		trigger(self, "change", v)
+	local v = inputEl:getValue()
+	if v ~= inputEl._savedValue then
+		trigger(inputEl, "change", v)
 	end
 
-	self:triggerBubbling("blurred", self)
+	inputEl:triggerBubbling("blurred", inputEl)
 	return true
 end
 
 -- bool = input:isFocused( )
-function Cs.input:isFocused()
-	return self:isKeyboardFocus()
+function Cs.input.isFocused(inputEl)
+	return inputEl:isKeyboardFocus()
 end
 
 
@@ -9960,103 +9953,103 @@ end
 -- inputField = input:getField( )
 -- Inputs use the InputField library for many things. This method gives direct access to
 -- the internal InputField instance. (See https://github.com/ReFreezed/InputField)
-function Cs.input:getField()
-	return self._field
+function Cs.input.getField(inputEl)
+	return inputEl._field
 end
 
 
 
 -- value = input:getValue( )
-function Cs.input:getValue()
-	return self._field:getText()
+function Cs.input.getValue(inputEl)
+	return inputEl._field:getText()
 end
 
 -- input:setValue( value )
-function Cs.input:setValue(value)
-	self._field:setText(value)
+function Cs.input.setValue(inputEl, value)
+	inputEl._field:setText(value)
 end
 
 -- value = input:getVisibleValue( )
 -- Returns *** for passwords.
-function Cs.input:getVisibleValue()
-	return self._field:getVisibleText()
+function Cs.input.getVisibleValue(inputEl)
+	return inputEl._field:getVisibleText()
 end
 
 -- input:drawValue( x, y )
-function Cs.input:drawValue(x0, y0)
-	for _, line, x, y in self._field:eachVisibleLine() do -- Ought to be a single line.
+function Cs.input.drawValue(inputEl, x0, y0)
+	for _, line, x, y in inputEl._field:eachVisibleLine() do -- Ought to be a single line.
 		love.graphics.print(line, x0+x, y0+y)
 	end
 end
 
 -- input:drawPlaceholder( x, y )
-function Cs.input:drawPlaceholder(x, y)
-	love.graphics.print(self._placeholder, x, y)
+function Cs.input.drawPlaceholder(inputEl, x, y)
+	love.graphics.print(inputEl._placeholder, x, y)
 end
 
 
 
 -- bool = input:isPasswordActive( )
-function Cs.input:isPasswordActive()
-	return self._field:isPassword()
+function Cs.input.isPasswordActive(inputEl)
+	return inputEl._field:isPassword()
 end
 
 -- input:setPasswordActive( bool )
-function Cs.input:setPasswordActive(active)
-	self._field:setType(active and "password" or "normal")
+function Cs.input.setPasswordActive(inputEl, active)
+	inputEl._field:setType(active and "password" or "normal")
 end
 
 
 
 -- INTERNAL REPLACE  handled, grabKeyboardFocus = input:_keypressed( key, scancode, isRepeat )
-function Cs.input:_keypressed(key, scancode, isRepeat)
-	if not self:isKeyboardFocus() then  return false, false  end
+function Cs.input._keypressed(inputEl, key, scancode, isRepeat)
+	if not inputEl:isKeyboardFocus() then  return false, false  end
 
 	if key == "escape" then
 		if not isRepeat then
-			if self:getValue() ~= self._savedValue then
-				self._field:setText(self._savedValue)
-				trigger(self, "valuechange")
+			if inputEl:getValue() ~= inputEl._savedValue then
+				inputEl._field:setText(inputEl._savedValue)
+				trigger(inputEl, "valuechange")
 			end
-			self:blur()
-			self:playSound("inputrevert")
+			inputEl:blur()
+			inputEl:playSound("inputrevert")
 		end
 
 	elseif key == "return" or key == "kpenter" then
 		if not isRepeat then
-			self:blur()
-			self:playSound("inputsubmit")
-			trigger(self, "submit")
+			inputEl:blur()
+			inputEl:playSound("inputsubmit")
+			trigger(inputEl, "submit")
 		end
 
-	elseif self._spin ~= 0 and (key == "up" or key == "down") then
-		local oldValue = self:getValue()
+	elseif inputEl._spin ~= 0 and (key == "up" or key == "down") then
+		local oldValue = inputEl:getValue()
 		local n        = tonumber(oldValue) or 0
 
 		if key == "up" then
-			n = n + self._spin
+			n = n + inputEl._spin
 		elseif key == "down" then
-			n = n - self._spin
+			n = n - inputEl._spin
 		end
-		n = math.min(math.max(n, self._spinMin), self._spinMax)
+		n = math.min(math.max(n, inputEl._spinMin), inputEl._spinMax)
 
 		local newValue = tostring(n)
 		if newValue ~= oldValue then
-			self:setValue(newValue)
-			self._field:selectAll()
-			trigger(self, "valuechange")
+			inputEl:setValue(newValue)
+			inputEl._field:selectAll()
+			trigger(inputEl, "valuechange")
 		end
 
 	else
-		local oldValue = self:getValue()
-		local handled  = self._field:keypressed(key, isRepeat)
+		local oldValue = inputEl:getValue()
+		local handled  = inputEl._field:keypressed(key, isRepeat)
 
-		local mask     = self._mask
-		local newValue = self:getValue()
+		local mask     = inputEl._mask
+		local newValue = inputEl:getValue()
 		if handled and mask ~= "" and newValue ~= oldValue and not newValue:find(mask) then
-			self:setValue(oldValue)
+			inputEl:setValue(oldValue)
 		elseif handled and newValue ~= oldValue then
-			trigger(self, "valuechange")
+			trigger(inputEl, "valuechange")
 		end
 	end
 
@@ -10064,23 +10057,23 @@ function Cs.input:_keypressed(key, scancode, isRepeat)
 end
 
 -- -- INTERNAL REPLACE  input:_keyreleased( key, scancode )
--- function Cs.input:_keyreleased(key, scancode)
+-- function Cs.input._keyreleased(inputEl, key, scancode)
 -- end
 
 -- INTERNAL REPLACE  handled = input:_textinput( text )
-function Cs.input:_textinput(text)
-	if not self:isKeyboardFocus() then  return false  end
+function Cs.input._textinput(inputEl, text)
+	if not inputEl:isKeyboardFocus() then  return false  end
 
-	local oldValue = self:getValue()
-	local handled  = self._field:textinput(text)
+	local oldValue = inputEl:getValue()
+	local handled  = inputEl._field:textinput(text)
 
-	local mask     = self._mask
-	local newValue = self:getValue()
+	local mask     = inputEl._mask
+	local newValue = inputEl:getValue()
 	if handled and mask ~= "" and newValue ~= oldValue and not newValue:find(mask) then
 		newValue = oldValue
-		self:setValue(newValue)
+		inputEl:setValue(newValue)
 	elseif handled and newValue ~= oldValue then
-		trigger(self, "valuechange")
+		trigger(inputEl, "valuechange")
 	end
 
 	return true
@@ -10089,15 +10082,13 @@ end
 
 
 -- INTERNAL REPLACE  handled, grabMouseFocus = input:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
-function Cs.input:_mousepressed(mx, my, mbutton, pressCount)
-	if not self._active then
-		return true, false
-	end
+function Cs.input._mousepressed(inputEl, mx, my, mbutton, pressCount)
+	if not inputEl._active then  return true, false  end
 
-	self:focus()
+	inputEl:focus()
 
 	if mbutton == 1 then
-		self._field:mousepressed(mx-self:getXOnScreen()-themeGet(self._gui, "inputIndentation"), 0, mbutton, pressCount)
+		inputEl._field:mousepressed(mx-inputEl:getXOnScreen()-themeGet(inputEl._gui, "inputIndentation"), 0, mbutton, pressCount)
 		return true, true
 	else
 		return true, false
@@ -10105,24 +10096,24 @@ function Cs.input:_mousepressed(mx, my, mbutton, pressCount)
 end
 
 -- INTERNAL REPLACE  input:_mousemoved( mouseX, mouseY )
-function Cs.input:_mousemoved(mx, my)
-	self._field:mousemoved(mx-self:getXOnScreen()-themeGet(self._gui, "inputIndentation"), 0)
+function Cs.input._mousemoved(inputEl, mx, my)
+	inputEl._field:mousemoved(mx-inputEl:getXOnScreen()-themeGet(inputEl._gui, "inputIndentation"), 0)
 end
 
 -- INTERNAL REPLACE  input:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
-function Cs.input:_mousereleased(mx, my, mbutton, pressCount)
-	self._field:mousereleased(mx-self:getXOnScreen()-themeGet(self._gui, "inputIndentation"), 0, mbutton)
+function Cs.input._mousereleased(inputEl, mx, my, mbutton, pressCount)
+	inputEl._field:mousereleased(mx-inputEl:getXOnScreen()-themeGet(inputEl._gui, "inputIndentation"), 0, mbutton)
 end
 
 
 
 -- INTERNAL REPLACE  handled = input:_ok( )
-function Cs.input:_ok()
-	self._gui._ignoreKeyboardInputThisFrame = true
-	if not self:isFocused() then
-		self:focus()
+function Cs.input._ok(inputEl)
+	inputEl._gui._ignoreKeyboardInputThisFrame = true
+	if not inputEl:isFocused() then
+		inputEl:focus()
 	else
-		self:blur()
+		inputEl:blur()
 	end
 	return true
 end
@@ -10130,53 +10121,53 @@ end
 
 
 -- OVERRIDE  input:setActive( bool )
-function Cs.input:setActive(active)
-	if not active then  self:blur()  end
-	Cs.input.super.setActive(self, active)
+function Cs.input.setActive(inputEl, active)
+	if not active then  inputEl:blur()  end
+	Cs.input.super.setActive(inputEl, active)
 end
 
 
 
 -- INTERNAL REPLACE  input:_calculateNaturalSize( )
-function Cs.input:_calculateNaturalSize()
+function Cs.input._calculateNaturalSize(inputEl)
 	local w, h
-	if self._width < 0 or self._height < 0 then
-		local inputIndent = themeGet(self._gui, "inputIndentation")
-		w, h              = themeGetSize(self, "input", inputIndent, self:getFont():getHeight())
+	if inputEl._width < 0 or inputEl._height < 0 then
+		local inputIndent = themeGet(inputEl._gui, "inputIndentation")
+		w, h              = themeGetSize(inputEl, "input", inputIndent, inputEl:getFont():getHeight())
 	end
 
-	self._layoutWidth  = (self._width  >= 0) and self._width  or math.max(w, self._minWidth )
-	self._layoutHeight = (self._height >= 0) and self._height or math.max(h, self._minHeight)
+	inputEl._layoutWidth  = (inputEl._width  >= 0) and inputEl._width  or math.max(w, inputEl._minWidth )
+	inputEl._layoutHeight = (inputEl._height >= 0) and inputEl._height or math.max(h, inputEl._minHeight)
 end
 
 -- INTERNAL OVERRIDE  input:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
-function Cs.input:_expandSelfAndPositionChildren(expandW, expandH, floating)
-	Cs.input.super._expandSelfAndPositionChildren(self, expandW, expandH, floating)
+function Cs.input._expandSelfAndPositionChildren(inputEl, expandW, expandH, floating)
+	Cs.input.super._expandSelfAndPositionChildren(inputEl, expandW, expandH, floating)
 
-	local inputIndent = themeGet(self._gui, "inputIndentation")
-	self._field:setWidth(self._layoutWidth - 2*inputIndent)
+	local inputIndent = themeGet(inputEl._gui, "inputIndentation")
+	inputEl._field:setWidth(inputEl._layoutWidth-2*inputIndent)
 end
 
 
 
 -- offset, width = input:getSelectionOffset( )
-function Cs.input:getSelectionOffset()
-	for i, x, y, w, h in self._field:eachSelectionOptimized() do
+function Cs.input.getSelectionOffset(inputEl)
+	for i, x, y, w, h in inputEl._field:eachSelectionOptimized() do
 		return x, w
 	end
 	return 0, 0 -- We should never get here!
 end
 
 -- offset = input:getCursorOffset( )
-function Cs.input:getCursorOffset()
-	return (self._field:getCursorLayout())
+function Cs.input.getCursorOffset(inputEl)
+	return (inputEl._field:getCursorLayout())
 end
 
 
 
 -- phase = input:getBlinkPhase( )
-function Cs.input:getBlinkPhase()
-	return self._field:getBlinkPhase()
+function Cs.input.getBlinkPhase(inputEl)
+	return inputEl._field:getBlinkPhase()
 end
 
 

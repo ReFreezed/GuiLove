@@ -106,8 +106,13 @@ function love.keypressed(key, scancode, isRepeat)
 			gui:navigateToNext()
 		end
 
+	elseif key == "return" or key == "kpenter" then
+		gui:ok()
+
 	elseif key == "escape" then
-		love.event.quit()
+		if not gui:back() then
+			love.event.quit()
+		end
 	end
 end
 
@@ -163,6 +168,12 @@ function love.draw()
 	love.graphics.rectangle("fill", 0, 0, 200, 2*love.graphics.getFont():getHeight())
 	love.graphics.setColor(1, 1, 1)
 	love.graphics.print(text)
+end
+
+
+
+function love.resize(w, h)
+	gui:getRoot():setDimensions(w, h)
 end
 
 
