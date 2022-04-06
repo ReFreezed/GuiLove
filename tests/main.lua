@@ -15,7 +15,7 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 				{"button", mnemonics=true, weight=1, text="&File", relativeWidth=.5},
 				{"button", mnemonics=true, weight=1, text="&Edit"},
 				{"button", mnemonics=true, weight=1, text="&Search"},
-				{"button", mnemonics=true, weight=1, text="&Debug"},
+				{"button", mnemonics=true, weight=1, text="&Debug", maxWidth=120}, -- @Incomplete: maxWidth needs better handling in this case.
 				{"button", mnemonics=true, weight=1, text="&Help"},
 			},
 			{"hbar", homogeneous=true,
@@ -29,6 +29,8 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 				{"button", weight=0, text="50%", relativeWidth=.5},
 				{"button", weight=1, text="expand"},
 				{"button", weight=0, text="[1]"},
+				{"button", weight=0, text="1-FLOAT", floating=true, originX=.75, anchorX=1, y=-5}, -- @Incomplete: Test floating containers in bars.
+				{"button", weight=0, text="FLOAT-2", floating=true, originX=.75, anchorX=0, y=-5},
 				{"button", weight=0, text="[2]"},
 				{"button", weight=0, text="[3]"},
 			},

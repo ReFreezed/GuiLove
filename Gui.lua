@@ -18,7 +18,7 @@
 		local Gui = require("Gui")
 		gui       = Gui()
 
-		local tree = {"root",
+		local tree = {"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(),
 			{"vbar", id="myContainer", width=200,
 				{"text", text="I'm just a text."},
 				{"input", value="foo bar"},
@@ -37,8 +37,6 @@
 			local text        = "Pressed button " .. pressCount .. " " .. (pressCount == 1 and "time" or "times") .. "!"
 			myContainer:insert{ "text", text=text }
 		end)
-
-		gui:getRoot():setDimensions(love.graphics.getDimensions())
 	end
 
 	function love.keypressed(key, scancode, isRepeat)
@@ -132,6 +130,7 @@
 	- getLayout
 	- getLayoutDimensions, getLayoutWidth, getLayoutHeight
 	- getLayoutPosition, getLayoutX, getLayoutY, getLayoutCenterPosition
+	- getMaxDimensions, setMaxDimensions, getMaxWidth, setMaxWidth, getMaxHeight, setMaxHeight
 	- getMinDimensions, setMinDimensions, getMinWidth, setMinWidth, getMinHeight, setMinHeight
 	- getMouseCursor, getResultingMouseCursor, setMouseCursor
 	- getMousePosition, getMouseX, getMouseY
@@ -191,7 +190,6 @@
 	- getChildWithData
 	- getElementAt
 	- getInnerSpace, getInnerSpaceX, getInnerSpaceY
-	- getMaxDimensions, setMaxDimensions, getMaxWidth, setMaxWidth, getMaxHeight, setMaxHeight
 	- getPadding, getPaddingLeft, getPaddingRight, getPaddingTop, getPaddingBottom, setPadding
 	- getScroll, getScrollX, getScrollY, setScroll, setScrollX, setScrollY, scroll, updateScroll
 	- getScrollHandleX, getScrollHandleY
@@ -3621,20 +3619,22 @@ local function updateLayout(el)
 		print("Gui: Updating layout.")
 	end
 
-	local container = el:getRoot() -- @Incomplete @Speed: Make any element able to update it's layout. (See comment below.)
-	if container._hidden then  return false  end
+	local root = el:getRoot() -- @Temp
+	-- local container = el -- @Incomplete @Speed: Make any element able to update it's layout. (See comment below.)
+	if root._hidden then  return false  end
 
-	container:_calculateNaturalSize()
+	root:_calculateNaturalSize()
 
 	-- Note: This currently, most likely only works correctly if 'container'
-	-- is the root. (I think we need to save the last arguments to
-	-- _expandSelfAndPositionChildren() and know if the parent would change
-	-- size if we changed size. 2022-03-28)
-	container:_expandSelfAndPositionChildren(nil, nil, false--[[container._floating]])
+	-- is the root. (I think we need to save the last values we use and know
+	-- if the parent would change size if we changed size. 2022-03-28)
+	root._layoutWidth  = root._width
+	root._layoutHeight = root._height
+	root:_expandAndPositionChildren()
 
 	gui._layoutNeedsUpdate = false
 
-	container:visitVisible(__LAMBDA1(triggerIncludingAnimations))
+	root:visitVisible(__LAMBDA1(triggerIncludingAnimations))
 
 	updateHoveredElement(gui)
 
@@ -3837,17 +3837,14 @@ local function updateFloatingElementPosition(el)
 	)
 end
 
-local function expandAndPositionChildrenOfNonLayoutContainer(container)
-	local innerW = container._layoutWidth  - container:getInnerSpaceX() -- Should we use _content* here? I think no.
-	local innerH = container._layoutHeight - container:getInnerSpaceY()
-
-	for _, child in ipairs(container) do
-		if not child._hidden then
-			local childExpandW = (child._relativeWidth  >= 0) and innerW*child._relativeWidth  or nil
-			local childExpandH = (child._relativeHeight >= 0) and innerH*child._relativeHeight or nil
-			child:_expandSelfAndPositionChildren(childExpandW, childExpandH, true) -- Note: All children counts as floating in plain containers.
-		end
-	end
+local function applySizeLimits(el, w, h)
+	if el._width     >= 0 then  w = el._width   end
+	if el._height    >= 0 then  h = el._height  end
+	w = math.max(w, el._minWidth )
+	h = math.max(h, el._minHeight)
+	if el._maxWidth  >= 0 then  w = math.min(w, el._maxWidth )  end
+	if el._maxHeight >= 0 then  h = math.min(h, el._maxHeight)  end
+	return w, h
 end
 
 local function updateContainerNaturalSize(container, contentW, contentH)
@@ -3868,35 +3865,6 @@ local function updateContainerNaturalSize(container, contentW, contentH)
 
 	container._layoutWidth  = w
 	container._layoutHeight = h
-end
-
--- expandAndPositionContainer( container, expandWidth|nil, expandHeight|nil, floating, updateContentSize )
-local function expandAndPositionContainer(container, expandW, expandH, floating, updateContentSize)
-	local parent = container._parent
-
-	if expandW and container._width < 0 then
-		local w = math.max(expandW, container._minWidth)
-		if container._maxWidth >= 0  then  w = math.min(w, container._maxWidth)  end
-
-		container._layoutWidth = w
-
-		if updateContentSize then
-			container._contentWidth = w - container:getInnerSpaceX()
-		end
-	end
-
-	if expandH and container._height < 0 then
-		local h = math.max(expandH, container._minHeight)
-		if container._maxHeight >= 0 then  h = math.min(h, container._maxHeight)  end
-
-		container._layoutHeight = h
-
-		if updateContentSize then
-			container._contentHeight = h - container:getInnerSpaceY()
-		end
-	end
-
-	if floating then  updateFloatingElementPosition(container)  end
 end
 
 
@@ -5373,10 +5341,12 @@ Cs.element = newElementClass(true, "GuiElement", nil, {}, {
 	_relativeWidth  = -1, -- Negative means dynamic (unless _width/_height is set).
 	_relativeHeight = -1,
 
-	_weight = 0,--1, -- Weight of the element during expansion by the parent container. 0 means no expansion.
+	_weight = 0, -- Weight of the element during expansion by the parent container. 0 means no expansion.
 
 	_minWidth  = 0,
 	_minHeight = 0,
+	_maxWidth  = -1, -- Negative means no max limit.
+	_maxHeight = -1,
 
 	_x = 0, -- Offset from the origin.
 	_y = 0,
@@ -5488,6 +5458,7 @@ function Cs.element.init(el, gui, elData, parent)
 	if elData.floating ~= nil then el._floating = elData.floating end
 	if elData.hidden ~= nil then el._hidden = elData.hidden end
 	if elData.id ~= nil then el._id = elData.id end
+	if elData.maxWidth ~= nil then el._maxWidth = elData.maxWidth end if elData.maxHeight ~= nil then el._maxHeight = elData.maxHeight end
 	-- @@retrieve(el, elData, _minWidth, _minHeight)
 	-- @@retrieve(el, elData, _mouseCursor)
 	if elData.originX ~= nil then el._originX = elData.originX end if elData.originY ~= nil then el._originY = elData.originY end
@@ -5497,21 +5468,23 @@ function Cs.element.init(el, gui, elData, parent)
 	-- @@retrieve(el, elData, _style)
 	-- @@retrieve(el, elData, _tags)
 	-- @@retrieve(el, elData, _tooltip)
-	if elData.weight ~= nil then el._weight = elData.weight end
+	-- @@retrieve(el, elData, _weight)
 	-- @@retrieve(el, elData, _width, _height)
 	if elData.x ~= nil then el._x = elData.x end if elData.y ~= nil then el._y = elData.y end
 
 	el._timeBecomingVisible = gui._time
 
-	if elData.width     then  el:setWidth    (elData.width    )  end
-	if elData.height    then  el:setHeight   (elData.height   )  end
-	if elData.minWidth  then  el:setMinWidth (elData.minWidth )  end
-	if elData.minHeight then  el:setMinHeight(elData.minHeight)  end
+	if elData.width     ~= nil then  el:setWidth    (elData.width    )  end
+	if elData.height    ~= nil then  el:setHeight   (elData.height   )  end
+	if elData.minWidth  ~= nil then  el:setMinWidth (elData.minWidth )  end
+	if elData.minHeight ~= nil then  el:setMinHeight(elData.minHeight)  end
 
 	el._spacingLeft   = elData.spacingLeft   or elData.spacingHorizontal or elData.spacing
 	el._spacingRight  = elData.spacingRight  or elData.spacingHorizontal or elData.spacing
 	el._spacingTop    = elData.spacingTop    or elData.spacingVertical   or elData.spacing
 	el._spacingBottom = elData.spacingBottom or elData.spacingVertical   or elData.spacing
+
+	if elData.weight ~= nil then  el:setWeight(elData.weight)  end
 
 	-- Set data table.
 	if not (elData.data == nil or type(elData.data) == "table") then  error("Assertion failed: elData.data == nil or type(elData.data) == \"table\"")  end
@@ -6011,6 +5984,7 @@ end
 -- element:setDimensions( width, height )
 -- element:setWidth( width )
 -- element:setHeight( height )
+-- Negative values means dynamic size.
 function Cs.element.setDimensions(el, w, h)
 	if type(w)~="number" then argerror(2,1,"w",w,"number") end
 	if type(h)~="number" then argerror(2,2,"h",h,"number") end
@@ -6050,6 +6024,7 @@ end
 -- element:setRelativeDimensions( width, height )
 -- element:setRelativeWidth( width )
 -- element:setRelativeHeight( height )
+-- Negative values disable relative size.
 function Cs.element.setRelativeDimensions(el, w, h)
 	if type(w)~="number" then argerror(2,1,"w",w,"number") end
 	if type(h)~="number" then argerror(2,2,"h",h,"number") end
@@ -6068,6 +6043,89 @@ function Cs.element.setRelativeHeight(el, h)
 	if type(h)~="number" then argerror(2,1,"h",h,"number") end
 	if el._relativeHeight == h then  return  end
 	el._relativeHeight = h
+	scheduleLayoutUpdateIfDisplayed(el)
+end
+
+
+
+-- width, height = element:getMinDimensions( )
+-- width  = element:getMinWidth( )
+-- height = element:getMinHeight( )
+function Cs.element.getMinDimensions(el)
+	return el._minWidth, el._minHeight
+end
+function Cs.element.getMinWidth(el)
+	return el._minWidth
+end
+function Cs.element.getMinHeight(el)
+	return el._minHeight
+end
+
+-- element:setMinDimensions( width, height )
+-- element:setMinWidth( width )
+-- element:setMinHeight( height )
+function Cs.element.setMinDimensions(el, w, h)
+	if type(w)~="number" then argerror(2,1,"w",w,"number") end
+	if type(h)~="number" then argerror(2,2,"h",h,"number") end
+	w = math.max(w, 0)
+	h = math.max(h, 0)
+	if el._minWidth == w and el._minHeight == h then  return  end
+	el._minWidth  = w
+	el._minHeight = h
+	scheduleLayoutUpdateIfDisplayed(el)
+end
+function Cs.element.setMinWidth(el, w)
+	if type(w)~="number" then argerror(2,1,"w",w,"number") end
+	w = math.max(w, 0)
+	if el._minWidth == w then  return  end
+	el._minWidth = w
+	scheduleLayoutUpdateIfDisplayed(el)
+end
+function Cs.element.setMinHeight(el, h)
+	if type(h)~="number" then argerror(2,1,"h",h,"number") end
+	h = math.max(h, 0)
+	if el._minHeight == h then  return  end
+	el._minHeight = h
+	scheduleLayoutUpdateIfDisplayed(el)
+end
+
+
+
+-- width, height = element:getMaxDimensions( )
+-- width  = element:getMaxWidth( )
+-- height = element:getMaxHeight( )
+function Cs.element.getMaxDimensions(el)
+	return el._maxWidth, el._maxHeight
+end
+function Cs.element.getMaxWidth(el)
+	return el._maxWidth
+end
+function Cs.element.getMaxHeight(el)
+	return el._maxHeight
+end
+
+-- element:setMaxDimensions( width, height )
+-- element:setMaxWidth( width )
+-- element:setMaxHeight( height )
+-- Negative values remove restrictions.
+function Cs.element.setMaxDimensions(el, w, h)
+	if type(w)~="number" then argerror(2,1,"w",w,"number") end
+	if type(h)~="number" then argerror(2,2,"h",h,"number") end
+	if el._maxWidth == w and el._maxHeight == h then  return  end
+	el._maxWidth  = w
+	el._maxHeight = h
+	scheduleLayoutUpdateIfDisplayed(el)
+end
+function Cs.element.setMaxWidth(el, w)
+	if type(w)~="number" then argerror(2,1,"w",w,"number") end
+	if el._maxWidth == w then  return  end
+	el._maxWidth = w
+	scheduleLayoutUpdateIfDisplayed(el)
+end
+function Cs.element.setMaxHeight(el, h)
+	if type(h)~="number" then argerror(2,1,"h",h,"number") end
+	if el._maxHeight == h then  return  end
+	el._maxHeight = h
 	scheduleLayoutUpdateIfDisplayed(el)
 end
 
@@ -6153,6 +6211,7 @@ end
 -- element:setWeight( weight )
 function Cs.element.setWeight(el, weight)
 	if type(weight)~="number" then argerror(2,1,"weight",weight,"number") end
+	weight = math.max(weight, 0)
 	if el._weight == weight then  return  end
 	el._weight = weight
 	scheduleLayoutUpdateIfDisplayed(el)
@@ -6268,49 +6327,6 @@ function Cs.element.getLayoutCenterPosition(el)
 	updateLayoutIfNeeded(el._gui)
 	return el._layoutX + .5*el._layoutWidth,
 	       el._layoutY + .5*el._layoutHeight
-end
-
-
-
--- width, height = element:getMinDimensions( )
--- width  = element:getMinWidth( )
--- height = element:getMinHeight( )
-function Cs.element.getMinDimensions(el)
-	return el._minWidth, el._minHeight
-end
-function Cs.element.getMinWidth(el)
-	return el._minWidth
-end
-function Cs.element.getMinHeight(el)
-	return el._minHeight
-end
-
--- element:setMinDimensions( width, height )
--- element:setMinWidth( width )
--- element:setMinHeight( height )
-function Cs.element.setMinDimensions(el, w, h)
-	if type(w)~="number" then argerror(2,1,"w",w,"number") end
-	if type(h)~="number" then argerror(2,2,"h",h,"number") end
-	w = math.max(w, 0)
-	h = math.max(h, 0)
-	if el._minWidth == w and el._minHeight == h then  return  end
-	el._minWidth  = w
-	el._minHeight = h
-	scheduleLayoutUpdateIfDisplayed(el)
-end
-function Cs.element.setMinWidth(el, w)
-	if type(w)~="number" then argerror(2,1,"w",w,"number") end
-	w = math.max(w, 0)
-	if el._minWidth == w then  return  end
-	el._minWidth = w
-	scheduleLayoutUpdateIfDisplayed(el)
-end
-function Cs.element.setMinHeight(el, h)
-	if type(h)~="number" then argerror(2,1,"h",h,"number") end
-	h = math.max(h, 0)
-	if el._minHeight == h then  return  end
-	el._minHeight = h
-	scheduleLayoutUpdateIfDisplayed(el)
 end
 
 
@@ -7293,12 +7309,9 @@ function Cs.element._calculateNaturalSize(el)
 	-- void
 end
 
--- INTERNAL  element:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
-function Cs.element._expandSelfAndPositionChildren(el, expandW, expandH, floating)
-	el._layoutWidth  = expandW or el._layoutWidth
-	el._layoutHeight = expandH or el._layoutHeight
-
-	if floating then  updateFloatingElementPosition(el)  end
+-- INTERNAL  element:_expandAndPositionChildren( )
+function Cs.element._expandAndPositionChildren(el)
+	-- void
 end
 
 
@@ -7324,9 +7337,6 @@ Cs.container = newElementClass(false, "GuiContainer", Cs.element, {}, {
 	_paddingTop    = 0, -- Falls back to 'paddingVertical' and 'padding'.
 	_paddingBottom = 0, -- Falls back to 'paddingVertical' and 'padding'.
 
-	_maxWidth  = -1, -- Negative means no limit.
-	_maxHeight = -1,
-
 	_canScrollX = false,
 	_canScrollY = false,
 	--
@@ -7351,7 +7361,6 @@ function Cs.container.init(container, gui, elData, parent)
 
 	if elData.canScrollX ~= nil then container._canScrollX = elData.canScrollX end if elData.canScrollY ~= nil then container._canScrollY = elData.canScrollY end
 	if elData.confineNavigation ~= nil then container._confineNavigation = elData.confineNavigation end
-	if elData.maxWidth ~= nil then container._maxWidth = elData.maxWidth end if elData.maxHeight ~= nil then container._maxHeight = elData.maxHeight end
 	-- @@retrieve(container, elData, _paddingLeft, _paddingRight, _paddingTop, _paddingBottom)
 	if elData.solid ~= nil then container._solid = elData.solid end
 
@@ -7570,46 +7579,6 @@ function Cs.container.getInnerSpaceY(container)
 		space = space + themeGet(container._gui, "scrollbarWidth")
 	end
 	return space
-end
-
-
-
--- width, height = container:getMaxDimensions( )
--- width  = container:getMaxWidth( )
--- height = container:getMaxHeight( )
-function Cs.container.getMaxDimensions(container)
-	return container._maxWidth, container._maxHeight
-end
-function Cs.container.getMaxWidth(container)
-	return container._maxWidth
-end
-function Cs.container.getMaxHeight(container)
-	return container._maxHeight
-end
-
--- container:setMaxDimensions( width, height )
--- container:setMaxWidth( width )
--- container:setMaxHeight( height )
--- Negative values remove restrictions.
-function Cs.container.setMaxDimensions(container, w, h)
-	if type(w)~="number" then argerror(2,1,"w",w,"number") end
-	if type(h)~="number" then argerror(2,2,"h",h,"number") end
-	if container._maxWidth == w and container._maxHeight == h then  return  end
-	container._maxWidth  = w
-	container._maxHeight = h
-	scheduleLayoutUpdateIfDisplayed(container)
-end
-function Cs.container.setMaxWidth(container, w)
-	if type(w)~="number" then argerror(2,1,"w",w,"number") end
-	if container._maxWidth == w then  return  end
-	container._maxWidth = w
-	scheduleLayoutUpdateIfDisplayed(container)
-end
-function Cs.container.setMaxHeight(container, h)
-	if type(h)~="number" then argerror(2,1,"h",h,"number") end
-	if container._maxHeight == h then  return  end
-	container._maxHeight = h
-	scheduleLayoutUpdateIfDisplayed(container)
 end
 
 
@@ -8647,10 +8616,21 @@ function Cs.container._calculateNaturalSize(container)
 	updateContainerNaturalSize(container, maxX, maxY)
 end
 
--- INTERNAL REPLACE  container:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
-function Cs.container._expandSelfAndPositionChildren(container, expandW, expandH, floating)
-	expandAndPositionContainer(container, expandW, expandH, floating, true)
-	expandAndPositionChildrenOfNonLayoutContainer(container)
+-- INTERNAL REPLACE  container:_expandAndPositionChildren( )
+function Cs.container._expandAndPositionChildren(container)
+	local innerW = container._layoutWidth  - container:getInnerSpaceX() -- Should we use _content* here? I think no.
+	local innerH = container._layoutHeight - container:getInnerSpaceY()
+
+	for _, child in ipairs(container) do
+		if not child._hidden then
+			child._layoutWidth, child._layoutHeight = applySizeLimits(child
+				, (child._relativeWidth  >= 0) and innerW*child._relativeWidth  or child._layoutWidth
+				, (child._relativeHeight >= 0) and innerH*child._relativeHeight or child._layoutHeight
+			)
+			updateFloatingElementPosition(child) -- All children counts as floating in plain/non-layout containers.
+			child:_expandAndPositionChildren()
+		end
+	end
 end
 
 
@@ -8749,13 +8729,11 @@ end
 
 
 
--- INTERNAL REPLACE  hbar:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
--- INTERNAL REPLACE  vbar:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
-function Cs.hbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
+-- INTERNAL REPLACE  hbar:_expandAndPositionChildren( )
+-- INTERNAL REPLACE  vbar:_expandAndPositionChildren( )
+function Cs.hbar._expandAndPositionChildren(bar)
 
 
-
-	expandAndPositionContainer(bar, expandW, expandH, floating, false)
 
 	--
 	-- Calculate amount of space for children to expand into (total if homogeneous,
@@ -8763,7 +8741,7 @@ function Cs.hbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 	--
 	local childSizeSum    = 0
 	local expansionWeight = 0
-	local innerSize       = (expandW or bar._layoutWidth) - bar:getInnerSpaceX() - bar._layoutInnerSpacingsX
+	local innerSize       = bar._layoutWidth - bar:getInnerSpaceX() - bar._layoutInnerSpacingsX
 	local staticSize      = bar._layoutInnerStaticWidth
 	local homogeneous     = bar._homogeneous
 
@@ -8780,7 +8758,7 @@ function Cs.hbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 		end
 	end
 
-	local expandPerp     = bar._expandPerpendicular and ((expandH or bar._layoutHeight) - bar:getInnerSpaceY() - bar._layoutInnerSpacingsY) or nil
+	local expandPerp     = bar._expandPerpendicular and (bar._layoutHeight - bar:getInnerSpaceY() - bar._layoutInnerSpacingsY) or nil
 	local expansionSpace = innerSize - (homogeneous and staticSize or childSizeSum)
 
 	--
@@ -8800,8 +8778,10 @@ function Cs.hbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 
 		-- No expansion.
 		elseif child._floating then
-			child:_expandSelfAndPositionChildren(nil, nil, true)
+			updateFloatingElementPosition(child)
+			child:_expandAndPositionChildren()
 
+		-- Any expansion.
 		else
 			if not first then
 				margin   = math.max(margin, child._spacingLeft)
@@ -8811,19 +8791,29 @@ function Cs.hbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 			child._layoutX = baseX + x
 			child._layoutY = baseY + y
 
+			local childWidth  = child._layoutWidth
+			local childHeight = child._layoutHeight
+
 			-- Only perpendicular (and relative-to-static along) expansion.
 			if child._weight == 0 or child._width >= 0 then
-				local expandAlong = (child._relativeWidth >= 0) and round(child._relativeWidth*innerSize) or nil
-				child:_expandSelfAndPositionChildren(expandAlong,expandPerp, false)
+				if child._relativeWidth >= 0 then
+					childWidth = round(child._relativeWidth*innerSize)
+				end
 
 			-- Expansion on both axes.
 			else
-				local space       = round(expansionSpace * child._weight/expansionWeight)
-				local expandAlong = (homogeneous and 0 or child._layoutWidth) + space
-				expansionSpace    = expansionSpace  - space
-				expansionWeight   = expansionWeight - child._weight
-				child:_expandSelfAndPositionChildren(expandAlong,expandPerp, false)
+				local space     = round(expansionSpace * child._weight/expansionWeight)
+				childWidth        = (homogeneous and 0 or child._layoutWidth) + space
+				expansionSpace  = expansionSpace  - space
+				expansionWeight = expansionWeight - child._weight
 			end
+
+			if expandPerp then
+				childHeight = expandPerp
+			end
+
+			child._layoutWidth, child._layoutHeight = applySizeLimits(child, childWidth, childHeight)
+			child:_expandAndPositionChildren()
 
 			x = x + child._layoutWidth
 			margin   = child._spacingRight
@@ -8831,15 +8821,13 @@ function Cs.hbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 		end
 	end
 
-	-- Make sure scrolling uses the final content size.
+	-- Make sure scrolling uses the final expanded content size.
 	bar._contentWidth = x
 
 end
-function Cs.vbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
+function Cs.vbar._expandAndPositionChildren(bar)
 
 
-
-	expandAndPositionContainer(bar, expandW, expandH, floating, false)
 
 	--
 	-- Calculate amount of space for children to expand into (total if homogeneous,
@@ -8847,7 +8835,7 @@ function Cs.vbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 	--
 	local childSizeSum    = 0
 	local expansionWeight = 0
-	local innerSize       = (expandH or bar._layoutHeight) - bar:getInnerSpaceY() - bar._layoutInnerSpacingsY
+	local innerSize       = bar._layoutHeight - bar:getInnerSpaceY() - bar._layoutInnerSpacingsY
 	local staticSize      = bar._layoutInnerStaticHeight
 	local homogeneous     = bar._homogeneous
 
@@ -8864,7 +8852,7 @@ function Cs.vbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 		end
 	end
 
-	local expandPerp     = bar._expandPerpendicular and ((expandW or bar._layoutWidth) - bar:getInnerSpaceX() - bar._layoutInnerSpacingsX) or nil
+	local expandPerp     = bar._expandPerpendicular and (bar._layoutWidth - bar:getInnerSpaceX() - bar._layoutInnerSpacingsX) or nil
 	local expansionSpace = innerSize - (homogeneous and staticSize or childSizeSum)
 
 	--
@@ -8884,8 +8872,10 @@ function Cs.vbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 
 		-- No expansion.
 		elseif child._floating then
-			child:_expandSelfAndPositionChildren(nil, nil, true)
+			updateFloatingElementPosition(child)
+			child:_expandAndPositionChildren()
 
+		-- Any expansion.
 		else
 			if not first then
 				margin   = math.max(margin, child._spacingTop)
@@ -8895,19 +8885,29 @@ function Cs.vbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 			child._layoutX = baseX + x
 			child._layoutY = baseY + y
 
+			local childWidth  = child._layoutWidth
+			local childHeight = child._layoutHeight
+
 			-- Only perpendicular (and relative-to-static along) expansion.
 			if child._weight == 0 or child._height >= 0 then
-				local expandAlong = (child._relativeHeight >= 0) and round(child._relativeHeight*innerSize) or nil
-				child:_expandSelfAndPositionChildren(expandPerp,expandAlong, false)
+				if child._relativeHeight >= 0 then
+					childHeight = round(child._relativeHeight*innerSize)
+				end
 
 			-- Expansion on both axes.
 			else
-				local space       = round(expansionSpace * child._weight/expansionWeight)
-				local expandAlong = (homogeneous and 0 or child._layoutHeight) + space
-				expansionSpace    = expansionSpace  - space
-				expansionWeight   = expansionWeight - child._weight
-				child:_expandSelfAndPositionChildren(expandPerp,expandAlong, false)
+				local space     = round(expansionSpace * child._weight/expansionWeight)
+				childHeight        = (homogeneous and 0 or child._layoutHeight) + space
+				expansionSpace  = expansionSpace  - space
+				expansionWeight = expansionWeight - child._weight
 			end
+
+			if expandPerp then
+				childWidth = expandPerp
+			end
+
+			child._layoutWidth, child._layoutHeight = applySizeLimits(child, childWidth, childHeight)
+			child:_expandAndPositionChildren()
 
 			y = y + child._layoutHeight
 			margin   = child._spacingBottom
@@ -8915,7 +8915,7 @@ function Cs.vbar._expandSelfAndPositionChildren(bar, expandW, expandH, floating)
 		end
 	end
 
-	-- Make sure scrolling uses the final content size.
+	-- Make sure scrolling uses the final expanded content size.
 	bar._contentHeight = y
 
 end
@@ -8989,12 +8989,6 @@ function Cs.root._calculateNaturalSize(root)
 	root._layoutWidth  = root._width
 	root._layoutHeight = root._height
 	calculateContainerChildNaturalSizes(root)
-end
-
--- INTERNAL REPLACE  root:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
--- The arguments are ignored as the root always has a fixed non-expanding size and position.
-function Cs.root._expandSelfAndPositionChildren(root, expandW, expandH, floating)
-	expandAndPositionChildrenOfNonLayoutContainer(root)
 end
 
 
@@ -10194,9 +10188,9 @@ function Cs.input._calculateNaturalSize(inputEl)
 	inputEl._layoutHeight = (inputEl._height >= 0) and inputEl._height or math.max(h, inputEl._minHeight)
 end
 
--- INTERNAL OVERRIDE  input:_expandSelfAndPositionChildren( expandWidth|nil, expandHeight|nil, floating )
-function Cs.input._expandSelfAndPositionChildren(inputEl, expandW, expandH, floating)
-	Cs.input.super._expandSelfAndPositionChildren(inputEl, expandW, expandH, floating)
+-- INTERNAL OVERRIDE  input:_expandAndPositionChildren( )
+function Cs.input._expandAndPositionChildren(inputEl)
+	Cs.input.super._expandAndPositionChildren(inputEl)
 
 	local inputIndent = themeGet(inputEl._gui, "inputIndentation")
 	inputEl._field:setWidth(inputEl._layoutWidth-2*inputIndent)
