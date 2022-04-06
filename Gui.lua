@@ -116,6 +116,7 @@
 	(element)
 	- animate
 	- close, canClose
+	- drawTooltip
 	- exists
 	- getAnchor, setAnchor, getAnchorX, setAnchorX, getAnchorY, setAnchorY
 	- getCallback, setCallback, on, off, trigger, triggerBubbling
@@ -146,7 +147,7 @@
 	- getSpacing, getSpacingLeft, getSpacingRight, getSpacingTop, getSpacingBottom, setSpacing
 	- getStyle
 	- getTimeSinceBecomingVisible
-	- getTooltip, setTooltip, drawTooltip
+	- getTooltip, setTooltip
 	- getTooltipFont, useTooltipFont
 	- getWeight, setWeight
 	- hasTag, addTag, removeTag, removeAllTags, setTag
@@ -216,10 +217,11 @@
 		- setDimensions
 
 	(leaf)
+	- drawText, drawAlignedText
 	- getAlign, setAlign
 	- getFont, useFont
 	- getMnemonicOffset
-	- getText, getUnprocessedText, setText, drawText, drawAlignedText
+	- getText, getUnprocessedText, setText
 	- getTextColor, setTextColor, hasTextColor, useTextColor
 	- isBold, setBold
 	- isLarge, setLarge
@@ -242,8 +244,9 @@
 
 			button
 			- Includes: imageInclude
+			- drawText2, drawAlignedText2
 			- getArrow
-			- getText2, getUnprocessedText2, setText2, drawText2, drawAlignedText2
+			- getText2, getUnprocessedText2, setText2
 			- isPressable, setPressable
 			- isToggled, setToggled
 			- press, isPressed
@@ -251,12 +254,13 @@
 			- Event: toggle
 
 			input
+			- drawValue, drawPlaceholder, drawValueOrPlaceholder, drawSelections
 			- focus, blur, isFocused
 			- getBlinkPhase
 			- getField
-			- getSelectionOffset, getCursorOffset
-			- getValue, setValue, getVisibleValue, drawValue, drawPlaceholder
-			- isPasswordActive, setPasswordActive
+			- getFieldType, setFieldType
+			- getValue, setValue, getVisibleValue
+			- getValueLayout, getCursorLayout
 			- Event: change
 			- Event: submit
 			- Event: valuechange
@@ -521,7 +525,7 @@ local InputField = (function()
 	--============================================================]]
 
 	local InputField = {
-		_VERSION = "InputField 3.3.0",
+		_VERSION = "InputField 3.3.0-dev",
 	}
 
 
@@ -612,14 +616,17 @@ local InputField = (function()
 
 
 	local function cleanString(field, s)
-		s = s:gsub((field:isMultiline() and "[%z\1-\9\11-\31]+" or "[%z\1-\31]+"), "") -- Should we allow horizontal tab?
+		local isMultiline = field:isMultiline()
+		s                 = s:gsub((isMultiline and "[%z\1-\9\11-\31]+" or "[%z\1-\31]+"), "") -- Should we allow horizontal tab?
 
 		if field.fontFilteringIsActive then
 			local font      = field.font
 			local hasGlyphs = font.hasGlyphs
 
 			s = s:gsub(utf8.charpattern, function(c)
-				if not hasGlyphs(font, c) then  return ""  end
+				if not (hasGlyphs(font, c) or (c == "\n" and isMultiline)) then
+					return ""
+				end
 			end)
 		end
 
@@ -2817,6 +2824,9 @@ local InputField = (function()
 local COLOR_TRANSPARENT = {1,1,1,0}
 local COLOR_WHITE       = {1,1,1,1}
 
+local LCTRL = (love.system.getOS() == "OS X") and "lgui" or "lctrl"
+local RCTRL = (love.system.getOS() == "OS X") and "rgui" or "rctrl"
+
 local _M = { -- The module.
 	_VERSION = "0.2.0",
 }
@@ -4411,6 +4421,8 @@ function Gui.wheelmoved(gui, dx, dy)
 	local isScroll = (dx ~= 0 or dy ~= 0)
 
 	-- Shift key swaps X and Y scrolling.
+	local dx0 = dx
+	local dy0 = dy
 	if love.keyboard.isDown("lshift","rshift") then
 		dx, dy = dy, dx
 	end
@@ -4431,7 +4443,7 @@ function Gui.wheelmoved(gui, dx, dy)
 			-- Returning true from the handler suppresses the default behavior.
 			if el:trigger("wheelmoved", dx, dy) then  return true  end
 
-			if el:_wheelmoved(dx, dy) then  return true  end
+			if el:_wheelmoved(dx, dy, dx0, dy0) then  return true  end
 		end
 
 		if focus then  return focus:isSolid()  end
@@ -5164,7 +5176,7 @@ end
 function Is.imageInclude.useImageBackgroundColor(imageInc, opacity)
 	local color = imageInc._imageBackgroundColor
 	useColor((color or COLOR_TRANSPARENT), opacity)
-	return (color ~= nil)
+	return color ~= nil
 end
 
 
@@ -5189,7 +5201,7 @@ end
 function Is.imageInclude.useImageColor(imageInc, opacity)
 	local color = imageInc._imageColor
 	useColor((color or COLOR_WHITE), opacity)
-	return (color ~= nil)
+	return color ~= nil
 end
 
 
@@ -6706,6 +6718,8 @@ function Cs.element.setTooltip(el, unprocessedText)
 	el._unprocessedTooltip = unprocessedText
 end
 
+
+
 -- element:drawTooltip( x, y )
 function Cs.element.drawTooltip(el, x, y)
 	love.graphics.print(el._tooltip, x, y)
@@ -6802,8 +6816,8 @@ function Cs.element._mousereleased(el, mx, my, mbutton, pressCount)
 	-- void
 end
 
--- handled = element:_wheelmoved( deltaX, deltaY )
-function Cs.element._wheelmoved(el, dx, dy)
+-- handled = element:_wheelmoved( deltaX, deltaY, deltaX0, deltaY0 )
+function Cs.element._wheelmoved(el, dx, dy, dx0, dy0)
 	return false
 end
 
@@ -7432,7 +7446,7 @@ function Cs.container._draw(container)
 
 	local childAreaW, childAreaH = container:getChildAreaDimensions()
 
-	local sbW = themeGet(gui, "scrollbarWidth")
+	local sbW = themeGet(gui, "scrollbarWidth") -- @Incomplete: Get scrollbar width through themeGetSize().
 
 	local canScrollX = container:canScrollX()
 	local canScrollY = container:canScrollY()
@@ -7677,7 +7691,7 @@ function Cs.container.isScrollbarXHovered(container)
 	local x2, y2 = x1+container:getChildAreaWidth(), y1+container._layoutHeight
 	y1           = y2 - themeGet(container._gui, "scrollbarWidth")
 
-	return (x >= x1 and x < x2 and y >= y1 and y < y2)
+	return x >= x1 and x < x2 and y >= y1 and y < y2
 end
 function Cs.container.isScrollbarYHovered(container)
 	local gui  = container._gui
@@ -7688,7 +7702,7 @@ function Cs.container.isScrollbarYHovered(container)
 	local x2, y2 = x1+container._layoutWidth, y1+container:getChildAreaHeight()
 	x1           = x2 - themeGet(container._gui, "scrollbarWidth")
 
-	return (x >= x1 and x < x2 and y >= y1 and y < y2)
+	return x >= x1 and x < x2 and y >= y1 and y < y2
 end
 
 -- bool = container:isScrollbarXHandleHovered( )
@@ -7897,7 +7911,7 @@ function Cs.container.getVisibleChildCount(container)
 end
 
 -- visibleChild = container:setVisibleChild( id )
--- If multiple children have the specified ID then the last one is returned.
+-- If multiple children have the given ID then the last one is returned.
 -- @Cleanup: Rename to setVisibleChildById()? Maybe more functions should be changed too.
 function Cs.container.setVisibleChild(container, id)
 	local visibleChild = nil
@@ -8172,8 +8186,8 @@ function Cs.container._mousereleased(container, mx, my, mbutton, pressCount)
 	end
 end
 
--- INTERNAL REPLACE  handled = container:_wheelmoved( deltaX, deltaY )
-function Cs.container._wheelmoved(container, dx, dy)
+-- INTERNAL REPLACE  handled = container:_wheelmoved( deltaX, deltaY, deltaX0, deltaY0 )
+function Cs.container._wheelmoved(container, dx, dy, dx0, dy0)
 	if (dx ~= 0 and container:canScrollX()) or (dy ~= 0 and container:canScrollY()) then
 		if container:scroll(
 			container._gui._scrollSpeedX * container.SCROLL_SPEED_X * dx, -- @Incomplete: Scroll relative to font size instead of SCROLL_SPEED_*.
@@ -8240,7 +8254,7 @@ function Cs.container.getToggledChild(container, deep)
 end
 
 -- button|nil = container:setToggledChild( id [, includeGrandchildren=false ] )
--- If multiple children have the specified ID then the last one is returned.
+-- If multiple children have the given ID then the last one is returned.
 function Cs.container.setToggledChild(container, id, deep)
 	local toggledChild = nil
 	if deep then
@@ -8282,13 +8296,12 @@ end
 -- for element in container:traverse( )
 function Cs.container.traverse(container)
 
-	local stack = {container, 0} -- @Memory
-	local len   = 2
-
-	return function() -- @Memory
+	return function(stack) -- @Memory
+		local len = stack[0]
 		local child
 
 
+			-- Get next child.
 			repeat
 				local i    = stack[len] + 1
 				stack[len] = i
@@ -8296,7 +8309,7 @@ function Cs.container.traverse(container)
 
 				if not child then
 					len = len - 2 -- Don't bother removing values from the stack.
-					if len == 0 then  return  end
+					if len == 0 then  return  end -- Done traversing!
 				end
 			until child
 
@@ -8307,8 +8320,9 @@ function Cs.container.traverse(container)
 			end
 
 
+		stack[0] = len
 		return child
-	end
+	end, {[0--[[length]]]=2, container, 0} -- @Memory
 
 end
 
@@ -8316,13 +8330,12 @@ end
 function Cs.container.traverseType(container, elType)
 	local C = requireElementClass(elType, 2)
 
-	local stack = {container, 0} -- @Memory
-	local len   = 2
-
-	return function() -- @Memory
+	return function(stack) -- @Memory
+		local len = stack[0]
 		local child
 
 		repeat
+			-- Get next child.
 			repeat
 				local i    = stack[len] + 1
 				stack[len] = i
@@ -8330,7 +8343,7 @@ function Cs.container.traverseType(container, elType)
 
 				if not child then
 					len = len - 2 -- Don't bother removing values from the stack.
-					if len == 0 then  return  end
+					if len == 0 then  return  end -- Done traversing!
 				end
 			until child
 
@@ -8341,8 +8354,9 @@ function Cs.container.traverseType(container, elType)
 			end
 		until child:is(C)
 
+		stack[0] = len
 		return child
-	end
+	end, {[0--[[length]]]=2, container, 0} -- @Memory
 
 end
 
@@ -9156,6 +9170,8 @@ function Cs.leaf.setText(leaf, unprocessedText)
 	end
 end
 
+
+
 -- leaf:drawText( x, y )
 function Cs.leaf.drawText(leaf, x, y)
 	love.graphics.print(leaf._text, x, y)
@@ -9708,6 +9724,8 @@ function Cs.button.setText2(button, unprocessedText)
 	end
 end
 
+
+
 -- button:drawText2( x, y )
 function Cs.button.drawText2(button, x, y)
 	love.graphics.print(button._text2, x, y)
@@ -9917,13 +9935,13 @@ Cs.input = newElementClass(false, "GuiInput", Cs.widget, {}, {
 function Cs.input.init(inputEl, gui, elData, parent)
 	Cs.input.super.init(inputEl, gui, elData, parent)
 
-	-- @@retrieve(inputEl, elData, _password) -- This is saved in the field instead.
+	-- @@retrieve(inputEl, elData, _fieldType) -- This is saved in the field instead.
 	if elData.mask ~= nil then inputEl._mask = elData.mask end
 	if elData.placeholder ~= nil then inputEl._placeholder = elData.placeholder end
 	if elData.spin ~= nil then inputEl._spin = elData.spin end
 	if elData.spinMin ~= nil then inputEl._spinMin = elData.spinMin end if elData.spinMax ~= nil then inputEl._spinMax = elData.spinMax end
 
-	inputEl._field = InputField((elData.value and tostring(elData.value) or ""), (elData.password and "password" or "normal"))
+	inputEl._field = InputField(elData.value--[[default=""]], elData.fieldType--[[default="normal"]])
 	inputEl._field:setFont(inputEl:getFont())
 	inputEl._field:setFontFilteringActive(true)
 end
@@ -9943,17 +9961,49 @@ function Cs.input._draw(inputEl)
 	if inputEl._hidden    then  return  end
 	if inputEl._gui.debug then  return inputEl:_drawDebug(0, 180, 0)  end
 
-	local inputIndent     = themeGet(inputEl._gui, "inputIndentation")
-	local x, y, w, h      = xywh(inputEl)
-	local curOffset       = inputEl:getCursorOffset()
-	local selOffset, selW = inputEl:getSelectionOffset()
+	local x, y, w, h                     = xywh(inputEl)
+	local valueX, valueY, valueW, valueH = inputEl:getValueLayout()
+	local curOffsetX, curOffsetY, curH   = inputEl:getCursorLayout()
+
+	-- @Incomplete: Draw scrollbars.
 
 	triggerIncludingAnimations(inputEl, "beforedraw", x, y, w, h)
 
 	drawLayoutBackground(inputEl)
-	themeRender(inputEl, "input", inputIndent, inputEl:getFont():getHeight(), curOffset, selOffset, selW)
+	themeRender(inputEl, "input", valueX, valueY, valueW, valueH, curOffsetX, curOffsetY, curH)
 
 	triggerIncludingAnimations(inputEl, "afterdraw", x, y, w, h)
+end
+
+
+
+-- input:drawValue( x, y )
+function Cs.input.drawValue(inputEl, x0, y0)
+	for _, line, x, y in inputEl._field:eachVisibleLine() do
+		love.graphics.print(line, x0+x, y0+y)
+	end
+end
+
+-- input:drawPlaceholder( x, y )
+function Cs.input.drawPlaceholder(inputEl, x, y)
+	love.graphics.print(inputEl._placeholder, x, y)
+end
+
+-- input:drawValueOrPlaceholder( x, y )
+function Cs.input.drawValueOrPlaceholder(inputEl, x, y)
+	if    inputEl:getValue() ~= ""
+	then  inputEl:drawValue(x, y)
+	else  inputEl:drawPlaceholder(x, y)  end
+end
+
+-- input:drawSelections( x, y [, callback ] )
+-- callback = function( x, y, width, height )
+-- If no callback is given then a filled rectangle is drawn for each selection.
+function Cs.input.drawSelections(input, x0, y0, cb)
+	for _, x, y, w, h in input._field:eachSelectionOptimized() do
+		if cb then  cb                     (        x0+x, y0+y, w, h)
+		else        love.graphics.rectangle("fill", x0+x, y0+y, w, h)  end
+	end
 end
 
 
@@ -10006,9 +10056,14 @@ end
 
 
 
+--
 -- inputField = input:getField( )
+--
 -- Inputs use the InputField library for many things. This method gives direct access to
 -- the internal InputField instance. (See https://github.com/ReFreezed/InputField)
+--
+-- Warning: Changing things in the inputField directly may mess up GuiLove!
+--
 function Cs.input.getField(inputEl)
 	return inputEl._field
 end
@@ -10031,28 +10086,17 @@ function Cs.input.getVisibleValue(inputEl)
 	return inputEl._field:getVisibleText()
 end
 
--- input:drawValue( x, y )
-function Cs.input.drawValue(inputEl, x0, y0)
-	for _, line, x, y in inputEl._field:eachVisibleLine() do -- Ought to be a single line.
-		love.graphics.print(line, x0+x, y0+y)
-	end
+
+
+-- fieldType = input:getFieldType( )
+function Cs.input.getFieldType(inputEl)
+	return inputEl._field:getType()
 end
 
--- input:drawPlaceholder( x, y )
-function Cs.input.drawPlaceholder(inputEl, x, y)
-	love.graphics.print(inputEl._placeholder, x, y)
-end
-
-
-
--- bool = input:isPasswordActive( )
-function Cs.input.isPasswordActive(inputEl)
-	return inputEl._field:isPassword()
-end
-
--- input:setPasswordActive( bool )
-function Cs.input.setPasswordActive(inputEl, active)
-	inputEl._field:setType(active and "password" or "normal")
+-- input:setFieldType( fieldType )
+-- fieldType = "normal" | "password" | "multiwrap" | "multinowrap"
+function Cs.input.setFieldType(inputEl, fieldType)
+	inputEl._field:setType(fieldType)
 end
 
 
@@ -10071,7 +10115,7 @@ function Cs.input._keypressed(inputEl, key, scancode, isRepeat)
 			inputEl:playSound("inputrevert")
 		end
 
-	elseif key == "return" or key == "kpenter" then
+	elseif (key == "return" or key == "kpenter") and not (inputEl._field:isMultiline() and not love.keyboard.isDown(LCTRL,RCTRL)) then
 		if not isRepeat then
 			inputEl:blur()
 			inputEl:playSound("inputsubmit")
@@ -10093,18 +10137,20 @@ function Cs.input._keypressed(inputEl, key, scancode, isRepeat)
 		if newValue ~= oldValue then
 			inputEl:setValue(newValue)
 			inputEl._field:selectAll()
+			-- @Incomplete: Play a sound here. :TypingSound
 			trigger(inputEl, "valuechange")
 		end
 
 	else
-		local oldValue = inputEl:getValue()
-		local handled  = inputEl._field:keypressed(key, isRepeat)
+		local oldValue             = inputEl:getValue()
+		local handled, textChanged = inputEl._field:keypressed(key, isRepeat)
 
-		local mask     = inputEl._mask
-		local newValue = inputEl:getValue()
-		if handled and mask ~= "" and newValue ~= oldValue and not newValue:find(mask) then
-			inputEl:setValue(oldValue)
-		elseif handled and newValue ~= oldValue then
+		if not textChanged then
+			-- void
+		elseif inputEl._mask ~= "" and not inputEl:getValue():find(inputEl._mask) then
+			inputEl:setValue(oldValue) -- Undo the change.  @UX: Handle the cursor better.
+		else
+			-- :TypingSound
 			trigger(inputEl, "valuechange")
 		end
 	end
@@ -10120,15 +10166,15 @@ end
 function Cs.input._textinput(inputEl, text)
 	if not inputEl:isKeyboardFocus() then  return false  end
 
-	local oldValue = inputEl:getValue()
-	local handled  = inputEl._field:textinput(text)
+	local oldValue             = inputEl:getValue()
+	local handled, textChanged = inputEl._field:textinput(text)
 
-	local mask     = inputEl._mask
-	local newValue = inputEl:getValue()
-	if handled and mask ~= "" and newValue ~= oldValue and not newValue:find(mask) then
-		newValue = oldValue
-		inputEl:setValue(newValue)
-	elseif handled and newValue ~= oldValue then
+	if not textChanged then
+		-- void
+	elseif inputEl._mask ~= "" and not inputEl:getValue():find(inputEl._mask) then
+		inputEl:setValue(oldValue) -- Undo the change.  @UX: Handle the cursor better.
+	else
+		-- :TypingSound
 		trigger(inputEl, "valuechange")
 	end
 
@@ -10144,7 +10190,9 @@ function Cs.input._mousepressed(inputEl, mx, my, mbutton, pressCount)
 	inputEl:focus()
 
 	if mbutton == 1 then
-		inputEl._field:mousepressed(mx-inputEl:getXOnScreen()-themeGet(inputEl._gui, "inputIndentation"), 0, mbutton, pressCount)
+		local x, y        = inputEl:getPositionOnScreen()
+		local inputIndent = themeGet(inputEl._gui, "inputIndentation")
+		inputEl._field:mousepressed(mx-x-inputIndent, my-y-inputIndent, mbutton, pressCount)
 		return true, true
 	else
 		return true, false
@@ -10153,12 +10201,21 @@ end
 
 -- INTERNAL REPLACE  input:_mousemoved( mouseX, mouseY )
 function Cs.input._mousemoved(inputEl, mx, my)
-	inputEl._field:mousemoved(mx-inputEl:getXOnScreen()-themeGet(inputEl._gui, "inputIndentation"), 0)
+	local x, y        = inputEl:getPositionOnScreen()
+	local inputIndent = themeGet(inputEl._gui, "inputIndentation")
+	inputEl._field:mousemoved(mx-x-inputIndent, my-y-inputIndent)
 end
 
 -- INTERNAL REPLACE  input:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
 function Cs.input._mousereleased(inputEl, mx, my, mbutton, pressCount)
-	inputEl._field:mousereleased(mx-inputEl:getXOnScreen()-themeGet(inputEl._gui, "inputIndentation"), 0, mbutton)
+	local x, y        = inputEl:getPositionOnScreen()
+	local inputIndent = themeGet(inputEl._gui, "inputIndentation")
+	inputEl._field:mousereleased(mx-x-inputIndent, my-y-inputIndent, mbutton)
+end
+
+-- INTERNAL REPLACE  handled = input:_wheelmoved( deltaX, deltaY, deltaX0, deltaY0 )
+function Cs.input._wheelmoved(inputEl, dx, dy, dx0, dy0)
+	return (inputEl._field:wheelmoved(dx0, dy0)) -- @Incomplete: Smooth scrolling for inputs. (Maybe it should be implemented in InputField?)
 end
 
 
@@ -10186,13 +10243,12 @@ end
 
 -- INTERNAL REPLACE  input:_calculateNaturalSize( )
 function Cs.input._calculateNaturalSize(inputEl)
-	local w, h
-	if inputEl._width < 0 or inputEl._height < 0 then
-		local inputIndent = themeGet(inputEl._gui, "inputIndentation")
-		w, h              = themeGetSize(inputEl, "input", inputIndent, inputEl:getFont():getHeight())
+	local _, h
+	if inputEl._height < 0 then
+		_, h = themeGetSize(inputEl, "input", _, inputEl:getFont():getHeight())
 	end
 
-	inputEl._layoutWidth  = (inputEl._width  >= 0) and inputEl._width  or math.max(w, inputEl._minWidth )
+	inputEl._layoutWidth  = (inputEl._width  >= 0) and inputEl._width  or             inputEl._minWidth
 	inputEl._layoutHeight = (inputEl._height >= 0) and inputEl._height or math.max(h, inputEl._minHeight)
 end
 
@@ -10201,22 +10257,26 @@ function Cs.input._expandAndPositionChildren(inputEl)
 	Cs.input.super._expandAndPositionChildren(inputEl)
 
 	local inputIndent = themeGet(inputEl._gui, "inputIndentation")
-	inputEl._field:setWidth(inputEl._layoutWidth-2*inputIndent)
+	inputEl._field:setDimensions(inputEl._layoutWidth-2*inputIndent, inputEl._layoutHeight-2*inputIndent) -- Maybe there should be a separate vertical inputIndentation? @Incomplete
 end
 
 
 
--- offset, width = input:getSelectionOffset( )
-function Cs.input.getSelectionOffset(inputEl)
-	for i, x, y, w, h in inputEl._field:eachSelectionOptimized() do
-		return x, w
-	end
-	return 0, 0 -- We should never get here!
+-- valueX, valueY, valueWidth, valueHeight = input:getValueLayout( )
+function Cs.input.getValueLayout(inputEl)
+	updateLayoutIfNeeded(inputEl._gui)
+
+	local inputIndent    = themeGet(inputEl._gui, "inputIndentation")
+	local valueW, valueH = inputEl._field:getTextDimensions()
+	local valueX         = inputIndent
+	local valueY         = inputEl._field:isMultiline() and inputIndent or math.floor((inputEl._layoutHeight-valueH)/2) -- @Incomplete: Maybe add parameters for aligning the value.
+
+	return valueX, valueY, valueW, valueH
 end
 
--- offset = input:getCursorOffset( )
-function Cs.input.getCursorOffset(inputEl)
-	return (inputEl._field:getCursorLayout())
+-- offsetX, offsetY, height = input:getCursorLayout( )
+function Cs.input.getCursorLayout(inputEl)
+	return inputEl._field:getCursorLayout()
 end
 
 
@@ -10250,8 +10310,8 @@ defaultTheme = (function()
 	local NAV_MAX_EXTRA_SIZE   = 10 -- In each direction.
 	local NAV_SHRINK_DURATION  = .10
 
-	local SCROLLBAR_WIDTH      = 6
-	local SCROLLBAR_MIN_LENGTH = 10
+	local SCROLLBAR_WIDTH      = 8
+	local SCROLLBAR_MIN_LENGTH = 12
 
 	local TEXT_PADDING         = 1 -- For text elements.
 
@@ -10263,11 +10323,12 @@ defaultTheme = (function()
 	-- Images.
 
 	local BUTTON_BG_IMAGE = Gui.newMonochromeImage{
-		" FFF ",
-		"FFFFF",
-		"FFFFF",
-		"FFFFF",
-		" FFF ",
+		" FFFF ",
+		"FFFFFF",
+		"FFFFFF",
+		"FFFFFF",
+		"FFFFFF",
+		" FFFF ",
 	}
 	local BUTTON_BG_QUADS = Gui.create9PartQuads(BUTTON_BG_IMAGE, 2, 2)
 
@@ -10319,11 +10380,11 @@ defaultTheme = (function()
 		-- Basic theme parameters.
 		----------------------------------------------------------------
 
-		inputIndentation   = INPUT_PADDING, -- Affects mouse interactions and input field scrolling.
+		inputIndentation   = INPUT_PADDING, -- Affects mouse interactions and scrolling for inputs.
 
 		navigationSize     = 0, -- How much extra size the highlight of the navigation target has. Affects scrollIntoView().
 
-		scrollbarWidth     = SCROLLBAR_WIDTH, -- @Incomplete: Get scrollbar width as 'size' instead of like this.
+		scrollbarWidth     = SCROLLBAR_WIDTH,
 		scrollbarMinLength = SCROLLBAR_MIN_LENGTH,
 
 		textIndentation    = TEXT_PADDING, -- Affects how multiline texts wraps in text elements.
@@ -10404,11 +10465,11 @@ defaultTheme = (function()
 			end,
 
 			-- Input element.
-			-- size.input( inputElement, _, valueHeight ) -- Ignore the 'width' argument.
-			["input"] = function(input, _, valueH)
+			-- size.input( inputElement, _, fontHeight ) -- Ignore the 'width' argument for inputs.
+			["input"] = function(input, _, fontHeight)
 				-- Only the returned height is actually used. For inputs, the width
 				-- is always specified directly on the element outside the theme.
-				return 0, valueH+2*INPUT_PADDING
+				return 0, fontHeight+2*INPUT_PADDING
 			end,
 
 			-- Tooltip.
@@ -10589,9 +10650,8 @@ defaultTheme = (function()
 			end,
 
 			-- Input element.
-			-- draw.input( inputElement, elementWidth, elementHeight, inputIndentation, valueHeight, cursorOffset, selectionOffset, selectionWidth )
-			["input"] = function(input, w, h, inputIndent, valueH, curOffset, selOffset, selW)
-				local valueY  = math.floor((h-valueH)/2)
+			-- draw.input( inputElement, elementWidth, elementHeight, valueX, valueY, valueWidth, valueHeight, cursorOffsetX, cursorOffsetY, fontHeight )
+			["input"] = function(input, w, h, valueX, valueY, valueW, valueH, curOffsetX, curOffsetY, fontHeight)
 				local opacity = input:isActive() and 1 or .3
 
 				-- Background.
@@ -10608,22 +10668,28 @@ defaultTheme = (function()
 
 				input:setScissor(2, 2, w-2*2, h-2*2) -- Make sure the contents does not render outside the element.
 
-				-- Selection.
-				if input:isKeyboardFocus() and selW > 0 then
-					setColor(1, 1, 1, .4)
-					love.graphics.rectangle("fill", inputIndent+selOffset, valueY, selW, valueH)
+				--
+				-- Note: If the user can use the mouse to interact with the GUI then we're
+				-- quite restricted to how we can render the value, the cursor and selections
+				-- for the mechanics and the visuals to stay in sync.
+				--
+
+				-- Selections.
+				if input:isKeyboardFocus() then
+					setColor(1, 1, 1, .35)
+					input:drawSelections(valueX, valueY)
 				end
 
 				-- Value.
 				input:useFont()
 				setColor(1, 1, 1, opacity)
-				input:drawValue(inputIndent, valueY)
+				input:drawValueOrPlaceholder(valueX, valueY)
 
 				-- Cursor.
 				if input:isKeyboardFocus() then
 					local cursorOpacity = ((math.cos(5*input:getBlinkPhase()) + 1) / 2) ^ .5
 					setColor(1, 1, 1, cursorOpacity)
-					love.graphics.rectangle("fill", inputIndent+curOffset-1, valueY, 1, valueH)
+					love.graphics.rectangle("fill", valueX+curOffsetX-1, valueY+curOffsetY, 1, fontHeight)
 				end
 			end,
 
@@ -10636,24 +10702,25 @@ defaultTheme = (function()
 				local isHandleHovered = container[dir == "x" and "isScrollbarXHandleHovered" or "isScrollbarYHandleHovered"](container)
 
 				-- Background.
-				local a = (isBarHovered or isScrolling) and .06 or 0
+				local a = (isBarHovered or isScrolling) and .1 or 0
 				setColor(1, 1, 1, a)
 				love.graphics.rectangle("fill", 0, 0, w, h)
 
 				-- Scrollbar handle.
 				local handleX, handleY, handleW, handleH
 
-				if     dir == "x" then  handleX, handleY, handleW, handleH = pos+1, 1, len-2, h-2
-				elseif dir == "y" then  handleX, handleY, handleW, handleH = 1, pos+1, w-2, len-2
-				end
+				if    dir == "x"
+				then  handleX, handleY, handleW, handleH = pos+1, 1, len-2, h-2
+				else  handleY, handleX, handleH, handleW = pos+1, 1, len-2, w-2  end
 
-				local a = (isScrolling and .12) or (isHandleHovered and .3) or (.2)
+				local a = (isScrolling and .2) or (isHandleHovered and .3) or (.2)
 				setColor(1, 1, 1, a)
 
 				Gui.draw9PartScaled(handleX, handleY, handleW, handleH, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
 			end,
 			["scrollbardeadzone"] = function(container, w, h)
-				-- This is the area where the two scrollbars meet. In this theme we do nothing here.
+				-- This is the area where the two scrollbars meet (if there are two).
+				-- In this theme we just leave it empty.
 			end,
 
 			-- Highlight of current navigation target.

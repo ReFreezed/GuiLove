@@ -13,8 +13,8 @@ local INPUT_PADDING        = 4
 local NAV_MAX_EXTRA_SIZE   = 10 -- In each direction.
 local NAV_SHRINK_DURATION  = .10
 
-local SCROLLBAR_WIDTH      = 6
-local SCROLLBAR_MIN_LENGTH = 10
+local SCROLLBAR_WIDTH      = 8
+local SCROLLBAR_MIN_LENGTH = 12
 
 local TEXT_PADDING         = 1 -- For text elements.
 
@@ -26,11 +26,12 @@ local TOOLTIP_FADE_IN_TIME = .15
 -- Images.
 
 local BUTTON_BG_IMAGE = Gui.newMonochromeImage{
-	" FFF ",
-	"FFFFF",
-	"FFFFF",
-	"FFFFF",
-	" FFF ",
+	" FFFF ",
+	"FFFFFF",
+	"FFFFFF",
+	"FFFFFF",
+	"FFFFFF",
+	" FFFF ",
 }
 local BUTTON_BG_QUADS = Gui.create9PartQuads(BUTTON_BG_IMAGE, 2, 2)
 
@@ -82,11 +83,11 @@ return {
 	-- Basic theme parameters.
 	----------------------------------------------------------------
 
-	inputIndentation   = INPUT_PADDING, -- Affects mouse interactions and input field scrolling.
+	inputIndentation   = INPUT_PADDING, -- Affects mouse interactions and scrolling for inputs.
 
 	navigationSize     = 0, -- How much extra size the highlight of the navigation target has. Affects scrollIntoView().
 
-	scrollbarWidth     = SCROLLBAR_WIDTH, -- @Incomplete: Get scrollbar width as 'size' instead of like this.
+	scrollbarWidth     = SCROLLBAR_WIDTH,
 	scrollbarMinLength = SCROLLBAR_MIN_LENGTH,
 
 	textIndentation    = TEXT_PADDING, -- Affects how multiline texts wraps in text elements.
@@ -167,11 +168,11 @@ return {
 		end,
 
 		-- Input element.
-		-- size.input( inputElement, _, valueHeight ) -- Ignore the 'width' argument.
-		["input"] = function(input, _, valueH)
+		-- size.input( inputElement, _, fontHeight ) -- Ignore the 'width' argument for inputs.
+		["input"] = function(input, _, fontHeight)
 			-- Only the returned height is actually used. For inputs, the width
 			-- is always specified directly on the element outside the theme.
-			return 0, valueH+2*INPUT_PADDING
+			return 0, fontHeight+2*INPUT_PADDING
 		end,
 
 		-- Tooltip.
@@ -352,9 +353,8 @@ return {
 		end,
 
 		-- Input element.
-		-- draw.input( inputElement, elementWidth, elementHeight, inputIndentation, valueHeight, cursorOffset, selectionOffset, selectionWidth )
-		["input"] = function(input, w, h, inputIndent, valueH, curOffset, selOffset, selW)
-			local valueY  = math.floor((h-valueH)/2)
+		-- draw.input( inputElement, elementWidth, elementHeight, valueX, valueY, valueWidth, valueHeight, cursorOffsetX, cursorOffsetY, fontHeight )
+		["input"] = function(input, w, h, valueX, valueY, valueW, valueH, curOffsetX, curOffsetY, fontHeight)
 			local opacity = input:isActive() and 1 or .3
 
 			-- Background.
@@ -371,22 +371,28 @@ return {
 
 			input:setScissor(2, 2, w-2*2, h-2*2) -- Make sure the contents does not render outside the element.
 
-			-- Selection.
-			if input:isKeyboardFocus() and selW > 0 then
-				setColor(1, 1, 1, .4)
-				love.graphics.rectangle("fill", inputIndent+selOffset, valueY, selW, valueH)
+			--
+			-- Note: If the user can use the mouse to interact with the GUI then we're
+			-- quite restricted to how we can render the value, the cursor and selections
+			-- for the mechanics and the visuals to stay in sync.
+			--
+
+			-- Selections.
+			if input:isKeyboardFocus() then
+				setColor(1, 1, 1, .35)
+				input:drawSelections(valueX, valueY)
 			end
 
 			-- Value.
 			input:useFont()
 			setColor(1, 1, 1, opacity)
-			input:drawValue(inputIndent, valueY)
+			input:drawValueOrPlaceholder(valueX, valueY)
 
 			-- Cursor.
 			if input:isKeyboardFocus() then
 				local cursorOpacity = ((math.cos(5*input:getBlinkPhase()) + 1) / 2) ^ .5
 				setColor(1, 1, 1, cursorOpacity)
-				love.graphics.rectangle("fill", inputIndent+curOffset-1, valueY, 1, valueH)
+				love.graphics.rectangle("fill", valueX+curOffsetX-1, valueY+curOffsetY, 1, fontHeight)
 			end
 		end,
 
@@ -399,24 +405,25 @@ return {
 			local isHandleHovered = container[dir == "x" and "isScrollbarXHandleHovered" or "isScrollbarYHandleHovered"](container)
 
 			-- Background.
-			local a = (isBarHovered or isScrolling) and .06 or 0
+			local a = (isBarHovered or isScrolling) and .1 or 0
 			setColor(1, 1, 1, a)
 			love.graphics.rectangle("fill", 0, 0, w, h)
 
 			-- Scrollbar handle.
 			local handleX, handleY, handleW, handleH
 
-			if     dir == "x" then  handleX, handleY, handleW, handleH = pos+1, 1, len-2, h-2
-			elseif dir == "y" then  handleX, handleY, handleW, handleH = 1, pos+1, w-2, len-2
-			end
+			if    dir == "x"
+			then  handleX, handleY, handleW, handleH = pos+1, 1, len-2, h-2
+			else  handleY, handleX, handleH, handleW = pos+1, 1, len-2, w-2  end
 
-			local a = (isScrolling and .12) or (isHandleHovered and .3) or (.2)
+			local a = (isScrolling and .2) or (isHandleHovered and .3) or (.2)
 			setColor(1, 1, 1, a)
 
 			Gui.draw9PartScaled(handleX, handleY, handleW, handleH, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
 		end,
 		["scrollbardeadzone"] = function(container, w, h)
-			-- This is the area where the two scrollbars meet. In this theme we do nothing here.
+			-- This is the area where the two scrollbars meet (if there are two).
+			-- In this theme we just leave it empty.
 		end,
 
 		-- Highlight of current navigation target.

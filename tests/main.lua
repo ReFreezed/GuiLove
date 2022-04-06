@@ -47,7 +47,7 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 				},
 				{"button", text="untitled (2).txt"},
 			},
-			{"input", weight=1},
+			{"input", fieldType="multiwrap", weight=1},
 			{"hbar",
 				{"text", align="left", weight=1,  text="Foo bar"},
 				{"text", align="left", width=50,  text="INS"},
@@ -67,6 +67,10 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 		},
 
 		{"vbar", width=60, padding=5, background="warning", canScrollY=true,
+			{"hbar", canScrollX=true,
+				{"text", text="foo bar foo bar"},
+			},
+
 			{"button", text="BIG1", relativeHeight=.4},
 			{"button", text="BIG2", relativeHeight=.4},
 			{"button", text="BIG3", relativeHeight=.4},
