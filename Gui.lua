@@ -3704,6 +3704,15 @@ end
 
 
 
+local font = nil
+
+local function getDefaultFont()
+	font = font or love.graphics.newFont(12)
+	return font
+end
+
+
+
 --==============================================================
 
 
@@ -3817,36 +3826,6 @@ end
 
 
 
-local function updateFloatingElementPosition(el)
-	local parent = el._parent
-	if not parent then  return  end
-
-	el._layoutX = round(0
-		+ parent._layoutX
-		+ parent._paddingLeft
-		+ el._originX * (parent._layoutWidth - parent:getInnerSpaceX())
-		+ el._x
-		- el._anchorX * el._layoutWidth
-	)
-	el._layoutY = round(0
-		+ parent._layoutY
-		+ parent._paddingTop
-		+ el._originY * (parent._layoutHeight - parent:getInnerSpaceY())
-		+ el._y
-		- el._anchorY * el._layoutHeight
-	)
-end
-
-local function applySizeLimits(el, w, h)
-	if el._width     >= 0 then  w = el._width   end
-	if el._height    >= 0 then  h = el._height  end
-	w = math.max(w, el._minWidth )
-	h = math.max(h, el._minHeight)
-	if el._maxWidth  >= 0 then  w = math.min(w, el._maxWidth )  end
-	if el._maxHeight >= 0 then  h = math.min(h, el._maxHeight)  end
-	return w, h
-end
-
 local function updateContainerNaturalSize(container, contentW, contentH)
 	local w = container._width -- May be negative.
 	local h = container._height
@@ -3867,13 +3846,45 @@ local function updateContainerNaturalSize(container, contentW, contentH)
 	container._layoutHeight = h
 end
 
+local function applySizeLimits(el, w, h)
+	if el._width  >= 0 then  w = el._width   end
+	if el._height >= 0 then  h = el._height  end
 
+	w = math.max(w, el._minWidth )
+	h = math.max(h, el._minHeight)
 
-local font = nil
+	if el._maxWidth  >= 0 then  w = math.min(w, el._maxWidth )  end
+	if el._maxHeight >= 0 then  h = math.min(h, el._maxHeight)  end
 
-local function getDefaultFont()
-	font = font or love.graphics.newFont(12)
-	return font
+	return w, h
+end
+
+local function expandAndPositionFloatingElement(el, expansionW, expansionH)
+	el._layoutWidth, el._layoutHeight = applySizeLimits(el
+		, (el._relativeWidth  >= 0) and expansionW*el._relativeWidth  or el._layoutWidth
+		, (el._relativeHeight >= 0) and expansionH*el._relativeHeight or el._layoutHeight
+	)
+
+	local parent = el._parent
+
+	if parent then
+		el._layoutX = round(0
+			+ parent._layoutX
+			+ parent._paddingLeft
+			+ el._originX * (parent._layoutWidth - parent:getInnerSpaceX())
+			+ el._x
+			- el._anchorX * el._layoutWidth
+		)
+		el._layoutY = round(0
+			+ parent._layoutY
+			+ parent._paddingTop
+			+ el._originY * (parent._layoutHeight - parent:getInnerSpaceY())
+			+ el._y
+			- el._anchorY * el._layoutHeight
+		)
+	end
+
+	el:_expandAndPositionChildren()
 end
 
 
@@ -8623,12 +8634,7 @@ function Cs.container._expandAndPositionChildren(container)
 
 	for _, child in ipairs(container) do
 		if not child._hidden then
-			child._layoutWidth, child._layoutHeight = applySizeLimits(child
-				, (child._relativeWidth  >= 0) and innerW*child._relativeWidth  or child._layoutWidth
-				, (child._relativeHeight >= 0) and innerH*child._relativeHeight or child._layoutHeight
-			)
-			updateFloatingElementPosition(child) -- All children counts as floating in plain/non-layout containers.
-			child:_expandAndPositionChildren()
+			expandAndPositionFloatingElement(child, innerW, innerH) -- All children count as floating in plain/non-layout containers.
 		end
 	end
 end
@@ -8764,6 +8770,8 @@ function Cs.hbar._expandAndPositionChildren(bar)
 	--
 	-- Expand and position children.
 	--
+	local innerW   = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
+	local innerH   = bar._layoutHeight - bar:getInnerSpaceY()
 	local baseX    = bar._layoutX + bar._paddingLeft
 	local baseY    = bar._layoutY + bar._paddingTop
 	local x        = 0
@@ -8778,8 +8786,7 @@ function Cs.hbar._expandAndPositionChildren(bar)
 
 		-- No expansion.
 		elseif child._floating then
-			updateFloatingElementPosition(child)
-			child:_expandAndPositionChildren()
+			expandAndPositionFloatingElement(child, innerW, innerH)
 
 		-- Any expansion.
 		else
@@ -8858,6 +8865,8 @@ function Cs.vbar._expandAndPositionChildren(bar)
 	--
 	-- Expand and position children.
 	--
+	local innerW   = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
+	local innerH   = bar._layoutHeight - bar:getInnerSpaceY()
 	local baseX    = bar._layoutX + bar._paddingLeft
 	local baseY    = bar._layoutY + bar._paddingTop
 	local x        = 0
@@ -8872,8 +8881,7 @@ function Cs.vbar._expandAndPositionChildren(bar)
 
 		-- No expansion.
 		elseif child._floating then
-			updateFloatingElementPosition(child)
-			child:_expandAndPositionChildren()
+			expandAndPositionFloatingElement(child, innerW, innerH)
 
 		-- Any expansion.
 		else
@@ -10420,10 +10428,10 @@ defaultTheme = (function()
 			-- draw.background( element, elementWidth, elementHeight, background )
 			["background"] = function(el, w, h, bg)
 				if bg == "warning" then
-					setColor(.4, 0, 0, 1)
+					setColor(.4, 0, 0, .9)
 					love.graphics.rectangle("fill", 0, 0, w, h)
 				else
-					setColor(.15, .15, .15, .8)
+					setColor(.17, .17, .17, .9)
 					love.graphics.rectangle("fill", 0, 0, w, h)
 				end
 			end,

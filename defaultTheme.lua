@@ -226,10 +226,10 @@ return {
 		-- draw.background( element, elementWidth, elementHeight, background )
 		["background"] = function(el, w, h, bg)
 			if bg == "warning" then
-				setColor(.4, 0, 0, 1)
+				setColor(.4, 0, 0, .9)
 				love.graphics.rectangle("fill", 0, 0, w, h)
 			else
-				setColor(.15, .15, .15, .8)
+				setColor(.17, .17, .17, .9)
 				love.graphics.rectangle("fill", 0, 0, w, h)
 			end
 		end,

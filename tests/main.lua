@@ -29,7 +29,7 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 				{"button", weight=0, text="50%", relativeWidth=.5},
 				{"button", weight=1, text="expand"},
 				{"button", weight=0, text="[1]"},
-				{"button", weight=0, text="1-FLOAT", floating=true, originX=.75, anchorX=1, y=-5}, -- @Incomplete: Test floating containers in bars.
+				{"button", weight=0, text="1-FLOAT", floating=true, originX=.75, anchorX=1, y=-5},
 				{"button", weight=0, text="FLOAT-2", floating=true, originX=.75, anchorX=0, y=-5},
 				{"button", weight=0, text="[2]"},
 				{"button", weight=0, text="[3]"},
@@ -42,6 +42,9 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 			},
 			{"hbar", paddingHorizontal=8, paddingTop=4,
 				{"button", text="untitled (1).txt"},
+				{"container", floating=true, originX=1, anchorX=1, relativeWidth=.25, background="something", padding=5,
+					{"button", text="FlOaT RiGhT", originX=.5, anchorX=.5},
+				},
 				{"button", text="untitled (2).txt"},
 			},
 			{"input", weight=1},
