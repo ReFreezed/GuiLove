@@ -1716,15 +1716,44 @@ function Gui.draw(gui)
 	if gui._root and not gui._root._hidden then
 		updateLayoutIfNeeded(gui)
 
-		-- Elements.
-		gui._root:_draw()
+		--
+		-- Prepare navigation target. @Speed
+		--
+		local childToDrawNavTargetAfter = gui._navigationTarget
 
-		-- Navigation target.
-		if gui._navigationTarget and not gui.debug then
-			themeRender(gui._navigationTarget, "navigation", gui._timeSinceNavigation)
-		end
+		if childToDrawNavTargetAfter then  while childToDrawNavTargetAfter._parent do
+			local parent = childToDrawNavTargetAfter._parent
 
-		-- Tooltip.
+			-- Draw at the current floating element. (All children of non-bar containers are floating.)
+			if not parent:is(Cs.bar) then
+				break
+
+			else
+				-- Draw before the next floating sibling if there are any. Hopefully the user
+				-- has placed all significant floating elements high up in the tree and not
+				-- inside non-floating wrappers!
+				for i = childToDrawNavTargetAfter:getIndex()+1, #parent do
+					if parent[i]._floating then
+						childToDrawNavTargetAfter = parent[i-1]
+						break
+					end
+				end
+
+				-- Confine to scrollable area.
+				if parent:canScrollAny() then
+					childToDrawNavTargetAfter = parent[#parent]
+					break
+				end
+			end
+
+			childToDrawNavTargetAfter = parent
+		end end
+
+		--
+		-- Draw stuff.
+		--
+		gui._root:_draw(childToDrawNavTargetAfter)
+
 		if gui._hoveredElement and not gui._mouseFocus then
 			gui._hoveredElement:_drawTooltip()
 		end
@@ -3091,8 +3120,8 @@ end
 
 
 
--- INTERNAL  element:_draw( )
-function Cs.element._draw(el)
+-- INTERNAL  element:_draw( childToDrawNavTargetAfter )
+function Cs.element._draw(el, childToDrawNavTargetAfter)
 	local x, y, w, h = xywh(el)
 
 	if not el._gui.debug then
@@ -4970,8 +4999,21 @@ end
 
 
 
--- INTERNAL REPLACE  container:_draw( )
-function Cs.container._draw(container)
+local function drawChildrenAndMaybeNavigationTarget(container, childToDrawNavTargetAfter)
+	for _, child in ipairs(container) do
+		if child == childToDrawNavTargetAfter then
+			child:_draw(nil)
+			if not container._gui.debug then
+				themeRender(container._gui._navigationTarget, "navigation", container._gui._timeSinceNavigation)
+			end
+		else
+			child:_draw(childToDrawNavTargetAfter)
+		end
+	end
+end
+
+-- INTERNAL REPLACE  container:_draw( childToDrawNavTargetAfter )
+function Cs.container._draw(container, childToDrawNavTargetAfter)
 	if container._hidden then  return  end
 
 	local gui        = container._gui
@@ -4992,11 +5034,9 @@ function Cs.container._draw(container)
 	container:_drawDebug(0, 0, 1)
 
 	if canScrollX or canScrollY then
-		setScissor(gui, x, y, childAreaW, childAreaH)
+		setScissor(gui, x, y, childAreaW, childAreaH) -- Should there be an option to not scissor scrollable containers?
 	end
-	for _, child in ipairs(container) do
-		child:_draw()
-	end
+	drawChildrenAndMaybeNavigationTarget(container, childToDrawNavTargetAfter)
 	if canScrollX or canScrollY then
 		setScissor(gui, nil)
 	end
@@ -5479,7 +5519,7 @@ end
 -- bool = container:canScrollX( ) -- Horizontal scrolling, scrollbar on the bottom side.
 -- bool = container:canScrollY( ) -- Vertical scrolling, scrollbar on the right side.
 function Cs.container.canScrollAny(container)
-	return container:canScrollX() or container:canScrollY()
+	return container._canScrollX or container._canScrollY
 end
 function Cs.container.canScrollX(container)
 	return container._canScrollX
@@ -6281,8 +6321,8 @@ Cs.root = newElementClass(false, "GuiRoot", Cs.container, {}, {
 
 
 
--- INTERNAL REPLACE  root:_draw( )
-function Cs.root._draw(root)
+-- INTERNAL REPLACE  root:_draw( childToDrawNavTargetAfter )
+function Cs.root._draw(root, childToDrawNavTargetAfter)
 	if root._hidden then  return  end
 
 	local x, y, w, h = xywh(root)
@@ -6294,9 +6334,7 @@ function Cs.root._draw(root)
 	drawLayoutBackground(root)
 	root:_drawDebug(0, 0, 1, 0)
 
-	for _, child in ipairs(root) do
-		child:_draw()
-	end
+	drawChildrenAndMaybeNavigationTarget(root, childToDrawNavTargetAfter)
 
 	if not root._gui.debug then
 		triggerIncludingAnimations(root, "afterdraw", x, y, w, h)
@@ -6604,8 +6642,8 @@ end
 
 
 
--- INTERNAL REPLACE  canvas:_draw( )
-function Cs.canvas._draw(canvas)
+-- INTERNAL REPLACE  canvas:_draw( childToDrawNavTargetAfter )
+function Cs.canvas._draw(canvas, childToDrawNavTargetAfter)
 	if canvas._hidden then  return  end
 
 	local gui = canvas._gui
@@ -6705,8 +6743,8 @@ end
 
 
 
--- INTERNAL REPLACE  image:_draw( )
-function Cs.image._draw(imageEl)
+-- INTERNAL REPLACE  image:_draw( childToDrawNavTargetAfter )
+function Cs.image._draw(imageEl, childToDrawNavTargetAfter)
 	if imageEl._hidden    then  return  end
 	if imageEl._gui.debug then  return imageEl:_drawDebug(1, 0, 0)  end
 
@@ -6766,8 +6804,8 @@ end
 
 
 
--- INTERNAL REPLACE  text:_draw( )
-function Cs.text._draw(textEl)
+-- INTERNAL REPLACE  text:_draw( childToDrawNavTargetAfter )
+function Cs.text._draw(textEl, childToDrawNavTargetAfter)
 	if textEl._hidden    then  return  end
 	if textEl._gui.debug then  return textEl:_drawDebug(1, 0, 0)  end
 
@@ -6958,8 +6996,8 @@ end
 
 
 
--- INTERNAL REPLACE  button:_draw( )
-function Cs.button._draw(button)
+-- INTERNAL REPLACE  button:_draw( childToDrawNavTargetAfter )
+function Cs.button._draw(button, childToDrawNavTargetAfter)
 	if button._hidden    then  return  end
 	if button._gui.debug then  return button:_drawDebug(0, 180, 0)  end
 
@@ -7277,8 +7315,8 @@ end
 
 
 
--- INTERNAL REPLACE  input:_draw( )
-function Cs.input._draw(inputEl)
+-- INTERNAL REPLACE  input:_draw( childToDrawNavTargetAfter )
+function Cs.input._draw(inputEl, childToDrawNavTargetAfter)
 	if inputEl._hidden    then  return  end
 	if inputEl._gui.debug then  return inputEl:_drawDebug(0, 180, 0)  end
 

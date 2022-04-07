@@ -87,8 +87,8 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 		},
 	},
 
-	{"hbar", hidden=1==0, originX=.5, originY=.5, anchorX=.5, anchorY=.5, background="something", padding=10, --expandPerpendicular=false,
-		{"hbar", --relativeHeight=1,
+	{"hbar", hidden=1==0, originX=.5, originY=.5, anchorX=.5, anchorY=.5, background="something", padding=10,
+		{"hbar",
 			{"text", text="Left text goes here."},
 		},
 		{"vbar", id="myContainer", width=200, height=120, canScrollY=true, homogeneous=true,
