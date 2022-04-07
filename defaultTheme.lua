@@ -420,8 +420,13 @@ return {
 
 			-- Value.
 			input:useFont()
-			setColor(1, 1, 1, opacity)
-			input:drawValueOrPlaceholder(valueX, valueY)
+			if input:getValue() ~= "" then
+				setColor(1, 1, 1, opacity)
+				input:drawValue(valueX, valueY)
+			else
+				setColor(1, 1, 1, .5*opacity)
+				input:drawPlaceholder(valueX, valueY)
+			end
 
 			-- Cursor.
 			if input:isKeyboardFocus() then

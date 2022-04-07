@@ -2201,7 +2201,7 @@ do
 		gui._navigationTarget    = widget
 		gui._timeSinceNavigation = 0
 
-		if widget then  widget:scrollIntoView()  end
+		if widget then  widget:scrollIntoView(false)  end
 
 		;(widget or gui._root):triggerBubbling("navigated", widget)
 
@@ -4538,8 +4538,9 @@ end
 
 
 
--- element:scrollIntoView( )
-function Cs.element.scrollIntoView(el)
+-- element:scrollIntoView( [ scrollToDetail=false ] )
+-- For input elements, scrollToDetail scrolls to the text cursor.
+function Cs.element.scrollIntoView(el, scrollToDetail)
 	updateLayoutIfNeeded(el._gui)
 
 	local sbW     = themeGet(el._gui, "scrollbarWidth")
@@ -4548,8 +4549,22 @@ function Cs.element.scrollIntoView(el)
 	local x1, y1 = el:getPositionOnScreen(true)
 	local x2, y2 = x1+el._layoutWidth, y1+el._layoutHeight
 
-	x1, y1 = x1-navSize, y1-navSize
-	x2, y2 = x2+navSize, y2+navSize
+	if scrollToDetail and el:is(Cs.input) then
+		local inputEl                      = el
+		local valueX, valueY               = inputEl:getValueLayout()
+		local curOffsetX, curOffsetY, curH = inputEl._field:getCursorLayout()
+		local inputIndent                  = themeGet(inputEl._gui, "inputIndentation")
+
+		x1 = x1 + valueX + curOffsetX - inputIndent
+		y1 = y1 + valueY + curOffsetY - inputIndent
+		x2 = x1                       + 2*inputIndent
+		y2 = y1 + curH                + 2*inputIndent
+	end
+
+	x1 = x1 - navSize
+	y1 = y1 - navSize
+	x2 = x2 + navSize
+	y2 = y2 + navSize
 
 	-- @Incomplete: navSize should probably be applied in places here below,
 	-- (though it only matters if there are scrollables inside scrollables).
@@ -6169,21 +6184,26 @@ end
 		end
 	end
 
-	local expandPerp     = bar._expandPerpendicular and (bar._layout$WHPERP - bar:getInnerSpace$XYPERP() - bar._layoutInnerSpacings$XYPERP) or nil
+	local canScrollPerp  = bar:canScroll$XYPERP()
+	local expandPerp     = bar._expandPerpendicular and (bar._layout$WHPERP - bar:getInnerSpace$XYPERP()) or nil
 	local expansionSpace = innerSize - (homogeneous and staticSize or childSizeSum)
+
+	if canScrollPerp then
+		expandPerp = math.max(expandPerp, bar._content$WHPERP)
+	end
 
 	--
 	-- Expand and position children.
 	--
-	local innerW   = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
-	local innerH   = bar._layoutHeight - bar:getInnerSpaceY()
-	local baseX    = bar._layoutX + bar._paddingLeft
-	local baseY    = bar._layoutY + bar._paddingTop
-	local x        = 0
-	local y        = 0
-	local margin   = 0
-	local first    = true
-	!local advance = vertical and `y` or `x`
+	local innerW        = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
+	local innerH        = bar._layoutHeight - bar:getInnerSpaceY()
+	local baseX         = bar._layoutX + bar._paddingLeft
+	local baseY         = bar._layoutY + bar._paddingTop
+	local x             = 0
+	local y             = 0
+	!local advance      = vertical and `y` or `x`
+	local margin        = 0
+	local first         = true
 
 	for _, child in ipairs(bar) do
 		if child._hidden then
@@ -6221,7 +6241,8 @@ end
 			end
 
 			if expandPerp then
-				child$WHPERP = expandPerp
+				child$WHPERP = expandPerp -- Expand all children the same amount. (Better, I think.)
+				-- child$WHPERP = canScrollPerp and math.max(child$WHPERP, expandPerp) or expandPerp -- Only expand too short children. (Worse, I think.)
 			end
 
 			child._layoutWidth, child._layoutHeight = applySizeLimits(child, childWidth, childHeight)
@@ -7243,6 +7264,7 @@ function Cs.input.init(inputEl, gui, elData, parent)
 	@@retrieve(inputEl, elData, _placeholder)
 	@@retrieve(inputEl, elData, _spin)
 	@@retrieve(inputEl, elData, _spinMin,_spinMax)
+	-- @@retrieve(inputEl, elData, _value) -- This is saved in the field instead.
 
 	inputEl._field = InputField(elData.value--[[default=""]], elData.fieldType--[[default="normal"]])
 	inputEl._field:setFont(inputEl:getFont())
@@ -7266,7 +7288,7 @@ function Cs.input._draw(inputEl)
 
 	local x, y, w, h                     = xywh(inputEl)
 	local valueX, valueY, valueW, valueH = inputEl:getValueLayout()
-	local curOffsetX, curOffsetY, curH   = inputEl:getCursorLayout()
+	local curOffsetX, curOffsetY, curH   = inputEl._field:getCursorLayout()
 
 	-- @Incomplete: Draw scrollbars.
 
@@ -7408,6 +7430,8 @@ end
 function Cs.input._keypressed(inputEl, key, scancode, isRepeat)
 	if not inputEl:isKeyboardFocus() then  return false, false  end
 
+	local oldCurOffsetX, oldCurOffsetY = inputEl._field:getCursorLayout()
+
 	if key == "escape" then
 		if not isRepeat then
 			if inputEl:getValue() ~= inputEl._savedValue then
@@ -7458,6 +7482,13 @@ function Cs.input._keypressed(inputEl, key, scancode, isRepeat)
 		end
 	end
 
+	if inputEl:isFocused() then
+		local curOffsetX, curOffsetY = inputEl._field:getCursorLayout()
+		if curOffsetX ~= oldCurOffsetX or curOffsetY ~= oldCurOffsetY then
+			inputEl:scrollIntoView(true)
+		end
+	end
+
 	return true, false
 end
 
@@ -7476,7 +7507,9 @@ function Cs.input._textinput(inputEl, text)
 		-- void
 	elseif inputEl._mask ~= "" and not inputEl:getValue():find(inputEl._mask) then
 		inputEl:setValue(oldValue) -- Undo the change.  @UX: Handle the cursor better.
+		inputEl:scrollIntoView(true)
 	else
+		inputEl:scrollIntoView(true)
 		-- :TypingSound
 		trigger(inputEl, "valuechange")
 	end
@@ -7496,6 +7529,7 @@ function Cs.input._mousepressed(inputEl, mx, my, mbutton, pressCount)
 		local x, y        = inputEl:getPositionOnScreen()
 		local inputIndent = themeGet(inputEl._gui, "inputIndentation")
 		inputEl._field:mousepressed(mx-x-inputIndent, my-y-inputIndent, mbutton, pressCount)
+		inputEl:scrollIntoView(true) -- @Incomplete: Scroll to the mouse cursor instead of the text cursor (but do it smoothly over time in the update event). :SmoothScrollInputToMouse
 		return true, true
 	else
 		return true, false
@@ -7507,6 +7541,7 @@ function Cs.input._mousemoved(inputEl, mx, my)
 	local x, y        = inputEl:getPositionOnScreen()
 	local inputIndent = themeGet(inputEl._gui, "inputIndentation")
 	inputEl._field:mousemoved(mx-x-inputIndent, my-y-inputIndent)
+	inputEl:scrollIntoView(true) -- :SmoothScrollInputToMouse
 end
 
 -- INTERNAL REPLACE  input:_mousereleased( mouseX, mouseY, mouseButton, pressCount )

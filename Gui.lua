@@ -391,7 +391,7 @@ local class      = (function()
 local InputField = (function()
 	--[[============================================================
 	--=
-	--=  InputField v3.3 - text input handling library for LÖVE (0.10.2+)
+	--=  InputField v3.3-dev - text input handling library for LÖVE (0.10.2+)
 	--=  - Written by Marcus 'ReFreezed' Thunström
 	--=  - MIT License (See the bottom of this file)
 	--=  - https://github.com/ReFreezed/InputField
@@ -1308,11 +1308,18 @@ local InputField = (function()
 		limitScroll(field)
 	end
 
-	-- field:scroll( deltaX, deltaY )
+	-- scrolledX, scrolledY = field:scroll( deltaX, deltaY )
+	-- Returned values are how much was actually scrolled.
 	function InputField.scroll(field, dx, dy)
-		field.scrollX = field.scrollX + dx
-		field.scrollY = field.scrollY + dy
+		local oldScrollX = field.scrollX
+		local oldScrollY = field.scrollY
+		field.scrollX    = oldScrollX + dx
+		field.scrollY    = oldScrollY + dy
+
 		limitScroll(field)
+
+		return field.scrollX - oldScrollX,
+		       field.scrollY - oldScrollY
 	end
 
 	-- field:scrollToCursor( )
@@ -2175,13 +2182,17 @@ local InputField = (function()
 			dx, dy = dy, dx
 		end
 
+		if not ((dx ~= 0 and field:canScrollHorizontally()) or (dy ~= 0 and field:canScrollVertically())) then
+			return false
+		end
+
 		local fontH = field.font:getHeight()
-		field:scroll(
+		local scrolledX, scrolledY = field:scroll(
 			-dx * field.wheelScrollSpeedX*fontH,
 			-dy * field.wheelScrollSpeedY*fontH
 		)
 
-		return true -- Always handle event (for now).
+		return scrolledX ~= 0 or scrolledY ~= 0
 	end
 
 
@@ -4668,7 +4679,7 @@ do
 		gui._navigationTarget    = widget
 		gui._timeSinceNavigation = 0
 
-		if widget then  widget:scrollIntoView()  end
+		if widget then  widget:scrollIntoView(false)  end
 
 		;(widget or gui._root):triggerBubbling("navigated", widget)
 
@@ -7013,8 +7024,9 @@ end
 
 
 
--- element:scrollIntoView( )
-function Cs.element.scrollIntoView(el)
+-- element:scrollIntoView( [ scrollToDetail=false ] )
+-- For input elements, scrollToDetail scrolls to the text cursor.
+function Cs.element.scrollIntoView(el, scrollToDetail)
 	updateLayoutIfNeeded(el._gui)
 
 	local sbW     = themeGet(el._gui, "scrollbarWidth")
@@ -7023,8 +7035,22 @@ function Cs.element.scrollIntoView(el)
 	local x1, y1 = el:getPositionOnScreen(true)
 	local x2, y2 = x1+el._layoutWidth, y1+el._layoutHeight
 
-	x1, y1 = x1-navSize, y1-navSize
-	x2, y2 = x2+navSize, y2+navSize
+	if scrollToDetail and el:is(Cs.input) then
+		local inputEl                      = el
+		local valueX, valueY               = inputEl:getValueLayout()
+		local curOffsetX, curOffsetY, curH = inputEl._field:getCursorLayout()
+		local inputIndent                  = themeGet(inputEl._gui, "inputIndentation")
+
+		x1 = x1 + valueX + curOffsetX - inputIndent
+		y1 = y1 + valueY + curOffsetY - inputIndent
+		x2 = x1                       + 2*inputIndent
+		y2 = y1 + curH                + 2*inputIndent
+	end
+
+	x1 = x1 - navSize
+	y1 = y1 - navSize
+	x2 = x2 + navSize
+	y2 = y2 + navSize
 
 	-- @Incomplete: navSize should probably be applied in places here below,
 	-- (though it only matters if there are scrollables inside scrollables).
@@ -8778,21 +8804,26 @@ function Cs.hbar._expandAndPositionChildren(bar)
 		end
 	end
 
-	local expandPerp     = bar._expandPerpendicular and (bar._layoutHeight - bar:getInnerSpaceY() - bar._layoutInnerSpacingsY) or nil
+	local canScrollPerp  = bar:canScrollY()
+	local expandPerp     = bar._expandPerpendicular and (bar._layoutHeight - bar:getInnerSpaceY()) or nil
 	local expansionSpace = innerSize - (homogeneous and staticSize or childSizeSum)
+
+	if canScrollPerp then
+		expandPerp = math.max(expandPerp, bar._contentHeight)
+	end
 
 	--
 	-- Expand and position children.
 	--
-	local innerW   = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
-	local innerH   = bar._layoutHeight - bar:getInnerSpaceY()
-	local baseX    = bar._layoutX + bar._paddingLeft
-	local baseY    = bar._layoutY + bar._paddingTop
-	local x        = 0
-	local y        = 0
-	local margin   = 0
-	local first    = true
+	local innerW        = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
+	local innerH        = bar._layoutHeight - bar:getInnerSpaceY()
+	local baseX         = bar._layoutX + bar._paddingLeft
+	local baseY         = bar._layoutY + bar._paddingTop
+	local x             = 0
+	local y             = 0
 
+	local margin        = 0
+	local first         = true
 
 	for _, child in ipairs(bar) do
 		if child._hidden then
@@ -8830,7 +8861,8 @@ function Cs.hbar._expandAndPositionChildren(bar)
 			end
 
 			if expandPerp then
-				childHeight = expandPerp
+				childHeight = expandPerp -- Expand all children the same amount. (Better, I think.)
+				-- child$WHPERP = canScrollPerp and math.max(child$WHPERP, expandPerp) or expandPerp -- Only expand too short children. (Worse, I think.)
 			end
 
 			child._layoutWidth, child._layoutHeight = applySizeLimits(child, childWidth, childHeight)
@@ -8873,21 +8905,26 @@ function Cs.vbar._expandAndPositionChildren(bar)
 		end
 	end
 
-	local expandPerp     = bar._expandPerpendicular and (bar._layoutWidth - bar:getInnerSpaceX() - bar._layoutInnerSpacingsX) or nil
+	local canScrollPerp  = bar:canScrollX()
+	local expandPerp     = bar._expandPerpendicular and (bar._layoutWidth - bar:getInnerSpaceX()) or nil
 	local expansionSpace = innerSize - (homogeneous and staticSize or childSizeSum)
+
+	if canScrollPerp then
+		expandPerp = math.max(expandPerp, bar._contentWidth)
+	end
 
 	--
 	-- Expand and position children.
 	--
-	local innerW   = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
-	local innerH   = bar._layoutHeight - bar:getInnerSpaceY()
-	local baseX    = bar._layoutX + bar._paddingLeft
-	local baseY    = bar._layoutY + bar._paddingTop
-	local x        = 0
-	local y        = 0
-	local margin   = 0
-	local first    = true
+	local innerW        = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
+	local innerH        = bar._layoutHeight - bar:getInnerSpaceY()
+	local baseX         = bar._layoutX + bar._paddingLeft
+	local baseY         = bar._layoutY + bar._paddingTop
+	local x             = 0
+	local y             = 0
 
+	local margin        = 0
+	local first         = true
 
 	for _, child in ipairs(bar) do
 		if child._hidden then
@@ -8925,7 +8962,8 @@ function Cs.vbar._expandAndPositionChildren(bar)
 			end
 
 			if expandPerp then
-				childWidth = expandPerp
+				childWidth = expandPerp -- Expand all children the same amount. (Better, I think.)
+				-- child$WHPERP = canScrollPerp and math.max(child$WHPERP, expandPerp) or expandPerp -- Only expand too short children. (Worse, I think.)
 			end
 
 			child._layoutWidth, child._layoutHeight = applySizeLimits(child, childWidth, childHeight)
@@ -9940,6 +9978,7 @@ function Cs.input.init(inputEl, gui, elData, parent)
 	if elData.placeholder ~= nil then inputEl._placeholder = elData.placeholder end
 	if elData.spin ~= nil then inputEl._spin = elData.spin end
 	if elData.spinMin ~= nil then inputEl._spinMin = elData.spinMin end if elData.spinMax ~= nil then inputEl._spinMax = elData.spinMax end
+	-- @@retrieve(inputEl, elData, _value) -- This is saved in the field instead.
 
 	inputEl._field = InputField(elData.value--[[default=""]], elData.fieldType--[[default="normal"]])
 	inputEl._field:setFont(inputEl:getFont())
@@ -9963,7 +10002,7 @@ function Cs.input._draw(inputEl)
 
 	local x, y, w, h                     = xywh(inputEl)
 	local valueX, valueY, valueW, valueH = inputEl:getValueLayout()
-	local curOffsetX, curOffsetY, curH   = inputEl:getCursorLayout()
+	local curOffsetX, curOffsetY, curH   = inputEl._field:getCursorLayout()
 
 	-- @Incomplete: Draw scrollbars.
 
@@ -10105,6 +10144,8 @@ end
 function Cs.input._keypressed(inputEl, key, scancode, isRepeat)
 	if not inputEl:isKeyboardFocus() then  return false, false  end
 
+	local oldCurOffsetX, oldCurOffsetY = inputEl._field:getCursorLayout()
+
 	if key == "escape" then
 		if not isRepeat then
 			if inputEl:getValue() ~= inputEl._savedValue then
@@ -10155,6 +10196,13 @@ function Cs.input._keypressed(inputEl, key, scancode, isRepeat)
 		end
 	end
 
+	if inputEl:isFocused() then
+		local curOffsetX, curOffsetY = inputEl._field:getCursorLayout()
+		if curOffsetX ~= oldCurOffsetX or curOffsetY ~= oldCurOffsetY then
+			inputEl:scrollIntoView(true)
+		end
+	end
+
 	return true, false
 end
 
@@ -10173,7 +10221,9 @@ function Cs.input._textinput(inputEl, text)
 		-- void
 	elseif inputEl._mask ~= "" and not inputEl:getValue():find(inputEl._mask) then
 		inputEl:setValue(oldValue) -- Undo the change.  @UX: Handle the cursor better.
+		inputEl:scrollIntoView(true)
 	else
+		inputEl:scrollIntoView(true)
 		-- :TypingSound
 		trigger(inputEl, "valuechange")
 	end
@@ -10193,6 +10243,7 @@ function Cs.input._mousepressed(inputEl, mx, my, mbutton, pressCount)
 		local x, y        = inputEl:getPositionOnScreen()
 		local inputIndent = themeGet(inputEl._gui, "inputIndentation")
 		inputEl._field:mousepressed(mx-x-inputIndent, my-y-inputIndent, mbutton, pressCount)
+		inputEl:scrollIntoView(true) -- @Incomplete: Scroll to the mouse cursor instead of the text cursor (but do it smoothly over time in the update event). :SmoothScrollInputToMouse
 		return true, true
 	else
 		return true, false
@@ -10204,6 +10255,7 @@ function Cs.input._mousemoved(inputEl, mx, my)
 	local x, y        = inputEl:getPositionOnScreen()
 	local inputIndent = themeGet(inputEl._gui, "inputIndentation")
 	inputEl._field:mousemoved(mx-x-inputIndent, my-y-inputIndent)
+	inputEl:scrollIntoView(true) -- :SmoothScrollInputToMouse
 end
 
 -- INTERNAL REPLACE  input:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
@@ -10682,8 +10734,13 @@ defaultTheme = (function()
 
 				-- Value.
 				input:useFont()
-				setColor(1, 1, 1, opacity)
-				input:drawValueOrPlaceholder(valueX, valueY)
+				if input:getValue() ~= "" then
+					setColor(1, 1, 1, opacity)
+					input:drawValue(valueX, valueY)
+				else
+					setColor(1, 1, 1, .5*opacity)
+					input:drawPlaceholder(valueX, valueY)
+				end
 
 				-- Cursor.
 				if input:isKeyboardFocus() then
