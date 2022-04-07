@@ -4731,8 +4731,6 @@ do
 				end
 
 				if elIsValid then  lastWidget = el  end
-
-				if el._captureInput or el._captureGuiInput then  break  end
 			end
 
 			if not allowNone then  return nav  end
@@ -4765,9 +4763,6 @@ do
 		for _, el in ipairs(root:_collectVisibleUntilInputCapture(__STATIC4)) do
 			if el:is(Cs.widget) and not (first and first._priority > el._priority) then
 				first = el
-			end
-			if el._captureInput or el._captureGuiInput then
-				break
 			end
 		end
 
@@ -5094,8 +5089,6 @@ function Gui.back(gui)
 	for _, el in ipairs(root:_collectVisibleUntilInputCapture(__STATIC7)) do
 		if el:canClose() then
 			elToClose = el
-			break
-		elseif el._captureInput or el._captureGuiInput then
 			break
 		end
 	end
@@ -8094,7 +8087,7 @@ function Cs.container.insert(container, childData, i)
 		end
 	end
 
-	validateNavigationTarget(container._gui)
+	validateNavigationTarget(container._gui) -- Is this needed during insertions? @Cleanup
 	scheduleLayoutUpdateIfDisplayed(child)
 
 	return child
@@ -9822,8 +9815,11 @@ function Cs.button._mousepressed(button, mx, my, mbutton, pressCount)
 		if not button._active then  return true, false  end
 
 		button._isPressed = true
+		button._gui:navigateTo(button._gui._navigationTarget and button or nil)
+
 		return true, true
 	end
+	-- @Incomplete: Trigger events and stuff for other mouse buttons.
 
 	return false, false
 end
