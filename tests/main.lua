@@ -11,6 +11,7 @@ local gui = Gui()
 gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(),
 	{"hbar", relativeWidth=1, relativeHeight=1,
 		{"vbar", weight=1,
+			-- Homogeneous + max/min size.
 			{"hbar", homogeneous=true,
 				{"button", mnemonics=true, weight=1, text="&File", relativeWidth=.5},
 				{"button", mnemonics=true, weight=1, text="&Edit"},
@@ -19,12 +20,23 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 				{"button", mnemonics=true, weight=1, text="&Help"},
 			},
 			{"hbar", homogeneous=true,
+				{"button", mnemonics=true, weight=1, text="&File", relativeWidth=.5},
+				{"button", mnemonics=true, weight=1, text="&Edit"},
+				{"button", mnemonics=true, weight=1, text="&Search"},
+				{"button", mnemonics=true, weight=1, text="&Debug", minWidth=200}, -- @Incomplete: minWidth needs better handling in this case.
+				{"button", mnemonics=true, weight=1, text="&Help"},
+			},
+
+			-- Relative size + homogeneous.
+			{"hbar", homogeneous=true,
 				{"button", weight=0, text="50%", relativeWidth=.5},
 				{"button", weight=1, text="expand1"},
 				{"button", weight=1, text="expand2"},
 				{"button", weight=1, text="expand3"},
 				{"button", weight=1, text="expand4"},
 			},
+
+			-- Relative size + homogeneous + thrown in floating.
 			{"hbar", homogeneous=true,
 				{"button", weight=0, text="50%", relativeWidth=.5},
 				{"button", weight=1, text="expand"},
@@ -35,11 +47,14 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 				{"button", weight=0, text="[3]"},
 			},
 
+			-- Some weighted.
 			{"hbar",
 				{"button", text="[1]"},
 				{"button", text="expand", weight=1},
 				{"button", text="[2]"},
 			},
+
+			-- Padding + relative size + thrown in floating.
 			{"hbar", paddingHorizontal=8, paddingTop=4,
 				{"button", text="untitled (1).txt"},
 				{"container", floating=true, originX=1, anchorX=1, relativeWidth=.25, background="something", padding=5,
@@ -47,13 +62,44 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 				},
 				{"button", text="untitled (2).txt"},
 			},
-			{"input", fieldType="multiwrap", weight=1, placeholder="~type me maybe~"},
+
+			-- Multi-line input.
+			{"input", weight=1, fieldType="multiwrap", placeholder="~type me maybe~"},
+
+			-- Size precedence if weighted or not.
+			{"vbar", spacing=5,
+				{"hbar", height=6, {"button",width=150}, {"button",weight=1} }, -- Ruler.
+				{"hbar", height=40, homogeneous=true,
+					{"button", width=150, relativeWidth=.5, weight=0, text="150px, or 50%?"},
+					{"button", weight=1, text="Rest..."},
+				},
+				{"hbar", height=40, homogeneous=true,
+					{"button", width=150, relativeWidth=.5, weight=3, text="150px, 50%, or 3/4?"},
+					{"button", weight=1, text="Rest..."},
+				},
+				{"hbar", height=6, {"button",weight=1}, {"button",weight=1}, {"button",weight=1}, {"button",weight=1} }, -- Ruler.
+			},
+
+			-- Perpendicular size.
+			{"vbar", spacing=5,
+				{"hbar", homogeneous=true,
+					{"button", weight=1, text="L1", height=20},
+					{"button", weight=1, text="R1", height=30},
+				},
+				{"hbar", homogeneous=true, expandPerpendicular=false,
+					{"button", weight=1, text="L2", height=20},
+					{"button", weight=1, text="R2", height=30},
+				},
+			},
+
+			-- Just a normal thing...
 			{"hbar",
 				{"text", align="left", weight=1,  text="Foo bar"},
 				{"text", align="left", width=50,  text="INS"},
 				{"text", align="left", width=130, text="Line 1, Column 1"},
 			},
 
+			-- Homogeneous + floating.
 			{"hbar", floating=true, originX=.5, anchorX=.5, y=30, background="something", padding=20, homogeneous=true,
 				{"button", weight=1, canToggle=true, radio="floaters", text="[A]", spacing=10},
 				{"button", weight=1, canToggle=true, radio="floaters", text="[BB]"},
@@ -66,6 +112,7 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 			},
 		},
 
+		-- Scrolling galore in small container.
 		{"vbar", width=60, padding=5, background="warning", canScrollY=true,
 			{"vbar", canScrollX=true,
 				{"text", text="too long text", align="left"},
@@ -81,13 +128,15 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 				},
 			},
 
+			-- Relative size in scrolling container.
 			{"button", text="BIG1", relativeHeight=.4},
 			{"button", text="BIG2", relativeHeight=.4},
 			{"button", text="BIG3", relativeHeight=.4},
 		},
 	},
 
-	{"hbar", hidden=1==0, originX=.5, originY=.5, anchorX=.5, anchorY=.5, background="something", padding=10,
+	-- Dialog.
+	{"hbar", originX=.5, originY=.5, anchorX=.5, anchorY=.5, background="something", padding=10,
 		{"hbar",
 			{"text", text="Left text goes here."},
 		},

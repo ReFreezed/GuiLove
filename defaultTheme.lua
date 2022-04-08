@@ -383,7 +383,7 @@ return {
 
 			-- Background.
 			if input:isKeyboardFocus() then
-				Gui.setColor(.4, 1, .4, .16)
+				Gui.setColor(.3, .7, .3, .3)
 				love.graphics.rectangle("fill", 1, 1, w-2, h-2)
 			end
 

@@ -150,6 +150,7 @@
 	- getTooltip, setTooltip
 	- getTooltipFont, useTooltipFont
 	- getWeight, setWeight
+	- hasFixedWidth, hasFixedHeight, hasDynamicWidth, hasDynamicHeight, hasRelativeWidth, hasRelativeHeight
 	- hasTag, addTag, removeTag, removeAllTags, setTag
 	- isAt
 	- isDisplayed, getClosestHiddenElement, getFarthestHiddenElement
@@ -3767,8 +3768,8 @@ end
 
 
 
--- <see_return_statement> = getBarNaturalSizeValues( bar )
-local function getBarNaturalSizeValues(bar)
+-- <see_return_statement> = barGetNaturalSizeValues( bar )
+local function barGetNaturalSizeValues(bar)
 	--[[ Examples how homogeneous+weight affect sizes:
 	--------------------------------
 
@@ -3809,15 +3810,16 @@ local function getBarNaturalSizeValues(bar)
 	local staticW, dynamicW, highestW, highestDynamicW = 0, 0, 0, 0 -- Note: highestDynamic* is weighted.
 	local staticH, dynamicH, highestH, highestDynamicH = 0, 0, 0, 0
 
-	local currentSx = 0
-	local currentSy = 0
-	local sumSx     = 0
-	local sumSy     = 0
-	local first     = true
+	local currentSpaceX = 0
+	local currentSpaceY = 0
+	local sumSpaceX     = 0
+	local sumSpaceY     = 0
+	local first         = true
 
 	local totalWeight = 0
 
-	local max = math.max
+	local homogeneous = bar._homogeneous
+	local max         = math.max
 
 	for _, child in ipairs(bar) do
 		if not (child._hidden or child._floating) then
@@ -3829,55 +3831,55 @@ local function getBarNaturalSizeValues(bar)
 				staticW = staticW + child._layoutWidth
 				staticH = staticH + child._layoutHeight
 			else
-				if child._width >= 0 then
+				if child:hasFixedWidth() and not homogeneous then
 					staticW = staticW + child._width
 				else
-					dynamicW        = dynamicW + child._layoutWidth
+					dynamicW        = dynamicW + child._layoutWidth -- Includes relative size.
 					highestDynamicW = max(highestDynamicW, child._layoutWidth/child._weight)
 				end
-				if child._height >= 0 then
+				if child:hasFixedHeight() and not homogeneous then
 					staticH = staticH + child._height
 				else
-					dynamicH        = dynamicH + child._layoutHeight
+					dynamicH        = dynamicH + child._layoutHeight -- Includes relative size.
 					highestDynamicH = max(highestDynamicH, child._layoutHeight/child._weight)
 				end
 			end
 
 			-- Spacing.
 			if not first then
-				currentSx = max(currentSx, child._spacingLeft)
-				currentSy = max(currentSy, child._spacingTop )
+				currentSpaceX = max(currentSpaceX, child._spacingLeft)
+				currentSpaceY = max(currentSpaceY, child._spacingTop )
 			end
-			sumSx     = sumSx + currentSx
-			sumSy     = sumSy + currentSy
-			currentSx = child._spacingRight
-			currentSy = child._spacingBottom
-			first     = false
+			sumSpaceX     = sumSpaceX + currentSpaceX
+			sumSpaceY     = sumSpaceY + currentSpaceY
+			currentSpaceX = child._spacingRight
+			currentSpaceY = child._spacingBottom
+			first         = false
 
 			-- Weight.
 			totalWeight = totalWeight + child._weight
 		end
 	end
 
-	return staticW, dynamicW, highestW, highestDynamicW, sumSx,
-	       staticH, dynamicH, highestH, highestDynamicH, sumSy,
+	return staticW, dynamicW, highestW, highestDynamicW, sumSpaceX,
+	       staticH, dynamicH, highestH, highestDynamicH, sumSpaceY,
 	       totalWeight
 end
 
 
 
 local function updateContainerNaturalSize(container, contentW, contentH)
-	local w = container._width -- May be negative.
+	local w = container._width -- May be negative, which means dynamic (i.e. hasDynamic*() should return true).
 	local h = container._height
 
-	container._contentWidth  = (w >= 0) and w-container:getInnerSpaceX() or contentW
-	container._contentHeight = (h >= 0) and h-container:getInnerSpaceY() or contentH
+	container._contentWidth  = container:hasFixedWidth () and w-container:getInnerSpaceX() or contentW
+	container._contentHeight = container:hasFixedHeight() and h-container:getInnerSpaceY() or contentH
 
-	if w < 0 then
+	if container:hasDynamicWidth() then
 		w = math.max(container._contentWidth+container:getInnerSpaceX(), container._minWidth)
 		if container._maxWidth >= 0 then  w = math.min(w, container._maxWidth)  end
 	end
-	if h < 0 then
+	if container:hasDynamicHeight() then
 		h = math.max(container._contentHeight+container:getInnerSpaceY(), container._minHeight)
 		if container._maxHeight >= 0 then  h = math.min(h, container._maxHeight)  end
 	end
@@ -3887,9 +3889,6 @@ local function updateContainerNaturalSize(container, contentW, contentH)
 end
 
 local function applySizeLimits(el, w, h)
-	if el._width  >= 0 then  w = el._width   end
-	if el._height >= 0 then  h = el._height  end
-
 	w = math.max(w, el._minWidth )
 	h = math.max(h, el._minHeight)
 
@@ -3901,8 +3900,8 @@ end
 
 local function expandAndPositionFloatingElement(el, expansionW, expansionH)
 	el._layoutWidth, el._layoutHeight = applySizeLimits(el
-		, (el._relativeWidth  >= 0) and expansionW*el._relativeWidth  or el._layoutWidth
-		, (el._relativeHeight >= 0) and expansionH*el._relativeHeight or el._layoutHeight
+		, el:hasRelativeWidth()  and expansionW*el._relativeWidth  or el._layoutWidth
+		, el:hasRelativeHeight() and expansionH*el._relativeHeight or el._layoutHeight
 	)
 
 	local parent = el._parent
@@ -5320,8 +5319,8 @@ function Is.imageInclude.maximizeImageSize(imageInc, extraW, extraH)
 
 	local paddingSum = imageInc:is(Cs.button) and 2*imageInc._imagePadding or 0
 
-	local scaleX = (imageInc._width  >= 0) and (imageInc._width  - paddingSum + (extraH or 0)) / sprite.width  or imageInc._imageScaleX
-	local scaleY = (imageInc._height >= 0) and (imageInc._height - paddingSum + (extraW or 0)) / sprite.height or imageInc._imageScaleY
+	local scaleX = imageInc:hasFixedWidth () and ((imageInc._width  - paddingSum + (extraH or 0)) / sprite.width ) or imageInc._imageScaleX
+	local scaleY = imageInc:hasFixedHeight() and ((imageInc._height - paddingSum + (extraW or 0)) / sprite.height) or imageInc._imageScaleY
 	imageInc:setImageScale(scaleX, scaleY)
 end
 
@@ -5450,9 +5449,9 @@ Cs.element = newElementClass(true, "GuiElement", nil, {}, {
 	_captureInput    = false, -- All input.
 	_captureGuiInput = false, -- All input affecting GUI.
 
-	_width          = -1, -- Negative means dynamic (unless _relativeWidth/_relativeHeight is set).
+	_width          = -1, -- Negative means dynamic (unless relative size is set).
 	_height         = -1,
-	_relativeWidth  = -1, -- Negative means dynamic (unless _width/_height is set).
+	_relativeWidth  = -1, -- Negative means dynamic (unless fixed size is set).
 	_relativeHeight = -1,
 
 	_weight = 0, -- Weight of the element during expansion by the parent container. 0 means no expansion.
@@ -6245,6 +6244,37 @@ end
 
 
 
+-- weight = element:getWeight( )
+function Cs.element.getWeight(el)
+	return el._weight
+end
+
+-- element:setWeight( weight )
+function Cs.element.setWeight(el, weight)
+	if type(weight)~="number" then argerror(2,1,"weight",weight,"number") end
+	weight = math.max(weight, 0)
+	if el._weight == weight then  return  end
+	el._weight = weight
+	scheduleLayoutUpdateIfDisplayed(el)
+end
+
+
+
+-- bool = element:hasFixedWidth( )
+-- bool = element:hasFixedHeight( )
+-- bool = element:hasDynamicWidth( )
+-- bool = element:hasDynamicHeight( )
+-- bool = element:hasRelativeWidth( )
+-- bool = element:hasRelativeHeight( )
+function Cs.element.hasFixedWidth    (el)  return el._width  >= 0  end
+function Cs.element.hasFixedHeight   (el)  return el._height >= 0  end
+function Cs.element.hasDynamicWidth  (el)  return el._width  <  0  end
+function Cs.element.hasDynamicHeight (el)  return el._height <  0  end
+function Cs.element.hasRelativeWidth (el)  return el._width  <  0 and el._relativeWidth  >= 0  end
+function Cs.element.hasRelativeHeight(el)  return el._height <  0 and el._relativeHeight >= 0  end
+
+
+
 -- spacingLeft, spacingRight, spacingTop, spacingBottom = element:getSpacing( )
 -- spacing = element:getSpacingLeft( )
 -- spacing = element:getSpacingRight( )
@@ -6312,22 +6342,6 @@ function Cs.element.setSpacingBottom(el, spacing)
 	if type(spacing)~="number" then argerror(2,1,"spacing",spacing,"number") end
 	if el._spacingBottom == spacing then  return  end
 	el._spacingBottom = spacing
-	scheduleLayoutUpdateIfDisplayed(el)
-end
-
-
-
--- weight = element:getWeight( )
-function Cs.element.getWeight(el)
-	return el._weight
-end
-
--- element:setWeight( weight )
-function Cs.element.setWeight(el, weight)
-	if type(weight)~="number" then argerror(2,1,"weight",weight,"number") end
-	weight = math.max(weight, 0)
-	if el._weight == weight then  return  end
-	el._weight = weight
 	scheduleLayoutUpdateIfDisplayed(el)
 end
 
@@ -8832,34 +8846,34 @@ Cs.vbar = newElementClass(false, "GuiVerticalBar", Cs.bar, {}, {
 function Cs.hbar._calculateNaturalSize(bar)
 	calculateContainerChildNaturalSizes(bar)
 
-	local staticW, dynamicW, highestW, highestDynamicW, sumSx,
-	      staticH, dynamicH, highestH, highestDynamicH, sumSy,
-	      totalWeight = getBarNaturalSizeValues(bar)
+	local staticW, dynamicW, highestW, highestDynamicW, sumSpaceX,
+	      staticH, dynamicH, highestH, highestDynamicH, sumSpaceY,
+	      totalWeight = barGetNaturalSizeValues(bar)
 
-	local innerW = (bar._homogeneous and highestDynamicW*totalWeight or dynamicW) + staticW + sumSx
+	local innerW = (bar._homogeneous and highestDynamicW*totalWeight or dynamicW) + staticW + sumSpaceX
 
 	innerW   = math.max(innerW,   bar._minWidth -bar:getInnerSpaceX())
 	highestH = math.max(highestH, bar._minHeight-bar:getInnerSpaceY())
 
 	bar._layoutInnerStaticHeight, bar._layoutInnerStaticWidth = 0, staticW
-	bar._layoutInnerSpacingsY   , bar._layoutInnerSpacingsX   = 0, sumSx
+	bar._layoutInnerSpacingsY   , bar._layoutInnerSpacingsX   = 0, sumSpaceX
 
 	updateContainerNaturalSize(bar, innerW, highestH)
 end
 function Cs.vbar._calculateNaturalSize(bar)
 	calculateContainerChildNaturalSizes(bar)
 
-	local staticW, dynamicW, highestW, highestDynamicW, sumSx,
-	      staticH, dynamicH, highestH, highestDynamicH, sumSy,
-	      totalWeight = getBarNaturalSizeValues(bar)
+	local staticW, dynamicW, highestW, highestDynamicW, sumSpaceX,
+	      staticH, dynamicH, highestH, highestDynamicH, sumSpaceY,
+	      totalWeight = barGetNaturalSizeValues(bar)
 
-	local innerH = (bar._homogeneous and highestDynamicH*totalWeight or dynamicH) + staticH + sumSy
+	local innerH = (bar._homogeneous and highestDynamicH*totalWeight or dynamicH) + staticH + sumSpaceY
 
 	innerH   = math.max(innerH,   bar._minHeight-bar:getInnerSpaceY())
 	highestW = math.max(highestW, bar._minWidth -bar:getInnerSpaceX())
 
 	bar._layoutInnerStaticWidth, bar._layoutInnerStaticHeight = 0, staticH
-	bar._layoutInnerSpacingsX  , bar._layoutInnerSpacingsY    = 0, sumSy
+	bar._layoutInnerSpacingsX  , bar._layoutInnerSpacingsY    = 0, sumSpaceY
 
 	updateContainerNaturalSize(bar, highestW, innerH)
 end
@@ -8884,7 +8898,7 @@ function Cs.hbar._expandAndPositionChildren(bar)
 
 	for _, child in ipairs(bar) do
 		if not (child._hidden or child._floating) then
-			if child._relativeWidth >= 0 and not (child._weight > 0 and homogeneous) then
+			if child:hasRelativeWidth() and not (child._weight > 0 and homogeneous) then
 				local size   = round(child._relativeWidth*innerSize)
 				staticSize   = staticSize   + size - child._layoutWidth
 				childSizeSum = childSizeSum + size
@@ -8906,15 +8920,15 @@ function Cs.hbar._expandAndPositionChildren(bar)
 	--
 	-- Expand and position children.
 	--
-	local innerW        = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
-	local innerH        = bar._layoutHeight - bar:getInnerSpaceY()
-	local baseX         = bar._layoutX + bar._paddingLeft
-	local baseY         = bar._layoutY + bar._paddingTop
-	local x             = 0
-	local y             = 0
+	local innerW   = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
+	local innerH   = bar._layoutHeight - bar:getInnerSpaceY()
+	local baseX    = bar._layoutX + bar._paddingLeft
+	local baseY    = bar._layoutY + bar._paddingTop
+	local x        = 0
+	local y        = 0
 
-	local margin        = 0
-	local first         = true
+	local margin   = 0
+	local first    = true
 
 	for _, child in ipairs(bar) do
 		if child._hidden then
@@ -8938,8 +8952,8 @@ function Cs.hbar._expandAndPositionChildren(bar)
 			local childHeight = child._layoutHeight
 
 			-- Only perpendicular (and relative-to-static along) expansion.
-			if child._weight == 0 or child._width >= 0 then
-				if child._relativeWidth >= 0 then
+			if child._weight == 0 then
+				if child:hasRelativeWidth() then
 					childWidth = round(child._relativeWidth*innerSize)
 				end
 
@@ -8985,7 +8999,7 @@ function Cs.vbar._expandAndPositionChildren(bar)
 
 	for _, child in ipairs(bar) do
 		if not (child._hidden or child._floating) then
-			if child._relativeHeight >= 0 and not (child._weight > 0 and homogeneous) then
+			if child:hasRelativeHeight() and not (child._weight > 0 and homogeneous) then
 				local size   = round(child._relativeHeight*innerSize)
 				staticSize   = staticSize   + size - child._layoutHeight
 				childSizeSum = childSizeSum + size
@@ -9007,15 +9021,15 @@ function Cs.vbar._expandAndPositionChildren(bar)
 	--
 	-- Expand and position children.
 	--
-	local innerW        = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
-	local innerH        = bar._layoutHeight - bar:getInnerSpaceY()
-	local baseX         = bar._layoutX + bar._paddingLeft
-	local baseY         = bar._layoutY + bar._paddingTop
-	local x             = 0
-	local y             = 0
+	local innerW   = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
+	local innerH   = bar._layoutHeight - bar:getInnerSpaceY()
+	local baseX    = bar._layoutX + bar._paddingLeft
+	local baseY    = bar._layoutY + bar._paddingTop
+	local x        = 0
+	local y        = 0
 
-	local margin        = 0
-	local first         = true
+	local margin   = 0
+	local first    = true
 
 	for _, child in ipairs(bar) do
 		if child._hidden then
@@ -9039,8 +9053,8 @@ function Cs.vbar._expandAndPositionChildren(bar)
 			local childHeight = child._layoutHeight
 
 			-- Only perpendicular (and relative-to-static along) expansion.
-			if child._weight == 0 or child._height >= 0 then
-				if child._relativeHeight >= 0 then
+			if child._weight == 0 then
+				if child:hasRelativeHeight() then
 					childHeight = round(child._relativeHeight*innerSize)
 				end
 
@@ -9428,8 +9442,8 @@ function Cs.canvas._draw(canvas, childToDrawNavTargetAfter)
 
 	-- Draw canvas.
 	-- We don't call themeRender() for canvases as they should only draw things through the "draw" event.
-	local cw = (canvas._width  >= 0) and canvas._width  or w
-	local ch = (canvas._height >= 0) and canvas._height or h
+	local cw = canvas:hasFixedWidth () and canvas._width  or w -- Good behavior? @Revise
+	local ch = canvas:hasFixedHeight() and canvas._height or h
 
 	if cw > 0 and ch > 0 then
 		love.graphics.push("all")
@@ -9543,13 +9557,13 @@ end
 -- INTERNAL REPLACE  image:_calculateNaturalSize( )
 function Cs.image._calculateNaturalSize(imageEl)
 	local w, h
-	if imageEl._width < 0 or imageEl._height < 0 then
+	if not (imageEl:hasFixedWidth() and imageEl:hasFixedHeight()) then
 		local iw, ih = imageEl:getImageDimensions()
 		w, h         = themeGetSize(imageEl, "image", round(iw*imageEl._imageScaleX), round(ih*imageEl._imageScaleY))
 	end
 
-	imageEl._layoutWidth  = (imageEl._width  >= 0) and imageEl._width  or math.max(w, imageEl._minWidth )
-	imageEl._layoutHeight = (imageEl._height >= 0) and imageEl._height or math.max(h, imageEl._minHeight)
+	imageEl._layoutWidth  = imageEl:hasFixedWidth () and imageEl._width  or math.max(w, imageEl._minWidth ) -- Shouldn't we use max size too, and always apply both? (Also, other elements.)
+	imageEl._layoutHeight = imageEl:hasFixedHeight() and imageEl._height or math.max(h, imageEl._minHeight)
 end
 
 
@@ -9606,7 +9620,7 @@ function Cs.text._calculateNaturalSize(textEl)
 			innerSpaceSum = innerSpaceSum + parent:getInnerSpaceX()
 
 			-- At most this will be the root, as the root always has a fixed size.
-			if parent._width >= 0 then
+			if parent:hasFixedWidth() then
 				wrapLimit = parent._width - innerSpaceSum - 2*themeGet(textEl._gui, "textIndentation")
 
 				if wrapLimit <= 0 then
@@ -9624,13 +9638,13 @@ function Cs.text._calculateNaturalSize(textEl)
 	textEl._textHeight = textH
 
 	local w, h
-	if textEl._width < 0 or textEl._height < 0 then
+	if not (textEl:hasFixedWidth() and textEl:hasFixedHeight()) then
 		local textIndent = themeGet(textEl._gui, "textIndentation")
 		w, h             = themeGetSize(textEl, "text", textIndent, textW, textH)
 	end
 
-	textEl._layoutWidth  = (textEl._width  >= 0) and textEl._width  or math.max(w, textEl._minWidth )
-	textEl._layoutHeight = (textEl._height >= 0) and textEl._height or math.max(h, textEl._minHeight)
+	textEl._layoutWidth  = textEl:hasFixedWidth () and textEl._width  or math.max(w, textEl._minWidth )
+	textEl._layoutHeight = textEl:hasFixedHeight() and textEl._height or math.max(h, textEl._minHeight)
 end
 
 
@@ -10030,7 +10044,7 @@ function Cs.button._calculateNaturalSize(button)
 	button._textHeight = font:getHeight()
 
 	local w, h
-	if button._width < 0 or button._height < 0 then
+	if not (button:hasFixedWidth() and button:hasFixedHeight()) then
 		local iw, ih = button:getImageDimensions()
 		w, h = themeGetSize(
 			button, "button", button._textWidth1, button._textWidth2, button._textHeight,
@@ -10039,8 +10053,8 @@ function Cs.button._calculateNaturalSize(button)
 		)
 	end
 
-	button._layoutWidth  = (button._width  >= 0) and button._width  or math.max(w, button._minWidth )
-	button._layoutHeight = (button._height >= 0) and button._height or math.max(h, button._minHeight)
+	button._layoutWidth  = button:hasFixedWidth () and button._width  or math.max(w, button._minWidth )
+	button._layoutHeight = button:hasFixedHeight() and button._height or math.max(h, button._minHeight)
 end
 
 
@@ -10403,12 +10417,12 @@ end
 -- INTERNAL REPLACE  input:_calculateNaturalSize( )
 function Cs.input._calculateNaturalSize(inputEl)
 	local _, h
-	if inputEl._height < 0 then
+	if not inputEl:hasFixedHeight() then
 		_, h = themeGetSize(inputEl, "input", _, inputEl:getFont():getHeight())
 	end
 
-	inputEl._layoutWidth  = (inputEl._width  >= 0) and inputEl._width  or             inputEl._minWidth
-	inputEl._layoutHeight = (inputEl._height >= 0) and inputEl._height or math.max(h, inputEl._minHeight)
+	inputEl._layoutWidth  = inputEl:hasFixedWidth () and inputEl._width  or             inputEl._minWidth
+	inputEl._layoutHeight = inputEl:hasFixedHeight() and inputEl._height or math.max(h, inputEl._minHeight)
 end
 
 -- INTERNAL OVERRIDE  input:_expandAndPositionChildren( )
@@ -10804,7 +10818,7 @@ defaultTheme = (function()
 
 				-- Background.
 				if input:isKeyboardFocus() then
-					Gui.setColor(.4, 1, .4, .16)
+					Gui.setColor(.3, .7, .3, .3)
 					love.graphics.rectangle("fill", 1, 1, w-2, h-2)
 				end
 
