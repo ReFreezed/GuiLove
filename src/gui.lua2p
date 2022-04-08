@@ -6842,14 +6842,13 @@ end
 
 -- INTERNAL REPLACE  image:_calculateNaturalSize( )
 function Cs.image._calculateNaturalSize(imageEl)
-	local w, h
-	if not (imageEl:hasFixedWidth() and imageEl:hasFixedHeight()) then
-		local iw, ih = imageEl:getImageDimensions()
-		w, h         = themeGetSize(imageEl, "image", round(iw*imageEl._imageScaleX), round(ih*imageEl._imageScaleY))
-	end
+	local iw, ih = imageEl:getImageDimensions()
+	local  w,  h = themeGetSize(imageEl, "image", round(iw*imageEl._imageScaleX), round(ih*imageEl._imageScaleY))
 
-	imageEl._layoutWidth  = imageEl:hasFixedWidth () and imageEl._width  or math.max(w, imageEl._minWidth ) -- Shouldn't we use max size too, and always apply both? (Also, other elements.)
-	imageEl._layoutHeight = imageEl:hasFixedHeight() and imageEl._height or math.max(h, imageEl._minHeight)
+	imageEl._layoutWidth, imageEl._layoutHeight = applySizeLimits(imageEl, w, h)
+
+	if imageEl:hasFixedWidth () then  imageEl._layoutWidth  = imageEl._width   end
+	if imageEl:hasFixedHeight() then  imageEl._layoutHeight = imageEl._height  end
 end
 
 
@@ -6923,14 +6922,13 @@ function Cs.text._calculateNaturalSize(textEl)
 	textEl._textWidth  = textW
 	textEl._textHeight = textH
 
-	local w, h
-	if not (textEl:hasFixedWidth() and textEl:hasFixedHeight()) then
-		local textIndent = themeGet(textEl._gui, "textIndentation")
-		w, h             = themeGetSize(textEl, "text", textIndent, textW, textH)
-	end
+	local textIndent = themeGet(textEl._gui, "textIndentation")
+	local w, h       = themeGetSize(textEl, "text", textIndent, textW, textH)
 
-	textEl._layoutWidth  = textEl:hasFixedWidth () and textEl._width  or math.max(w, textEl._minWidth )
-	textEl._layoutHeight = textEl:hasFixedHeight() and textEl._height or math.max(h, textEl._minHeight)
+	textEl._layoutWidth, textEl._layoutHeight = applySizeLimits(textEl, w, h)
+
+	if textEl:hasFixedWidth () then  textEl._layoutWidth  = textEl._width   end
+	if textEl:hasFixedHeight() then  textEl._layoutHeight = textEl._height  end
 end
 
 
@@ -7329,18 +7327,17 @@ function Cs.button._calculateNaturalSize(button)
 	button._textWidth  = button._textWidth1 + button._textWidth2 -- This value is pretty useless...
 	button._textHeight = font:getHeight()
 
-	local w, h
-	if not (button:hasFixedWidth() and button:hasFixedHeight()) then
-		local iw, ih = button:getImageDimensions()
-		w, h = themeGetSize(
-			button, "button", button._textWidth1, button._textWidth2, button._textHeight,
-			round(iw*button._imageScaleX+2*button._imagePadding),
-			round(ih*button._imageScaleY+2*button._imagePadding)
-		)
-	end
+	local iw, ih = button:getImageDimensions()
+	local  w,  h = themeGetSize(
+		button, "button", button._textWidth1, button._textWidth2, button._textHeight,
+		round(iw*button._imageScaleX+2*button._imagePadding),
+		round(ih*button._imageScaleY+2*button._imagePadding)
+	)
 
-	button._layoutWidth  = button:hasFixedWidth () and button._width  or math.max(w, button._minWidth )
-	button._layoutHeight = button:hasFixedHeight() and button._height or math.max(h, button._minHeight)
+	button._layoutWidth, button._layoutHeight = applySizeLimits(button, w, h)
+
+	if button:hasFixedWidth () then  button._layoutWidth  = button._width   end
+	if button:hasFixedHeight() then  button._layoutHeight = button._height  end
 end
 
 
@@ -7702,13 +7699,12 @@ end
 
 -- INTERNAL REPLACE  input:_calculateNaturalSize( )
 function Cs.input._calculateNaturalSize(inputEl)
-	local _, h
-	if not inputEl:hasFixedHeight() then
-		_, h = themeGetSize(inputEl, "input", _, inputEl:getFont():getHeight())
-	end
+	local _, h = themeGetSize(inputEl, "input", _, inputEl:getFont():getHeight())
 
-	inputEl._layoutWidth  = inputEl:hasFixedWidth () and inputEl._width  or             inputEl._minWidth
-	inputEl._layoutHeight = inputEl:hasFixedHeight() and inputEl._height or math.max(h, inputEl._minHeight)
+	inputEl._layoutWidth, inputEl._layoutHeight = applySizeLimits(inputEl, 0, h)
+
+	if inputEl:hasFixedWidth () then  inputEl._layoutWidth  = inputEl._width   end
+	if inputEl:hasFixedHeight() then  inputEl._layoutHeight = inputEl._height  end
 end
 
 -- INTERNAL OVERRIDE  input:_expandAndPositionChildren( )
