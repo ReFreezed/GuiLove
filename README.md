@@ -38,7 +38,7 @@
 	- [Gui Methods](#gui-methods)
 	- [Element Types, Methods and Events](#element-types-methods-and-events)
 	- [Includes](#includes)
-	- [Tools](#tools)
+	- [Utilities](#utilities)
 - [Development and Repository](#development-and-repository)
 
 
@@ -320,7 +320,7 @@ imageInclude
 ```
 
 
-### Tools
+### Utilities
 
 ```
 - create9PartQuads

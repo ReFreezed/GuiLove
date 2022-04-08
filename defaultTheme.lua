@@ -93,20 +93,6 @@ local NAV_QUADS = Gui.create9PartQuads(NAV_IMAGE, 3, 3)
 
 
 
--- LÖVE 0.10 support.
-
-local setColor = love.graphics.setColor
-
-if love.getVersion() < 11 then
-	local _setColor = setColor
-	function setColor(r, g, b, a)
-		-- Convert color values from [0-1] to [0-255].
-		_setColor(r*255, g*255, b*255, (a and a*255))
-	end
-end
-
-
-
 --==============================================================
 --==============================================================
 --==============================================================
@@ -227,10 +213,10 @@ return {
 		-- draw.background( element, elementWidth, elementHeight, background )
 		["background"] = function(el, w, h, bg)
 			if bg == "warning" then
-				setColor(.4, 0, 0, .9)
+				Gui.setColor(.4, 0, 0, .9)
 				love.graphics.rectangle("fill", 0, 0, w, h)
 			else
-				setColor(.17, .17, .17, .9)
+				Gui.setColor(.17, .17, .17, .9)
 				love.graphics.rectangle("fill", 0, 0, w, h)
 			end
 		end,
@@ -297,13 +283,16 @@ return {
 			local isHovered = button:isActive() and button:isHovered()
 
 			-- Background.
-			local r, g, b = 1, 1, 1
-			local a       = (isHovered and .35 or .25) * opacity
+			local r, g, b = .4, .4, .4
+			if button:isToggled() then  r, g, b = .4, .6, 1 end
 
-			if button:isToggled()               then  r, g, b =   .4,   .8,    1  end
-			if button:isPressed() and isHovered then  r, g, b = r*.6, g*.6, b*.6  end
+			local highlight = isHovered and not button:isPressed() and 1 or 0
+			if button:isPressed() and isHovered then  r, g, b = r*.25, g*.25, b*.25  end
 
-			setColor(r, g, b, a)
+			r, g, b = Gui.lerpColor(r,g,b, 1,1,1, .3*highlight)
+			local a = .8 * opacity
+
+			Gui.setColor(r, g, b, a)
 			Gui.draw9PartScaled(x+1, y+1, w-2, h-2, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
 
 			-- Arrow.
@@ -311,7 +300,7 @@ return {
 				local image  = BUTTON_ARROW_IMAGE
 				local arrLen = BUTTON_ARROW_LENGTH
 
-				setColor(1, 1, 1)
+				Gui.setColor(1, 1, 1)
 
 				if     arrow == "right" then  love.graphics.draw(image, x+(w-1),                    y+math.floor((h-arrLen)/2), 0*TAU/4)
 				elseif arrow == "down"  then  love.graphics.draw(image, x+math.floor((w+arrLen)/2), y+(h-1),                    1*TAU/4)
@@ -350,9 +339,9 @@ return {
 				end
 
 				button:useFont()
-				setColor(1, 1, 1, .6*opacity)
+				Gui.setColor(1, 1, 1, .6*opacity)
 				button:drawText2(text2X, textY)
-				setColor(1, 1, 1, opacity)
+				Gui.setColor(1, 1, 1, opacity)
 				button:drawText(text1X, textY)
 
 				local mnemonicX, mnemonicY, mnemonicW = button:getMnemonicOffset()
@@ -375,9 +364,9 @@ return {
 				button:drawImage(x+BUTTON_PADDING, math.floor(midY-imageH/2))
 
 				button:useFont()
-				setColor(1, 1, 1, .6*opacity)
+				Gui.setColor(1, 1, 1, .6*opacity)
 				button:drawText2(text2X, textY)
-				setColor(1, 1, 1, opacity)
+				Gui.setColor(1, 1, 1, opacity)
 				button:drawText(text1X, textY)
 
 				local mnemonicX, mnemonicY, mnemonicW = button:getMnemonicOffset()
@@ -394,14 +383,14 @@ return {
 
 			-- Background.
 			if input:isKeyboardFocus() then
-				setColor(.4, 1, .4, .16)
+				Gui.setColor(.4, 1, .4, .16)
 				love.graphics.rectangle("fill", 1, 1, w-2, h-2)
 			end
 
 			-- Border.
 			local isHighlighted = (input:isActive() and input:isHovered()) or input:isKeyboardFocus()
 			local a             = (isHighlighted and 1 or .4) * opacity
-			setColor(1, 1, 1, a)
+			Gui.setColor(1, 1, 1, a)
 			love.graphics.rectangle("line", 1+.5, 1+.5, w-2-1, h-2-1)
 
 			input:setScissor(2, 2, w-2*2, h-2*2) -- Make sure the contents does not render outside the element.
@@ -414,24 +403,24 @@ return {
 
 			-- Selections.
 			if input:isKeyboardFocus() then
-				setColor(1, 1, 1, .35)
+				Gui.setColor(1, 1, 1, .35)
 				input:drawSelections(valueX, valueY)
 			end
 
 			-- Value.
 			input:useFont()
 			if input:getValue() ~= "" then
-				setColor(1, 1, 1, opacity)
+				Gui.setColor(1, 1, 1, opacity)
 				input:drawValue(valueX, valueY)
 			else
-				setColor(1, 1, 1, .5*opacity)
+				Gui.setColor(1, 1, 1, .5*opacity)
 				input:drawPlaceholder(valueX, valueY)
 			end
 
 			-- Cursor.
 			if input:isKeyboardFocus() then
 				local cursorOpacity = ((math.cos(5*input:getBlinkPhase()) + 1) / 2) ^ .5
-				setColor(1, 1, 1, cursorOpacity)
+				Gui.setColor(1, 1, 1, cursorOpacity)
 				love.graphics.rectangle("fill", valueX+curOffsetX-1, valueY+curOffsetY, 1, fontHeight)
 			end
 		end,
@@ -446,7 +435,7 @@ return {
 
 			-- Background.
 			local a = (isBarHovered or isScrolling) and .1 or 0
-			setColor(1, 1, 1, a)
+			Gui.setColor(1, 1, 1, a)
 			love.graphics.rectangle("fill", 0, 0, w, h)
 
 			-- Scrollbar handle.
@@ -457,7 +446,7 @@ return {
 			else  handleY, handleX, handleH, handleW = pos+1, 1, len-2, w-2  end
 
 			local a = (isScrolling and .2) or (isHandleHovered and .3) or (.2)
-			setColor(1, 1, 1, a)
+			Gui.setColor(1, 1, 1, a)
 
 			Gui.draw9PartScaled(handleX, handleY, handleW, handleH, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
 		end,
@@ -476,7 +465,7 @@ return {
 			w            = w + 2*offset
 			h            = h + 2*offset
 
-			setColor(1, 1, 0, 1)
+			Gui.setColor(1, 1, 0, 1)
 			Gui.draw9PartScaled(x, y, w, h, NAV_IMAGE, unpack(NAV_QUADS))
 		end,
 
@@ -486,16 +475,16 @@ return {
 			local opacity = math.min(time/TOOLTIP_FADE_IN_TIME, 1)
 
 			-- Background.
-			setColor(1, 1, 1, opacity)
+			Gui.setColor(1, 1, 1, opacity)
 			love.graphics.rectangle("fill", 1, 1, w-2, h-2)
 			love.graphics.setLineWidth(1)
-			setColor(0, 0, 0)
+			Gui.setColor(0, 0, 0)
 			love.graphics.rectangle("line", .5, .5, w-1, h-1)
 
 			-- Text.
 			local x, y = TOOLTIP_PADDING, TOOLTIP_PADDING
 			el:useTooltipFont()
-			setColor(0, 0, 0, opacity)
+			Gui.setColor(0, 0, 0, opacity)
 			el:drawTooltip(x, y)
 		end,
 	},

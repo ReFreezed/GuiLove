@@ -280,13 +280,17 @@
 
 
 
-	Tools
+	Utilities
 	----------------------------------------------------------------
 
+	clamp, clamp01, clamp11
 	create9PartQuads
 	draw9PartScaled
+	lerp, lerpColor
 	newMonochromeImage, newImageUsingPalette
 	parseTargetAndEvent
+	round
+	setColor
 
 
 
@@ -647,9 +651,8 @@ end
 
 
 
--- value = lerp( v1, v2, t )
 local function lerp(v1, v2, t)
-	return v1+t*(v2-v1)
+	return v1 + (v2-v1) * t
 end
 
 
@@ -1266,7 +1269,23 @@ end
 
 
 
---==============================================================
+local function clamp(v, vMin, vMax)
+	return math.max(math.min(v, vMax), vMin)
+end
+
+local function clamp01(v)
+	return math.max(math.min(v, 1), 0)
+end
+
+local function clamp11(v)
+	return math.max(math.min(v, 1), -1)
+end
+
+
+
+----------------------------------------------------------------
+-- Layout functions.
+----------------------------------------------------------------
 
 
 
@@ -1610,6 +1629,45 @@ function _M.parseTargetAndEvent(targetAndEvent)
 	end
 	return target, event
 end
+
+
+
+-- value = Gui.lerp( value1, value2, t )
+-- Linear interpolation.
+_M.lerp = lerp
+
+-- r, g, b    = Gui.lerpColor( r1,g1,b1,    r2,g2,b2,    t )
+-- r, g, b, a = Gui.lerpColor( r1,g1,b1,a1, r2,g2,b2,a2, t )
+-- Linear interpolation for color components.
+function _M.lerpColor(r1,g1,b1,a1, r2,g2,b2,a2, t)
+	if a2 then
+		return lerp(r1, r2, t), lerp(g1, g2, t), lerp(b1, b2, t), lerp(a1, a2, t)
+	else
+		r2,g2,b2, t = a1, r2,g2,b2
+		return lerp(r1, r2, t), lerp(g1, g2, t), lerp(b1, b2, t)
+	end
+end
+
+
+
+-- setColor( red, green, blue [, alpha=1 ] )
+-- Set the current color in LÖVE. Color component values are within
+-- the range of 0 to 1 (even in LÖVE versions prior to 11.0).
+_M.setColor = setColor
+
+
+
+-- value = clamp( value, min, max )
+-- Clamp a value between two other values.
+_M.clamp = clamp
+
+-- value = clamp01( value )
+-- Clamp a value between 0 and 1.
+_M.clamp01 = clamp01
+
+-- value = clamp11( value )
+-- Clamp a value between -1 and +1.
+_M.clamp11 = clamp11
 
 
 
@@ -3144,7 +3202,7 @@ function Cs.element._drawDebug(el, r, g, b, bgOpacity)
 	local x, y, w, h  = xywh(el)
 	local paddingL    = isContainer and el._paddingLeft or 0
 	local paddingT    = isContainer and el._paddingTop  or 0
-	local lw          = math.max(math.min(paddingL, paddingT), 1) -- @Polish: Better border width.
+	local lw          = clamp(paddingL, 1, paddingT) -- @Polish: Better border width.
 
 	local sbW = themeGet(gui, "scrollbarWidth")
 
@@ -3204,7 +3262,7 @@ function Cs.element._drawTooltip(el)
 
 	local w, h = themeGetSize(el, "tooltip", textW, textH) -- @Speed: Get tooltip size when tooltip text changes.
 
-	local x = math.max(math.min(el._layoutX+el._layoutImmediateOffsetX, root._width-w), 0)
+	local x = clamp(el._layoutX+el._layoutImmediateOffsetX, 0, root._width-w)
 	local y = el._layoutY + el._layoutHeight + el._layoutImmediateOffsetY
 
 	if y+h > root._height then
@@ -4871,8 +4929,8 @@ function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 	menu:_calculateNaturalSize() -- Expanding and positioning of the whole menu isn't necessary right here.
 
 	buttons:setPosition(
-		math.max(math.min(el:getXOnScreen()+offsetX, root._width -buttons._layoutWidth ), 0),
-		math.max(math.min(el:getYOnScreen()+offsetY, root._height-buttons._layoutHeight), 0)
+		clamp(el:getXOnScreen()+offsetX, 0, root._width -buttons._layoutWidth ),
+		clamp(el:getYOnScreen()+offsetY, 0, root._height-buttons._layoutHeight)
 	)
 
 	local button = buttons:getToggledChild()
@@ -6937,6 +6995,7 @@ Cs.button = newElementClass(false, "GuiButton", Cs.widget, {"imageInclude"}, {
 	_close     = false,
 
 	_toggled = false,
+	_radio   = "", -- Only used if canToggle is set.
 
 	_text2 = "",
 
@@ -6968,6 +7027,7 @@ function Cs.button.init(button, gui, elData, parent)
 	@@retrieve(button, elData, _close)
 	@@retrieve(button, elData, _imagePadding)
 	@@retrieve(button, elData, _pressable)
+	@@retrieve(button, elData, _radio)
 	-- @@retrieve(button, elData, _text2)
 	@@retrieve(button, elData, _toggled)
 	@@retrieve(button, elData, _toggledSprite,_untoggledSprite)
@@ -7176,10 +7236,23 @@ function Cs.button.press(button, ignoreActiveState)
 		return false
 	end
 
-	-- Press/toggle the button
+	-- Press/toggle the button.
 	local preparedSound = prepareSound(button, "press")
 
 	if button._canToggle then
+		if button._radio ~= "" then
+			if button._toggled then  return true  end -- Assume this is the only toggled button in the radio group.
+
+			for otherButton in button:getRoot():traverseType"button" do
+				if otherButton == button then
+					-- void
+				elseif otherButton._radio == button._radio then
+					-- Should we collect all buttons first so we don't invoke user code during traversal? @Robustness
+					otherButton:setToggled(false)
+				end
+			end
+		end
+
 		local toggled   = not button._toggled
 		button._toggled = toggled -- We need to toggle before the press event in case the callback uses the value.
 
@@ -7360,8 +7433,8 @@ end
 -- If no callback is given then a filled rectangle is drawn for each selection.
 function Cs.input.drawSelections(input, x0, y0, cb)
 	for _, x, y, w, h in input._field:eachSelectionOptimized() do
-		if cb then  cb                     (        x0+x, y0+y, w, h)
-		else        love.graphics.rectangle("fill", x0+x, y0+y, w, h)  end
+		if cb then  cb           (        x0+x, y0+y, w, h)
+		else        $LG.rectangle("fill", x0+x, y0+y, w, h)  end
 	end
 end
 

@@ -55,14 +55,14 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 			},
 
 			{"hbar", floating=true, originX=.5, anchorX=.5, y=30, background="something", padding=20, homogeneous=true,
-				{"button", weight=1, text="[A]", spacing=10},
-				{"button", weight=1, text="[BB]"},
-				{"button", weight=2, text="[CCCCCCCC]"},
+				{"button", weight=1, canToggle=true, radio="floaters", text="[A]", spacing=10},
+				{"button", weight=1, canToggle=true, radio="floaters", text="[BB]"},
+				{"button", weight=2, canToggle=true, radio="floaters", text="[CCCCCCCC]"},
 			},
 			{"hbar", floating=true, originX=.5, anchorX=.5, y=95, background="warning", padding=20, homogeneous=true,
-				{"button", weight=2, text="[A]", spacing=10},
-				{"button", weight=1, text="[BB]"},
-				{"button", weight=1, text="[CCCCCCCC]"},
+				{"button", weight=2, canToggle=true, radio="floaters", text="[A]", spacing=10},
+				{"button", weight=1, canToggle=true, radio="floaters", text="[BB]"},
+				{"button", weight=1, canToggle=true, radio="floaters", text="[CCCCCCCC]"},
 			},
 		},
 
@@ -189,25 +189,28 @@ function love.draw()
 	drawTime = love.timer.getTime() - drawTime
 
 	-- Stats.
-	local h = 3*love.graphics.getFont():getHeight()
+	love.graphics.getStats(stats)
 
-	if not (love.window.hasMouseFocus() and love.mouse.getY() < h+15) then
-		love.graphics.getStats(stats)
-		formatStr = formatStr or table.concat({
-			"draw: calls=%d batched=%d",
-			"memory: lua=%.2fMiB",
-			"time: update=%.1fms draw=%.1fms",
-		}, "\n")
-		local text = string.format(formatStr
-			, stats.drawcalls, stats.drawcallsbatched
-			, collectgarbage"count"/1024
-			, updateTime*1000, drawTime*1000
-		)
-		love.graphics.setColor(.2, 0, .2, .8)
-		love.graphics.rectangle("fill", 0, 0, 220, h)
-		love.graphics.setColor(1, 1, 1)
-		love.graphics.print(text, 0, 0)
-	end
+	formatStr = formatStr or table.concat({
+		"draw: calls=%d batched=%d",
+		"memory: lua=%.2fMiB",
+		"time: update=%.1fms draw=%.1fms",
+	}, "\n")
+	local text = string.format(formatStr
+		, stats.drawcalls, stats.drawcallsbatched
+		, collectgarbage"count"/1024
+		, updateTime*1000, drawTime*1000
+	)
+
+	local w      = 220
+	local h      = 3*love.graphics.getFont():getHeight()
+	local mx, my = love.mouse.getPosition()
+	local a      = love.window.hasMouseFocus() and Gui.clamp01(math.max(mx-w, my-h)/50) or 1
+
+	love.graphics.setColor(.2, 0, .2, .8*a)
+	love.graphics.rectangle("fill", 0, 0, w, h)
+	love.graphics.setColor(1, 1, 1, a)
+	love.graphics.print(text, 0, 0)
 end
 
 

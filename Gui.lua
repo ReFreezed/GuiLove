@@ -280,13 +280,17 @@
 
 
 
-	Tools
+	Utilities
 	----------------------------------------------------------------
 
+	clamp, clamp01, clamp11
 	create9PartQuads
 	draw9PartScaled
+	lerp, lerpColor
 	newMonochromeImage, newImageUsingPalette
 	parseTargetAndEvent
+	round
+	setColor
 
 
 
@@ -3129,9 +3133,8 @@ end
 
 
 
--- value = lerp( v1, v2, t )
 local function lerp(v1, v2, t)
-	return v1+t*(v2-v1)
+	return v1 + (v2-v1) * t
 end
 
 
@@ -3734,7 +3737,23 @@ end
 
 
 
---==============================================================
+local function clamp(v, vMin, vMax)
+	return math.max(math.min(v, vMax), vMin)
+end
+
+local function clamp01(v)
+	return math.max(math.min(v, 1), 0)
+end
+
+local function clamp11(v)
+	return math.max(math.min(v, 1), -1)
+end
+
+
+
+----------------------------------------------------------------
+-- Layout functions.
+----------------------------------------------------------------
 
 
 
@@ -4078,6 +4097,45 @@ function _M.parseTargetAndEvent(targetAndEvent)
 	end
 	return target, event
 end
+
+
+
+-- value = Gui.lerp( value1, value2, t )
+-- Linear interpolation.
+_M.lerp = lerp
+
+-- r, g, b    = Gui.lerpColor( r1,g1,b1,    r2,g2,b2,    t )
+-- r, g, b, a = Gui.lerpColor( r1,g1,b1,a1, r2,g2,b2,a2, t )
+-- Linear interpolation for color components.
+function _M.lerpColor(r1,g1,b1,a1, r2,g2,b2,a2, t)
+	if a2 then
+		return lerp(r1, r2, t), lerp(g1, g2, t), lerp(b1, b2, t), lerp(a1, a2, t)
+	else
+		r2,g2,b2, t = a1, r2,g2,b2
+		return lerp(r1, r2, t), lerp(g1, g2, t), lerp(b1, b2, t)
+	end
+end
+
+
+
+-- setColor( red, green, blue [, alpha=1 ] )
+-- Set the current color in LÖVE. Color component values are within
+-- the range of 0 to 1 (even in LÖVE versions prior to 11.0).
+_M.setColor = setColor
+
+
+
+-- value = clamp( value, min, max )
+-- Clamp a value between two other values.
+_M.clamp = clamp
+
+-- value = clamp01( value )
+-- Clamp a value between 0 and 1.
+_M.clamp01 = clamp01
+
+-- value = clamp11( value )
+-- Clamp a value between -1 and +1.
+_M.clamp11 = clamp11
 
 
 
@@ -5624,7 +5682,7 @@ function Cs.element._drawDebug(el, r, g, b, bgOpacity)
 	local x, y, w, h  = xywh(el)
 	local paddingL    = isContainer and el._paddingLeft or 0
 	local paddingT    = isContainer and el._paddingTop  or 0
-	local lw          = math.max(math.min(paddingL, paddingT), 1) -- @Polish: Better border width.
+	local lw          = clamp(paddingL, 1, paddingT) -- @Polish: Better border width.
 
 	local sbW = themeGet(gui, "scrollbarWidth")
 
@@ -5684,7 +5742,7 @@ function Cs.element._drawTooltip(el)
 
 	local w, h = themeGetSize(el, "tooltip", textW, textH) -- @Speed: Get tooltip size when tooltip text changes.
 
-	local x = math.max(math.min(el._layoutX+el._layoutImmediateOffsetX, root._width-w), 0)
+	local x = clamp(el._layoutX+el._layoutImmediateOffsetX, 0, root._width-w)
 	local y = el._layoutY + el._layoutHeight + el._layoutImmediateOffsetY
 
 	if y+h > root._height then
@@ -7357,8 +7415,8 @@ function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 	menu:_calculateNaturalSize() -- Expanding and positioning of the whole menu isn't necessary right here.
 
 	buttons:setPosition(
-		math.max(math.min(el:getXOnScreen()+offsetX, root._width -buttons._layoutWidth ), 0),
-		math.max(math.min(el:getYOnScreen()+offsetY, root._height-buttons._layoutHeight), 0)
+		clamp(el:getXOnScreen()+offsetX, 0, root._width -buttons._layoutWidth ),
+		clamp(el:getYOnScreen()+offsetY, 0, root._height-buttons._layoutHeight)
 	)
 
 	local button = buttons:getToggledChild()
@@ -9651,6 +9709,7 @@ Cs.button = newElementClass(false, "GuiButton", Cs.widget, {"imageInclude"}, {
 	_close     = false,
 
 	_toggled = false,
+	_radio   = "", -- Only used if canToggle is set.
 
 	_text2 = "",
 
@@ -9682,6 +9741,7 @@ function Cs.button.init(button, gui, elData, parent)
 	if elData.close ~= nil then button._close = elData.close end
 	if elData.imagePadding ~= nil then button._imagePadding = elData.imagePadding end
 	if elData.pressable ~= nil then button._pressable = elData.pressable end
+	if elData.radio ~= nil then button._radio = elData.radio end
 	-- @@retrieve(button, elData, _text2)
 	if elData.toggled ~= nil then button._toggled = elData.toggled end
 	if elData.toggledSprite ~= nil then button._toggledSprite = elData.toggledSprite end if elData.untoggledSprite ~= nil then button._untoggledSprite = elData.untoggledSprite end
@@ -9890,10 +9950,23 @@ function Cs.button.press(button, ignoreActiveState)
 		return false
 	end
 
-	-- Press/toggle the button
+	-- Press/toggle the button.
 	local preparedSound = prepareSound(button, "press")
 
 	if button._canToggle then
+		if button._radio ~= "" then
+			if button._toggled then  return true  end -- Assume this is the only toggled button in the radio group.
+
+			for otherButton in button:getRoot():traverseType"button" do
+				if otherButton == button then
+					-- void
+				elseif otherButton._radio == button._radio then
+					-- Should we collect all buttons first so we don't invoke user code during traversal? @Robustness
+					otherButton:setToggled(false)
+				end
+			end
+		end
+
 		local toggled   = not button._toggled
 		button._toggled = toggled -- We need to toggle before the press event in case the callback uses the value.
 
@@ -10074,7 +10147,7 @@ end
 -- If no callback is given then a filled rectangle is drawn for each selection.
 function Cs.input.drawSelections(input, x0, y0, cb)
 	for _, x, y, w, h in input._field:eachSelectionOptimized() do
-		if cb then  cb                     (        x0+x, y0+y, w, h)
+		if cb then  cb           (        x0+x, y0+y, w, h)
 		else        love.graphics.rectangle("fill", x0+x, y0+y, w, h)  end
 	end
 end
@@ -10441,20 +10514,6 @@ defaultTheme = (function()
 
 
 
-	-- LÖVE 0.10 support.
-
-	local setColor = love.graphics.setColor
-
-	if love.getVersion() < 11 then
-		local _setColor = setColor
-		function setColor(r, g, b, a)
-			-- Convert color values from [0-1] to [0-255].
-			_setColor(r*255, g*255, b*255, (a and a*255))
-		end
-	end
-
-
-
 	--==============================================================
 	--==============================================================
 	--==============================================================
@@ -10575,10 +10634,10 @@ defaultTheme = (function()
 			-- draw.background( element, elementWidth, elementHeight, background )
 			["background"] = function(el, w, h, bg)
 				if bg == "warning" then
-					setColor(.4, 0, 0, .9)
+					Gui.setColor(.4, 0, 0, .9)
 					love.graphics.rectangle("fill", 0, 0, w, h)
 				else
-					setColor(.17, .17, .17, .9)
+					Gui.setColor(.17, .17, .17, .9)
 					love.graphics.rectangle("fill", 0, 0, w, h)
 				end
 			end,
@@ -10645,13 +10704,16 @@ defaultTheme = (function()
 				local isHovered = button:isActive() and button:isHovered()
 
 				-- Background.
-				local r, g, b = 1, 1, 1
-				local a       = (isHovered and .35 or .25) * opacity
+				local r, g, b = .4, .4, .4
+				if button:isToggled() then  r, g, b = .4, .6, 1 end
 
-				if button:isToggled()               then  r, g, b =   .4,   .8,    1  end
-				if button:isPressed() and isHovered then  r, g, b = r*.6, g*.6, b*.6  end
+				local highlight = isHovered and not button:isPressed() and 1 or 0
+				if button:isPressed() and isHovered then  r, g, b = r*.25, g*.25, b*.25  end
 
-				setColor(r, g, b, a)
+				r, g, b = Gui.lerpColor(r,g,b, 1,1,1, .3*highlight)
+				local a = .8 * opacity
+
+				Gui.setColor(r, g, b, a)
 				Gui.draw9PartScaled(x+1, y+1, w-2, h-2, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
 
 				-- Arrow.
@@ -10659,7 +10721,7 @@ defaultTheme = (function()
 					local image  = BUTTON_ARROW_IMAGE
 					local arrLen = BUTTON_ARROW_LENGTH
 
-					setColor(1, 1, 1)
+					Gui.setColor(1, 1, 1)
 
 					if     arrow == "right" then  love.graphics.draw(image, x+(w-1),                    y+math.floor((h-arrLen)/2), 0*TAU/4)
 					elseif arrow == "down"  then  love.graphics.draw(image, x+math.floor((w+arrLen)/2), y+(h-1),                    1*TAU/4)
@@ -10698,9 +10760,9 @@ defaultTheme = (function()
 					end
 
 					button:useFont()
-					setColor(1, 1, 1, .6*opacity)
+					Gui.setColor(1, 1, 1, .6*opacity)
 					button:drawText2(text2X, textY)
-					setColor(1, 1, 1, opacity)
+					Gui.setColor(1, 1, 1, opacity)
 					button:drawText(text1X, textY)
 
 					local mnemonicX, mnemonicY, mnemonicW = button:getMnemonicOffset()
@@ -10723,9 +10785,9 @@ defaultTheme = (function()
 					button:drawImage(x+BUTTON_PADDING, math.floor(midY-imageH/2))
 
 					button:useFont()
-					setColor(1, 1, 1, .6*opacity)
+					Gui.setColor(1, 1, 1, .6*opacity)
 					button:drawText2(text2X, textY)
-					setColor(1, 1, 1, opacity)
+					Gui.setColor(1, 1, 1, opacity)
 					button:drawText(text1X, textY)
 
 					local mnemonicX, mnemonicY, mnemonicW = button:getMnemonicOffset()
@@ -10742,14 +10804,14 @@ defaultTheme = (function()
 
 				-- Background.
 				if input:isKeyboardFocus() then
-					setColor(.4, 1, .4, .16)
+					Gui.setColor(.4, 1, .4, .16)
 					love.graphics.rectangle("fill", 1, 1, w-2, h-2)
 				end
 
 				-- Border.
 				local isHighlighted = (input:isActive() and input:isHovered()) or input:isKeyboardFocus()
 				local a             = (isHighlighted and 1 or .4) * opacity
-				setColor(1, 1, 1, a)
+				Gui.setColor(1, 1, 1, a)
 				love.graphics.rectangle("line", 1+.5, 1+.5, w-2-1, h-2-1)
 
 				input:setScissor(2, 2, w-2*2, h-2*2) -- Make sure the contents does not render outside the element.
@@ -10762,24 +10824,24 @@ defaultTheme = (function()
 
 				-- Selections.
 				if input:isKeyboardFocus() then
-					setColor(1, 1, 1, .35)
+					Gui.setColor(1, 1, 1, .35)
 					input:drawSelections(valueX, valueY)
 				end
 
 				-- Value.
 				input:useFont()
 				if input:getValue() ~= "" then
-					setColor(1, 1, 1, opacity)
+					Gui.setColor(1, 1, 1, opacity)
 					input:drawValue(valueX, valueY)
 				else
-					setColor(1, 1, 1, .5*opacity)
+					Gui.setColor(1, 1, 1, .5*opacity)
 					input:drawPlaceholder(valueX, valueY)
 				end
 
 				-- Cursor.
 				if input:isKeyboardFocus() then
 					local cursorOpacity = ((math.cos(5*input:getBlinkPhase()) + 1) / 2) ^ .5
-					setColor(1, 1, 1, cursorOpacity)
+					Gui.setColor(1, 1, 1, cursorOpacity)
 					love.graphics.rectangle("fill", valueX+curOffsetX-1, valueY+curOffsetY, 1, fontHeight)
 				end
 			end,
@@ -10794,7 +10856,7 @@ defaultTheme = (function()
 
 				-- Background.
 				local a = (isBarHovered or isScrolling) and .1 or 0
-				setColor(1, 1, 1, a)
+				Gui.setColor(1, 1, 1, a)
 				love.graphics.rectangle("fill", 0, 0, w, h)
 
 				-- Scrollbar handle.
@@ -10805,7 +10867,7 @@ defaultTheme = (function()
 				else  handleY, handleX, handleH, handleW = pos+1, 1, len-2, w-2  end
 
 				local a = (isScrolling and .2) or (isHandleHovered and .3) or (.2)
-				setColor(1, 1, 1, a)
+				Gui.setColor(1, 1, 1, a)
 
 				Gui.draw9PartScaled(handleX, handleY, handleW, handleH, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
 			end,
@@ -10824,7 +10886,7 @@ defaultTheme = (function()
 				w            = w + 2*offset
 				h            = h + 2*offset
 
-				setColor(1, 1, 0, 1)
+				Gui.setColor(1, 1, 0, 1)
 				Gui.draw9PartScaled(x, y, w, h, NAV_IMAGE, unpack(NAV_QUADS))
 			end,
 
@@ -10834,16 +10896,16 @@ defaultTheme = (function()
 				local opacity = math.min(time/TOOLTIP_FADE_IN_TIME, 1)
 
 				-- Background.
-				setColor(1, 1, 1, opacity)
+				Gui.setColor(1, 1, 1, opacity)
 				love.graphics.rectangle("fill", 1, 1, w-2, h-2)
 				love.graphics.setLineWidth(1)
-				setColor(0, 0, 0)
+				Gui.setColor(0, 0, 0)
 				love.graphics.rectangle("line", .5, .5, w-1, h-1)
 
 				-- Text.
 				local x, y = TOOLTIP_PADDING, TOOLTIP_PADDING
 				el:useTooltipFont()
-				setColor(0, 0, 0, opacity)
+				Gui.setColor(0, 0, 0, opacity)
 				el:drawTooltip(x, y)
 			end,
 		},
