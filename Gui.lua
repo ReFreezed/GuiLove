@@ -106,7 +106,7 @@
 	isMouseGrabbed, setMouseIsGrabbed
 	load
 	ok, back
-	updateLayout
+	updateLayout, getLayoutUpdateTime
 
 
 
@@ -2900,6 +2900,7 @@ local Gui = class("Gui", {
 	_lastAutomaticId = 0,
 
 	_layoutNeedsUpdate = false,
+	_layoutUpdateTime  = 0.00,
 
 	_textPreprocessor = nil,
 	_spriteLoader     = nil,
@@ -2944,6 +2945,12 @@ local __LAMBDA3 = (function() local time ; local __func = function(el)
 	el._timeBecomingVisible = time
 end ; return function(__time) time = __time ; return __func end end)()
 local __STATIC10 = {}
+local __STATIC11 = {}
+local __STATIC12 = {}
+local __STATIC13 = {}
+local __STATIC14 = {}
+local __STATIC15 = {}
+local __STATIC16 = {}
 
 
 
@@ -3648,6 +3655,9 @@ local function updateLayout(el)
 	-- local container = el -- @Incomplete @Speed: Make any element able to update it's layout. (See comment below.)
 	if root._hidden then  return false  end
 
+	local getTime = (love.timer and love.timer.getTime) or (pcall(require, "socket") and require"socket".gettime) or os.clock
+	local time    = getTime()
+
 	root:_calculateNaturalSize()
 
 	-- Note: This currently, most likely only works correctly if 'container'
@@ -3657,6 +3667,7 @@ local function updateLayout(el)
 	root._layoutHeight = root._height
 	root:_expandAndPositionChildren()
 
+	gui._layoutUpdateTime  = getTime() - time -- We don't include the time the layout event takes.
 	gui._layoutNeedsUpdate = false
 
 	root:visitVisible(__LAMBDA1(triggerIncludingAnimations))
@@ -3674,7 +3685,7 @@ local function updateLayoutIfNeeded(gui)
 	local root = gui._root
 	if not root then  return false  end
 
-	return updateLayout(root)
+	updateLayout(root)
 end
 
 local function scheduleLayoutUpdateIfDisplayed(el)
@@ -5198,6 +5209,12 @@ function Gui.updateLayout(gui)
 	end
 end
 
+-- realTime = gui:getLayoutUpdateTime( )
+-- Returns the time it took to update the layout the last time, or 0 if no update has occurred yet.
+function Gui.getLayoutUpdateTime(gui)
+	return gui._layoutUpdateTime
+end
+
 
 
 --==============================================================
@@ -6264,14 +6281,15 @@ end
 -- bool = element:hasFixedHeight( )
 -- bool = element:hasDynamicWidth( )
 -- bool = element:hasDynamicHeight( )
+function Cs.element.hasFixedWidth   (el)  return el._width  >= 0  end
+function Cs.element.hasFixedHeight  (el)  return el._height >= 0  end
+function Cs.element.hasDynamicWidth (el)  return el._width  <  0  end
+function Cs.element.hasDynamicHeight(el)  return el._height <  0  end
+
 -- bool = element:hasRelativeWidth( )
 -- bool = element:hasRelativeHeight( )
-function Cs.element.hasFixedWidth    (el)  return el._width  >= 0  end
-function Cs.element.hasFixedHeight   (el)  return el._height >= 0  end
-function Cs.element.hasDynamicWidth  (el)  return el._width  <  0  end
-function Cs.element.hasDynamicHeight (el)  return el._height <  0  end
-function Cs.element.hasRelativeWidth (el)  return el._width  <  0 and el._relativeWidth  >= 0  end
-function Cs.element.hasRelativeHeight(el)  return el._height <  0 and el._relativeHeight >= 0  end
+function Cs.element.hasRelativeWidth (el)  return el._width  < 0 and el._relativeWidth  >= 0  end
+function Cs.element.hasRelativeHeight(el)  return el._height < 0 and el._relativeHeight >= 0  end
 
 
 
@@ -8802,6 +8820,7 @@ Cs.bar = newElementClass(true, "GuiBar", Cs.container, {}, {
 	_layoutInnerStaticHeight = 0,
 	_layoutInnerSpacingsX    = 0,
 	_layoutInnerSpacingsY    = 0,
+	_layoutWeight            = 0.0,
 }, {
 	-- void
 })
@@ -8858,6 +8877,8 @@ function Cs.hbar._calculateNaturalSize(bar)
 	bar._layoutInnerStaticHeight, bar._layoutInnerStaticWidth = 0, staticW
 	bar._layoutInnerSpacingsY   , bar._layoutInnerSpacingsX   = 0, sumSpaceX
 
+	bar._layoutWeight = totalWeight
+
 	updateContainerNaturalSize(bar, innerW, highestH)
 end
 function Cs.vbar._calculateNaturalSize(bar)
@@ -8875,6 +8896,8 @@ function Cs.vbar._calculateNaturalSize(bar)
 	bar._layoutInnerStaticWidth, bar._layoutInnerStaticHeight = 0, staticH
 	bar._layoutInnerSpacingsX  , bar._layoutInnerSpacingsY    = 0, sumSpaceY
 
+	bar._layoutWeight = totalWeight
+
 	updateContainerNaturalSize(bar, highestW, innerH)
 end
 
@@ -8890,92 +8913,140 @@ function Cs.hbar._expandAndPositionChildren(bar)
 	-- Calculate amount of space for children to expand into (total if homogeneous,
 	-- extra if not) and convert relative sizes into static.
 	--
-	local childSizeSum    = 0
-	local expansionWeight = 0
-	local innerSize       = bar._layoutWidth - bar:getInnerSpaceX() - bar._layoutInnerSpacingsX
-	local staticSize      = bar._layoutInnerStaticWidth
-	local homogeneous     = bar._homogeneous
+	local childSizeSum = 0
+	local innerSize    = bar._layoutWidth - bar:getInnerSpaceX() - bar._layoutInnerSpacingsX
+	local staticSize   = bar._layoutInnerStaticWidth
+	local homogeneous  = bar._homogeneous
 
 	for _, child in ipairs(bar) do
 		if not (child._hidden or child._floating) then
 			if child:hasRelativeWidth() and not (child._weight > 0 and homogeneous) then
-				local size   = round(child._relativeWidth*innerSize)
-				staticSize   = staticSize   + size - child._layoutWidth
-				childSizeSum = childSizeSum + size
-			else
-				childSizeSum = childSizeSum + child._layoutWidth
+				local size       = round(child._relativeWidth*innerSize)
+				staticSize       = staticSize - child._layoutWidth + size
+				child._layoutWidth = size
 			end
-			expansionWeight = expansionWeight + child._weight -- Works if weight=0 too.
+			childSizeSum = childSizeSum + child._layoutWidth
 		end
 	end
 
-	local canScrollPerp  = bar:canScrollY()
-	local expandPerp     = bar._expandPerpendicular and (bar._layoutHeight - bar:getInnerSpaceY()) or nil
-	local expansionSpace = innerSize - (homogeneous and staticSize or childSizeSum)
+	local canScrollPerp = bar:canScrollY()
+	local expandPerp    = bar._expandPerpendicular and (bar._layoutHeight - bar:getInnerSpaceY()) or nil
 
 	if canScrollPerp then
 		expandPerp = math.max(expandPerp, bar._contentHeight)
 	end
 
+	local expansionWeight0 = bar._layoutWeight
+	local expansionSpace0  = innerSize - (homogeneous and staticSize or childSizeSum)
+
 	--
 	-- Expand and position children.
 	--
-	local innerW   = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
-	local innerH   = bar._layoutHeight - bar:getInnerSpaceY()
-	local baseX    = bar._layoutX + bar._paddingLeft
-	local baseY    = bar._layoutY + bar._paddingTop
-	local x        = 0
-	local y        = 0
 
-	local margin   = 0
-	local first    = true
+	-- Calculate dimensions.
+	local widths  = __STATIC11
+	local heights = __STATIC12
+	local ignore  = __STATIC13
+
+	for phase = 1, 2 do -- We need two phases to apply min/max size properly when also expanding.
+		local advance         = 0
+		local expansionWeight = expansionWeight0
+		local expansionSpace  = expansionSpace0
+
+		for i, child in ipairs(bar) do
+			if phase == 1 then
+				ignore[i] = false
+			end
+
+			if not (child._hidden or child._floating or ignore[i]) then
+				local childWidth  = child._layoutWidth
+				local childHeight = child._layoutHeight
+
+				if child._weight > 0 then
+					local space     = round(expansionSpace * child._weight/expansionWeight)
+					childWidth        = (homogeneous and 0 or childWidth) + space
+					expansionSpace  = expansionSpace  - space
+					expansionWeight = expansionWeight - child._weight
+				end
+
+				if expandPerp then
+					childHeight = expandPerp -- Expand all children the same amount. (Better, I think.)
+					-- child$WHPERP = canScrollPerp and math.max(child$WHPERP, expandPerp) or expandPerp -- Only expand too short children. (Worse, I think.)
+				end
+
+				local beforeLimit       = childWidth
+				childWidth, childHeight = applySizeLimits(child, childWidth, childHeight)
+
+				-- This is what's necessary for min/max to work.
+				if childWidth ~= beforeLimit then
+					ignore[i]        = true
+					expansionWeight0 = expansionWeight0 - child._weight
+
+					if homogeneous then
+						expansionSpace0 = expansionSpace0 - childWidth
+					else
+						local diffFromNaturalSize = child._layoutWidth - childWidth
+						expansionSpace0           = expansionSpace0 + diffFromNaturalSize
+					end
+				end
+
+				widths[i]  = childWidth
+				heights[i] = childHeight
+				advance    = advance + childWidth
+			end
+		end
+
+		if advance == innerSize or bar._layoutWeight == 0 then
+			break
+		end
+
+		--[[ @Debug
+		if phase == 1 then
+			local ignores = 0
+			for i = 1, #bar do
+				if ignore[i] then  ignores = ignores+1  end
+			end
+			printf("diff=%-5d ignores=%d %s", advance-innerSize, ignores, bar:getPathDescription())
+		end
+		--]]
+	end
+
+	-- Update children.
+	local innerWidth  = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
+	local innerHeight = bar._layoutHeight - bar:getInnerSpaceY()
+	local baseX       = bar._layoutX + bar._paddingLeft
+	local baseY       = bar._layoutY + bar._paddingTop
+	local x           = 0
+	local y           = 0
+	local spacing     = 0
+	local first       = true
+
+
+	for i, child in ipairs(bar) do
+		if not (child._hidden or child._floating) then
+			if not first then
+				spacing  = math.max(spacing, child._spacingLeft)
+				x = x + spacing
+			end
+
+			child._layoutX      = baseX + x
+			child._layoutY      = baseY + y
+			child._layoutWidth  = widths[i]
+			child._layoutHeight = heights[i]
+
+			x = x + child._layoutWidth
+			spacing  = child._spacingRight
+			first    = false
+		end
+	end
 
 	for _, child in ipairs(bar) do
 		if child._hidden then
 			-- void
-
-		-- No expansion.
 		elseif child._floating then
-			expandAndPositionFloatingElement(child, innerW, innerH)
-
-		-- Any expansion.
+			expandAndPositionFloatingElement(child, innerWidth, innerHeight)
 		else
-			if not first then
-				margin   = math.max(margin, child._spacingLeft)
-				x = x + margin
-			end
-
-			child._layoutX = baseX + x
-			child._layoutY = baseY + y
-
-			local childWidth  = child._layoutWidth
-			local childHeight = child._layoutHeight
-
-			-- Only perpendicular (and relative-to-static along) expansion.
-			if child._weight == 0 then
-				if child:hasRelativeWidth() then
-					childWidth = round(child._relativeWidth*innerSize)
-				end
-
-			-- Expansion on both axes.
-			else
-				local space     = round(expansionSpace * child._weight/expansionWeight)
-				childWidth        = (homogeneous and 0 or child._layoutWidth) + space
-				expansionSpace  = expansionSpace  - space
-				expansionWeight = expansionWeight - child._weight
-			end
-
-			if expandPerp then
-				childHeight = expandPerp -- Expand all children the same amount. (Better, I think.)
-				-- child$WHPERP = canScrollPerp and math.max(child$WHPERP, expandPerp) or expandPerp -- Only expand too short children. (Worse, I think.)
-			end
-
-			child._layoutWidth, child._layoutHeight = applySizeLimits(child, childWidth, childHeight)
 			child:_expandAndPositionChildren()
-
-			x = x + child._layoutWidth
-			margin   = child._spacingRight
-			first    = false
 		end
 	end
 
@@ -8991,92 +9062,140 @@ function Cs.vbar._expandAndPositionChildren(bar)
 	-- Calculate amount of space for children to expand into (total if homogeneous,
 	-- extra if not) and convert relative sizes into static.
 	--
-	local childSizeSum    = 0
-	local expansionWeight = 0
-	local innerSize       = bar._layoutHeight - bar:getInnerSpaceY() - bar._layoutInnerSpacingsY
-	local staticSize      = bar._layoutInnerStaticHeight
-	local homogeneous     = bar._homogeneous
+	local childSizeSum = 0
+	local innerSize    = bar._layoutHeight - bar:getInnerSpaceY() - bar._layoutInnerSpacingsY
+	local staticSize   = bar._layoutInnerStaticHeight
+	local homogeneous  = bar._homogeneous
 
 	for _, child in ipairs(bar) do
 		if not (child._hidden or child._floating) then
 			if child:hasRelativeHeight() and not (child._weight > 0 and homogeneous) then
-				local size   = round(child._relativeHeight*innerSize)
-				staticSize   = staticSize   + size - child._layoutHeight
-				childSizeSum = childSizeSum + size
-			else
-				childSizeSum = childSizeSum + child._layoutHeight
+				local size       = round(child._relativeHeight*innerSize)
+				staticSize       = staticSize - child._layoutHeight + size
+				child._layoutHeight = size
 			end
-			expansionWeight = expansionWeight + child._weight -- Works if weight=0 too.
+			childSizeSum = childSizeSum + child._layoutHeight
 		end
 	end
 
-	local canScrollPerp  = bar:canScrollX()
-	local expandPerp     = bar._expandPerpendicular and (bar._layoutWidth - bar:getInnerSpaceX()) or nil
-	local expansionSpace = innerSize - (homogeneous and staticSize or childSizeSum)
+	local canScrollPerp = bar:canScrollX()
+	local expandPerp    = bar._expandPerpendicular and (bar._layoutWidth - bar:getInnerSpaceX()) or nil
 
 	if canScrollPerp then
 		expandPerp = math.max(expandPerp, bar._contentWidth)
 	end
 
+	local expansionWeight0 = bar._layoutWeight
+	local expansionSpace0  = innerSize - (homogeneous and staticSize or childSizeSum)
+
 	--
 	-- Expand and position children.
 	--
-	local innerW   = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
-	local innerH   = bar._layoutHeight - bar:getInnerSpaceY()
-	local baseX    = bar._layoutX + bar._paddingLeft
-	local baseY    = bar._layoutY + bar._paddingTop
-	local x        = 0
-	local y        = 0
 
-	local margin   = 0
-	local first    = true
+	-- Calculate dimensions.
+	local widths  = __STATIC14
+	local heights = __STATIC15
+	local ignore  = __STATIC16
+
+	for phase = 1, 2 do -- We need two phases to apply min/max size properly when also expanding.
+		local advance         = 0
+		local expansionWeight = expansionWeight0
+		local expansionSpace  = expansionSpace0
+
+		for i, child in ipairs(bar) do
+			if phase == 1 then
+				ignore[i] = false
+			end
+
+			if not (child._hidden or child._floating or ignore[i]) then
+				local childWidth  = child._layoutWidth
+				local childHeight = child._layoutHeight
+
+				if child._weight > 0 then
+					local space     = round(expansionSpace * child._weight/expansionWeight)
+					childHeight        = (homogeneous and 0 or childHeight) + space
+					expansionSpace  = expansionSpace  - space
+					expansionWeight = expansionWeight - child._weight
+				end
+
+				if expandPerp then
+					childWidth = expandPerp -- Expand all children the same amount. (Better, I think.)
+					-- child$WHPERP = canScrollPerp and math.max(child$WHPERP, expandPerp) or expandPerp -- Only expand too short children. (Worse, I think.)
+				end
+
+				local beforeLimit       = childHeight
+				childWidth, childHeight = applySizeLimits(child, childWidth, childHeight)
+
+				-- This is what's necessary for min/max to work.
+				if childHeight ~= beforeLimit then
+					ignore[i]        = true
+					expansionWeight0 = expansionWeight0 - child._weight
+
+					if homogeneous then
+						expansionSpace0 = expansionSpace0 - childHeight
+					else
+						local diffFromNaturalSize = child._layoutHeight - childHeight
+						expansionSpace0           = expansionSpace0 + diffFromNaturalSize
+					end
+				end
+
+				widths[i]  = childWidth
+				heights[i] = childHeight
+				advance    = advance + childHeight
+			end
+		end
+
+		if advance == innerSize or bar._layoutWeight == 0 then
+			break
+		end
+
+		--[[ @Debug
+		if phase == 1 then
+			local ignores = 0
+			for i = 1, #bar do
+				if ignore[i] then  ignores = ignores+1  end
+			end
+			printf("diff=%-5d ignores=%d %s", advance-innerSize, ignores, bar:getPathDescription())
+		end
+		--]]
+	end
+
+	-- Update children.
+	local innerWidth  = bar._layoutWidth  - bar:getInnerSpaceX() -- Should we use _content* here? I think no.
+	local innerHeight = bar._layoutHeight - bar:getInnerSpaceY()
+	local baseX       = bar._layoutX + bar._paddingLeft
+	local baseY       = bar._layoutY + bar._paddingTop
+	local x           = 0
+	local y           = 0
+	local spacing     = 0
+	local first       = true
+
+
+	for i, child in ipairs(bar) do
+		if not (child._hidden or child._floating) then
+			if not first then
+				spacing  = math.max(spacing, child._spacingTop)
+				y = y + spacing
+			end
+
+			child._layoutX      = baseX + x
+			child._layoutY      = baseY + y
+			child._layoutWidth  = widths[i]
+			child._layoutHeight = heights[i]
+
+			y = y + child._layoutHeight
+			spacing  = child._spacingBottom
+			first    = false
+		end
+	end
 
 	for _, child in ipairs(bar) do
 		if child._hidden then
 			-- void
-
-		-- No expansion.
 		elseif child._floating then
-			expandAndPositionFloatingElement(child, innerW, innerH)
-
-		-- Any expansion.
+			expandAndPositionFloatingElement(child, innerWidth, innerHeight)
 		else
-			if not first then
-				margin   = math.max(margin, child._spacingTop)
-				y = y + margin
-			end
-
-			child._layoutX = baseX + x
-			child._layoutY = baseY + y
-
-			local childWidth  = child._layoutWidth
-			local childHeight = child._layoutHeight
-
-			-- Only perpendicular (and relative-to-static along) expansion.
-			if child._weight == 0 then
-				if child:hasRelativeHeight() then
-					childHeight = round(child._relativeHeight*innerSize)
-				end
-
-			-- Expansion on both axes.
-			else
-				local space     = round(expansionSpace * child._weight/expansionWeight)
-				childHeight        = (homogeneous and 0 or child._layoutHeight) + space
-				expansionSpace  = expansionSpace  - space
-				expansionWeight = expansionWeight - child._weight
-			end
-
-			if expandPerp then
-				childWidth = expandPerp -- Expand all children the same amount. (Better, I think.)
-				-- child$WHPERP = canScrollPerp and math.max(child$WHPERP, expandPerp) or expandPerp -- Only expand too short children. (Worse, I think.)
-			end
-
-			child._layoutWidth, child._layoutHeight = applySizeLimits(child, childWidth, childHeight)
 			child:_expandAndPositionChildren()
-
-			y = y + child._layoutHeight
-			margin   = child._spacingBottom
-			first    = false
 		end
 	end
 
@@ -10476,8 +10595,8 @@ defaultTheme = (function()
 
 	local INPUT_PADDING        = 4
 
-	local NAV_MAX_EXTRA_SIZE   = 10 -- In each direction.
-	local NAV_SHRINK_DURATION  = .10
+	local NAV_EXTRA_SIZE      = 10 -- In each direction.
+	local NAV_SHRINK_DURATION = .10
 
 	local SCROLLBAR_WIDTH      = 8
 	local SCROLLBAR_MIN_LENGTH = 12
@@ -10537,7 +10656,7 @@ defaultTheme = (function()
 
 		inputIndentation   = INPUT_PADDING, -- Affects mouse interactions and scrolling for inputs.
 
-		navigationSize     = 0, -- How much extra size the highlight of the navigation target has. Affects scrollIntoView().
+		navigationSize     = NAV_EXTRA_SIZE, -- How much extra size the highlight of the navigation target has. Affects scrollIntoView().
 
 		scrollbarWidth     = SCROLLBAR_WIDTH,
 		scrollbarMinLength = SCROLLBAR_MIN_LENGTH,
@@ -10888,9 +11007,9 @@ defaultTheme = (function()
 
 			-- Highlight of current navigation target.
 			-- draw.navigation( widget, elementWidth, elementHeight, timeSinceNavigation )
-			["navigation"] = function(widget, w, h, time)
+			["navigation"] = function(widget, w, h, timeSinceNav)
 				-- Use a bigger highlight size right after navigation, then quickly shrink to same size as the element.
-				local offset = NAV_MAX_EXTRA_SIZE * math.max(1-time/NAV_SHRINK_DURATION, 0)
+				local offset = NAV_EXTRA_SIZE * math.max(1-timeSinceNav/NAV_SHRINK_DURATION, 0)
 				local x      = -offset
 				local y      = -offset
 				w            = w + 2*offset
@@ -10902,8 +11021,8 @@ defaultTheme = (function()
 
 			-- Tooltip.
 			-- draw.tooltip( element, tooltipWidth, tooltipHeight, text, textWidth, textHeight, timeVisible )
-			["tooltip"] = function(el, w, h, text, textW, textH, time)
-				local opacity = math.min(time/TOOLTIP_FADE_IN_TIME, 1)
+			["tooltip"] = function(el, w, h, text, textW, textH, timeVisible)
+				local opacity = math.min(timeVisible/TOOLTIP_FADE_IN_TIME, 1)
 
 				-- Background.
 				Gui.setColor(1, 1, 1, opacity)

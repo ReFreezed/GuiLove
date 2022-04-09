@@ -45,8 +45,8 @@ local BUTTON_TEXT_SPACING  = 6 -- Between the texts, if there are two.
 
 local INPUT_PADDING        = 4
 
-local NAV_MAX_EXTRA_SIZE   = 10 -- In each direction.
-local NAV_SHRINK_DURATION  = .10
+local NAV_EXTRA_SIZE      = 10 -- In each direction.
+local NAV_SHRINK_DURATION = .10
 
 local SCROLLBAR_WIDTH      = 8
 local SCROLLBAR_MIN_LENGTH = 12
@@ -106,7 +106,7 @@ return {
 
 	inputIndentation   = INPUT_PADDING, -- Affects mouse interactions and scrolling for inputs.
 
-	navigationSize     = 0, -- How much extra size the highlight of the navigation target has. Affects scrollIntoView().
+	navigationSize     = NAV_EXTRA_SIZE, -- How much extra size the highlight of the navigation target has. Affects scrollIntoView().
 
 	scrollbarWidth     = SCROLLBAR_WIDTH,
 	scrollbarMinLength = SCROLLBAR_MIN_LENGTH,
@@ -457,9 +457,9 @@ return {
 
 		-- Highlight of current navigation target.
 		-- draw.navigation( widget, elementWidth, elementHeight, timeSinceNavigation )
-		["navigation"] = function(widget, w, h, time)
+		["navigation"] = function(widget, w, h, timeSinceNav)
 			-- Use a bigger highlight size right after navigation, then quickly shrink to same size as the element.
-			local offset = NAV_MAX_EXTRA_SIZE * math.max(1-time/NAV_SHRINK_DURATION, 0)
+			local offset = NAV_EXTRA_SIZE * math.max(1-timeSinceNav/NAV_SHRINK_DURATION, 0)
 			local x      = -offset
 			local y      = -offset
 			w            = w + 2*offset
@@ -471,8 +471,8 @@ return {
 
 		-- Tooltip.
 		-- draw.tooltip( element, tooltipWidth, tooltipHeight, text, textWidth, textHeight, timeVisible )
-		["tooltip"] = function(el, w, h, text, textW, textH, time)
-			local opacity = math.min(time/TOOLTIP_FADE_IN_TIME, 1)
+		["tooltip"] = function(el, w, h, text, textW, textH, timeVisible)
+			local opacity = math.min(timeVisible/TOOLTIP_FADE_IN_TIME, 1)
 
 			-- Background.
 			Gui.setColor(1, 1, 1, opacity)

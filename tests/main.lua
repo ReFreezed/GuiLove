@@ -12,19 +12,21 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 	{"hbar", relativeWidth=1, relativeHeight=1,
 		{"vbar", weight=1,
 			-- Homogeneous + max/min size.
-			{"hbar", homogeneous=true,
-				{"button", mnemonics=true, weight=1, text="&File", relativeWidth=.5},
-				{"button", mnemonics=true, weight=1, text="&Edit"},
-				{"button", mnemonics=true, weight=1, text="&Search"},
-				{"button", mnemonics=true, weight=1, text="&Debug", maxWidth=120}, -- @Incomplete: maxWidth needs better handling in this case.
-				{"button", mnemonics=true, weight=1, text="&Help"},
-			},
-			{"hbar", homogeneous=true,
-				{"button", mnemonics=true, weight=1, text="&File", relativeWidth=.5},
-				{"button", mnemonics=true, weight=1, text="&Edit"},
-				{"button", mnemonics=true, weight=1, text="&Search"},
-				{"button", mnemonics=true, weight=1, text="&Debug", minWidth=200}, -- @Incomplete: minWidth needs better handling in this case.
-				{"button", mnemonics=true, weight=1, text="&Help"},
+			{"vbar", spacing=5,
+				{"hbar", homogeneous=true,
+					{"button", mnemonics=true, weight=1, text="&File", relativeWidth=.5},
+					{"button", mnemonics=true, weight=1, text="&Edit"},
+					{"button", mnemonics=true, weight=1, text="&Search"},
+					{"button", mnemonics=true, weight=1, text="&Debug", maxWidth=120},
+					{"button", mnemonics=true, weight=1, text="&Help"},
+				},
+				{"hbar", homogeneous=true,
+					{"button", mnemonics=true, weight=1, text="&File", relativeWidth=.5},
+					{"button", mnemonics=true, weight=1, text="&Edit"},
+					{"button", mnemonics=true, weight=1, text="&Search"},
+					{"button", mnemonics=true, weight=1, text="&Debug", minWidth=200},
+					{"button", mnemonics=true, weight=1, text="&Help"},
+				},
 			},
 
 			-- Relative size + homogeneous.
@@ -70,11 +72,11 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 			{"vbar", spacing=5,
 				{"hbar", height=6, {"button",width=150}, {"button",weight=1} }, -- Ruler.
 				{"hbar", height=40, homogeneous=true,
-					{"button", width=150, relativeWidth=.5, weight=0, text="150px, or 50%?"},
+					{"button", width=150, relativeWidth=.5, weight=0, text="150px (or 50%)?"},
 					{"button", weight=1, text="Rest..."},
 				},
 				{"hbar", height=40, homogeneous=true,
-					{"button", width=150, relativeWidth=.5, weight=3, text="150px, 50%, or 3/4?"},
+					{"button", width=150, relativeWidth=.5, weight=3, text="3/4 (or 150px or 50%)?"},
 					{"button", weight=1, text="Rest..."},
 				},
 				{"hbar", height=6, {"button",weight=1}, {"button",weight=1}, {"button",weight=1}, {"button",weight=1} }, -- Ruler.
@@ -89,6 +91,90 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 				{"hbar", homogeneous=true, expandPerpendicular=false,
 					{"button", weight=1, text="L2", height=20},
 					{"button", weight=1, text="R2", height=30},
+				},
+			},
+
+			-- More max sizes.
+			{"vbar", canScrollY=true, height=80, spacing=5,
+				{"vbar", spacing=5,
+					{"hbar", homogeneous=true,
+						{"button", weight=0, text="1:10%", relativeWidth=.1},
+						{"button", weight=1, text="1:ex"},
+						{"button", weight=1, text="1:ex yoooooo"},
+						{"button", weight=1, text="1:max", maxWidth=120},
+					},
+					{"hbar", homogeneous=true,
+						{"button", weight=0, text="1:10%", relativeWidth=.1},
+						{"button", weight=1, text="1:ex"},
+						{"button", weight=1, text="1:max yoooooo", maxWidth=120},
+						{"button", weight=1, text="1:max", maxWidth=120},
+					},
+					{"hbar", homogeneous=true,
+						{"button", weight=0, text="1:10%", relativeWidth=.1},
+						{"button", weight=1, text="1:max", maxWidth=120},
+						{"button", weight=1, text="1:max yoooooo", maxWidth=120},
+						{"button", weight=1, text="1:max", maxWidth=120},
+					},
+				},
+				{"vbar", spacing=5,
+					{"hbar", homogeneous=false,
+						{"button", weight=0, text="2:10%", relativeWidth=.1},
+						{"button", weight=1, text="2:ex"},
+						{"button", weight=1, text="2:ex yoooooo"},
+						{"button", weight=1, text="2:max", maxWidth=120},
+					},
+					{"hbar", homogeneous=false,
+						{"button", weight=0, text="2:10%", relativeWidth=.1},
+						{"button", weight=1, text="2:ex"},
+						{"button", weight=1, text="2:max yoooooo", maxWidth=120},
+						{"button", weight=1, text="2:max", maxWidth=120},
+					},
+					{"hbar", homogeneous=false,
+						{"button", weight=0, text="2:10%", relativeWidth=.1},
+						{"button", weight=1, text="2:max", maxWidth=120},
+						{"button", weight=1, text="2:max yoooooo", maxWidth=120},
+						{"button", weight=1, text="2:max", maxWidth=120},
+					},
+				},
+				{"vbar", spacing=5,
+					{"hbar", homogeneous=true,
+						{"button", weight=0, text="3:10%", relativeWidth=.1},
+						{"button", weight=1, text="3:ex"},
+						{"button", weight=1, text="3:ex yoooooo"},
+						{"button", weight=1, text="3:min", minWidth=250},
+					},
+					{"hbar", homogeneous=true,
+						{"button", weight=0, text="3:10%", relativeWidth=.1},
+						{"button", weight=1, text="3:ex"},
+						{"button", weight=1, text="3:min yoooooo", minWidth=250},
+						{"button", weight=1, text="3:min", minWidth=250},
+					},
+					{"hbar", homogeneous=true,
+						{"button", weight=0, text="3:10%", relativeWidth=.1},
+						{"button", weight=1, text="3:min", minWidth=250},
+						{"button", weight=1, text="3:min yoooooo", minWidth=250},
+						{"button", weight=1, text="3:min", minWidth=250},
+					}, -- This one should extend beyond the parent's child area if the window is small as there isn't enough space.
+				},
+				{"vbar", spacing=5,
+					{"hbar", homogeneous=false,
+						{"button", weight=0, text="4:10%", relativeWidth=.1},
+						{"button", weight=1, text="4:ex"},
+						{"button", weight=1, text="4:ex yoooooo"},
+						{"button", weight=1, text="4:min", minWidth=250},
+					},
+					{"hbar", homogeneous=false,
+						{"button", weight=0, text="4:10%", relativeWidth=.1},
+						{"button", weight=1, text="4:ex"},
+						{"button", weight=1, text="4:min yoooooo", minWidth=250},
+						{"button", weight=1, text="4:min", minWidth=250},
+					},
+					{"hbar", homogeneous=false,
+						{"button", weight=0, text="4:10%", relativeWidth=.1},
+						{"button", weight=1, text="4:min", minWidth=250},
+						{"button", weight=1, text="4:min yoooooo", minWidth=250},
+						{"button", weight=1, text="4:min", minWidth=250},
+					}, -- This one should extend beyond the parent's child area if the window is small as there isn't enough space.
 				},
 			},
 
@@ -243,18 +329,18 @@ function love.draw()
 	formatStr = formatStr or table.concat({
 		"draw: calls=%d batched=%d",
 		"memory: lua=%.2fMiB",
-		"time: update=%.1fms draw=%.1fms",
+		"time: layout=%.2f update=%.1fms draw=%.1fms",
 	}, "\n")
 	local text = string.format(formatStr
 		, stats.drawcalls, stats.drawcallsbatched
 		, collectgarbage"count"/1024
-		, updateTime*1000, drawTime*1000
+		, gui:getLayoutUpdateTime(), updateTime*1000, drawTime*1000
 	)
 
-	local w      = 220
+	local w      = 300
 	local h      = 3*love.graphics.getFont():getHeight()
 	local mx, my = love.mouse.getPosition()
-	local a      = love.window.hasMouseFocus() and Gui.clamp01(math.max(mx-w, my-h)/50) or 1
+	local a      = love.window.hasMouseFocus() and Gui.clamp01(math.max(mx-w, my-h)/70) or 1
 
 	love.graphics.setColor(.2, 0, .2, .8*a)
 	love.graphics.rectangle("fill", 0, 0, w, h)
