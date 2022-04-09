@@ -100,6 +100,7 @@
 	getTheme, setTheme
 	getTime, getTimeSinceNavigation
 	isBusy, isKeyboardBusy, isMouseBusy
+	isCullingActive, setCullingActive
 	isIgnoringKeyboardInput
 	isInputCaptured
 	isInteractionLocked
@@ -139,7 +140,7 @@
 	- getParent, getAllParents, hasParent, getParentWithId, hasParentWithId, parents, parentsr, lineageUp
 	- getPathDescription
 	- getPosition, setPosition, getX, setX, getY, setY
-	- getPositionOnScreen, getXOnScreen, getYOnScreen
+	- getPositionOnScreen, getXOnScreen, getYOnScreen, getLayoutOnScreen
 	- getRelativeDimensions, getRelativeWidth, getRelativeHeight, setRelativeDimensions, setRelativeWidth, setRelativeHeight
 	- getRoot, getNavigationRoot
 	- getSibling
@@ -2848,10 +2849,10 @@ local _M = { -- The module.
 }
 
 local Gui = class("Gui", {
-	TOOLTIP_DELAY = 0.15,
+	TOOLTIP_DELAY = 0.15, -- @Incomplete: Make this a setting.
 
-	VALUE_MASK_INT    =  "^%-?%d+$",       -- Integer number.
-	VALUE_MASK_UINT   =  "^%d+$",          -- Unsigned integer number.
+	VALUE_MASK_INT    =  "^%-?%d+$",       -- Integer.  @Revise these masks.
+	VALUE_MASK_UINT   =  "^%d+$",          -- Unsigned integer.
 	VALUE_MASK_FLOAT  =  "^%-?%d+%.?%d*$", -- Floating point number.
 	VALUE_MASK_UFLOAT =  "^%d+%.?%d*$",    -- Unsigned floating point number.
 
@@ -2904,6 +2905,8 @@ local Gui = class("Gui", {
 
 	_textPreprocessor = nil,
 	_spriteLoader     = nil,
+
+	_culling = true, -- Affects scrollables.
 
 	_heres = nil,
 
@@ -3076,9 +3079,10 @@ end
 
 
 
--- x, y, width, height = xywh( element )
-local function xywh(el)
-	return el:getXOnScreen(), el:getYOnScreen(), el._layoutWidth, el._layoutHeight
+-- x, y, width, height = xywhOnScreen( element ) -- @Cleanup: Use getLayoutOnScreen().
+local function xywhOnScreen(el)
+	local x, y = el:getPositionOnScreen()
+	return x, y, el._layoutWidth, el._layoutHeight
 end
 
 
@@ -3591,7 +3595,7 @@ local function drawLayoutBackground(el)
 
 	if el._gui.debug then
 		setColor(.27, .27, .27, .86)
-		love.graphics.rectangle("fill", xywh(el))
+		love.graphics.rectangle("fill", xywhOnScreen(el))
 	else
 		themeRender(el, "background", el._background)
 	end
@@ -4286,7 +4290,7 @@ function Gui.draw(gui)
 		--
 		-- Draw stuff.
 		--
-		gui._root:_draw(childToDrawNavTargetAfter)
+		gui._root:_draw(-1/0, -1/0, 1/0, 1/0, childToDrawNavTargetAfter)
 
 		if gui._hoveredElement and not gui._mouseFocus then
 			gui._hoveredElement:_drawTooltip()
@@ -5217,6 +5221,18 @@ end
 
 
 
+-- bool = gui:isCullingActive( )
+function Gui.isCullingActive(gui)
+	return gui._culling
+end
+
+-- gui:setCullingActive( bool )
+function Gui.setCullingActive(gui, culling)
+	gui._culling = culling
+end
+
+
+
 --==============================================================
 --= Image include ==============================================
 --==============================================================
@@ -5674,9 +5690,9 @@ end
 
 
 
--- INTERNAL  element:_draw( childToDrawNavTargetAfter )
-function Cs.element._draw(el, childToDrawNavTargetAfter)
-	local x, y, w, h = xywh(el)
+-- INTERNAL  element:_draw( cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter )
+function Cs.element._draw(el, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
+	local x, y, w, h = xywhOnScreen(el)
 
 	if not el._gui.debug then
 		triggerIncludingAnimations(el, "beforedraw", x, y, w, h)
@@ -5695,7 +5711,7 @@ function Cs.element._drawDebug(el, r, g, b, bgOpacity)
 	if not gui.debug then  return  end
 
 	local isContainer = el:is(Cs.container)
-	local x, y, w, h  = xywh(el)
+	local x, y, w, h  = xywhOnScreen(el)
 	local paddingL    = isContainer and el._paddingLeft or 0
 	local paddingT    = isContainer and el._paddingTop  or 0
 	local lw          = clamp(paddingL, 1, paddingT) -- @Polish: Better border width.
@@ -6013,7 +6029,7 @@ do
 
 		local navRoot = ignoreConfinement and el._gui._root or el:getNavigationRoot()
 
-		local centerX, centerY = el:getLayoutCenterPosition()
+		local centerX, centerY = el:getLayoutCenterPosition() -- @Cleanup: Use getPositionOnScreen().
 
 		local fromX     = centerX + el._layoutOffsetX + .495*el._layoutWidth *math.cos(angle)
 		local fromY     = centerY + el._layoutOffsetY + .495*el._layoutHeight*math.sin(angle)
@@ -6720,7 +6736,7 @@ function Cs.element.getPositionOnScreen(el, ignoreSmoothScrolling)
 	updateLayoutIfNeeded(el._gui)
 	if    ignoreSmoothScrolling
 	then  return el._layoutX+el._layoutImmediateOffsetX, el._layoutY+el._layoutImmediateOffsetY
-	else  return el._layoutX+el._layoutOffsetX, el._layoutY+el._layoutOffsetY  end
+	else  return el._layoutX+el._layoutOffsetX         , el._layoutY+el._layoutOffsetY  end
 end
 function Cs.element.getXOnScreen(el, ignoreSmoothScrolling)
 	updateLayoutIfNeeded(el._gui)
@@ -6733,6 +6749,14 @@ function Cs.element.getYOnScreen(el, ignoreSmoothScrolling)
 	if    ignoreSmoothScrolling
 	then  return el._layoutY+el._layoutImmediateOffsetY
 	else  return el._layoutY+el._layoutOffsetY  end
+end
+
+-- x, y = element:getLayoutOnScreen( [ ignoreSmoothScrolling=false ] )
+function Cs.element.getLayoutOnScreen(el, ignoreSmoothScrolling)
+	updateLayoutIfNeeded(el._gui)
+	if    ignoreSmoothScrolling
+	then  return el._layoutX+el._layoutImmediateOffsetX, el._layoutY+el._layoutImmediateOffsetY, el._layoutWidth, el._layoutHeight
+	else  return el._layoutX+el._layoutOffsetX         , el._layoutY+el._layoutOffsetY         , el._layoutWidth, el._layoutHeight  end
 end
 
 
@@ -7575,25 +7599,32 @@ end
 
 
 
-local function drawChildrenAndMaybeNavigationTarget(container, childToDrawNavTargetAfter)
+local function drawChildrenAndMaybeNavigationTarget(container, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 	for _, child in ipairs(container) do
+		local x, y, w, h = xywhOnScreen(child)
+		local drawChild  = child:is(Cs.container) or (x+w >= cullX1-1 and y+h >= cullY1-1 and x < cullX2+1 and y < cullY2+1)
+
 		if child == childToDrawNavTargetAfter then
-			child:_draw(nil)
+			if drawChild then
+				child:_draw(cullX1, cullY1, cullX2, cullY2, nil)
+			end
 			if not container._gui.debug then
-				themeRender(container._gui._navigationTarget, "navigation", container._gui._timeSinceNavigation)
+				themeRender(container._gui._navigationTarget, "navigation", container._gui._timeSinceNavigation) -- We don't really need to cull this.
 			end
 		else
-			child:_draw(childToDrawNavTargetAfter)
+			if drawChild then
+				child:_draw(cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
+			end
 		end
 	end
 end
 
--- INTERNAL REPLACE  container:_draw( childToDrawNavTargetAfter )
-function Cs.container._draw(container, childToDrawNavTargetAfter)
+-- INTERNAL REPLACE  container:_draw( cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter )
+function Cs.container._draw(container, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 	if container._hidden then  return  end
 
 	local gui        = container._gui
-	local x, y, w, h = xywh(container)
+	local x, y, w, h = xywhOnScreen(container)
 
 	local childAreaW, childAreaH = container:getChildAreaDimensions()
 
@@ -7610,9 +7641,15 @@ function Cs.container._draw(container, childToDrawNavTargetAfter)
 	container:_drawDebug(0, 0, 1)
 
 	if canScrollX or canScrollY then
-		setScissor(gui, x, y, childAreaW, childAreaH) -- Should there be an option to not scissor scrollable containers?
+		setScissor(gui, x, y, childAreaW, childAreaH) -- Should there be an option to not scissor scrollable containers? @Incomplete
+		if container._gui._culling then
+			cullX1 = math.max(cullX1, x)
+			cullY1 = math.max(cullY1, y)
+			cullX2 = math.min(cullX2, x+childAreaW)
+			cullY2 = math.min(cullY2, y+childAreaH)
+		end
 	end
-	drawChildrenAndMaybeNavigationTarget(container, childToDrawNavTargetAfter)
+	drawChildrenAndMaybeNavigationTarget(container, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 	if canScrollX or canScrollY then
 		setScissor(gui, nil)
 	end
@@ -8182,8 +8219,13 @@ end
 function Cs.container.getElementAt(container, x, y, nonSolid)
 	updateLayoutIfNeeded(container._gui)
 
-	if container:canScrollX() and (x < container._layoutX or x >= container._layoutX+container._layoutWidth ) then  return nil  end
-	if container:canScrollY() and (y < container._layoutY or y >= container._layoutY+container._layoutHeight) then  return nil  end
+	if container:canScrollAny() then
+		local containerX, containerY = container:getPositionOnScreen()
+		if x <  containerX                                then  return nil  end
+		if y <  containerY                                then  return nil  end
+		if x >= containerX+container:getChildAreaWidth()  then  return nil  end
+		if y >= containerY+container:getChildAreaHeight() then  return nil  end
+	end
 
 	for _, el in ipairs(container:_collectVisibleUntilInputCapture(x, y, __STATIC10)) do
 		if ((nonSolid or el:isSolid()) and el:isAt(x, y)) or (el._captureInput or el._captureGuiInput) then
@@ -8587,17 +8629,14 @@ do
 				local includeSelf     = true
 				local includeChildren = isContainer
 
-				if isContainer then
-					local x1, y1 = child:getPositionOnScreen()
-					local x2     = x1 + child._layoutWidth
-					local y2     = y1 + child._layoutHeight
-
-					if child:canScrollX() and (x < x1 or x >= x2-(child:canScrollY() and sbW or 0)) then
+				if isContainer and child:canScrollAny() then
+					local childX, childY, childW, childH = xywhOnScreen(child)
+					if x < childX or y < childY then
+						includeSelf     = false
 						includeChildren = false
-						includeSelf     = (x < x2)
-					elseif child:canScrollY() and (y < y1 or y >= y2-(child:canScrollX() and sbW or 0)) then
-						includeChildren = false
-						includeSelf     = (y < y2)
+					else
+						includeSelf     = (x < childX+childW and y < childY+childH)
+						includeChildren = (includeSelf and x < childX+child:getChildAreaWidth() and y < childY+child:getChildAreaHeight())
 					end
 				end
 
@@ -8623,17 +8662,14 @@ do
 				local includeSelf     = true
 				local includeChildren = isContainer
 
-				if isContainer then
-					local x1, y1 = child:getPositionOnScreen()
-					local x2     = x1 + child._layoutWidth
-					local y2     = y1 + child._layoutHeight
-
-					if child:canScrollX() and (x < x1 or x >= x2-(child:canScrollY() and sbW or 0)) then
+				if isContainer and child:canScrollAny() then
+					local childX, childY, childW, childH = xywhOnScreen(child)
+					if x < childX or y < childY then
+						includeSelf     = false
 						includeChildren = false
-						includeSelf     = (x < x2)
-					elseif child:canScrollY() and (y < y1 or y >= y2-(child:canScrollX() and sbW or 0)) then
-						includeChildren = false
-						includeSelf     = (y < y2)
+					else
+						includeSelf     = (x < childX+childW and y < childY+childH)
+						includeChildren = (includeSelf and x < childX+child:getChildAreaWidth() and y < childY+child:getChildAreaHeight())
 					end
 				end
 
@@ -8659,17 +8695,14 @@ do
 				local includeSelf     = true
 				local includeChildren = isContainer
 
-				if isContainer then
-					local x1, y1 = child:getPositionOnScreen()
-					local x2     = x1 + child._layoutWidth
-					local y2     = y1 + child._layoutHeight
-
-					if child:canScrollX() and (x < x1 or x >= x2-(child:canScrollY() and sbW or 0)) then
+				if isContainer and child:canScrollAny() then
+					local childX, childY, childW, childH = xywhOnScreen(child)
+					if x < childX or y < childY then
+						includeSelf     = false
 						includeChildren = false
-						includeSelf     = (x < x2)
-					elseif child:canScrollY() and (y < y1 or y >= y2-(child:canScrollX() and sbW or 0)) then
-						includeChildren = false
-						includeSelf     = (y < y2)
+					else
+						includeSelf     = (x < childX+childW and y < childY+childH)
+						includeChildren = (includeSelf and x < childX+child:getChildAreaWidth() and y < childY+child:getChildAreaHeight())
 					end
 				end
 
@@ -8695,17 +8728,14 @@ do
 				local includeSelf     = true
 				local includeChildren = isContainer
 
-				if isContainer then
-					local x1, y1 = child:getPositionOnScreen()
-					local x2     = x1 + child._layoutWidth
-					local y2     = y1 + child._layoutHeight
-
-					if child:canScrollX() and (x < x1 or x >= x2-(child:canScrollY() and sbW or 0)) then
+				if isContainer and child:canScrollAny() then
+					local childX, childY, childW, childH = xywhOnScreen(child)
+					if x < childX or y < childY then
+						includeSelf     = false
 						includeChildren = false
-						includeSelf     = (x < x2)
-					elseif child:canScrollY() and (y < y1 or y >= y2-(child:canScrollX() and sbW or 0)) then
-						includeChildren = false
-						includeSelf     = (y < y2)
+					else
+						includeSelf     = (x < childX+childW and y < childY+childH)
+						includeChildren = (includeSelf and x < childX+child:getChildAreaWidth() and y < childY+child:getChildAreaHeight())
 					end
 				end
 
@@ -9225,11 +9255,11 @@ Cs.root = newElementClass(false, "GuiRoot", Cs.container, {}, {
 
 
 
--- INTERNAL REPLACE  root:_draw( childToDrawNavTargetAfter )
-function Cs.root._draw(root, childToDrawNavTargetAfter)
+-- INTERNAL REPLACE  root:_draw( cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter )
+function Cs.root._draw(root, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 	if root._hidden then  return  end
 
-	local x, y, w, h = xywh(root)
+	local x, y, w, h = xywhOnScreen(root)
 
 	if not root._gui.debug then
 		triggerIncludingAnimations(root, "beforedraw", x, y, w, h)
@@ -9238,7 +9268,9 @@ function Cs.root._draw(root, childToDrawNavTargetAfter)
 	drawLayoutBackground(root)
 	root:_drawDebug(0, 0, 1, 0)
 
-	drawChildrenAndMaybeNavigationTarget(root, childToDrawNavTargetAfter)
+	-- @Incomplete: Culling, though it's probably not important for roots as they
+	-- probably cover the whole screen and contains everything inside its bounds.
+	drawChildrenAndMaybeNavigationTarget(root, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 
 	if not root._gui.debug then
 		triggerIncludingAnimations(root, "afterdraw", x, y, w, h)
@@ -9547,14 +9579,14 @@ end
 
 
 
--- INTERNAL REPLACE  canvas:_draw( childToDrawNavTargetAfter )
-function Cs.canvas._draw(canvas, childToDrawNavTargetAfter)
+-- INTERNAL REPLACE  canvas:_draw( cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter )
+function Cs.canvas._draw(canvas, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 	if canvas._hidden then  return  end
 
 	local gui = canvas._gui
 	if gui.debug then  return canvas:_drawDebug(1, 0, 0)  end
 
-	local x, y, w, h = xywh(canvas)
+	local x, y, w, h = xywhOnScreen(canvas)
 
 	triggerIncludingAnimations(canvas, "beforedraw", x, y, w, h)
 	drawLayoutBackground(canvas)
@@ -9648,12 +9680,12 @@ end
 
 
 
--- INTERNAL REPLACE  image:_draw( childToDrawNavTargetAfter )
-function Cs.image._draw(imageEl, childToDrawNavTargetAfter)
+-- INTERNAL REPLACE  image:_draw( cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter )
+function Cs.image._draw(imageEl, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 	if imageEl._hidden    then  return  end
 	if imageEl._gui.debug then  return imageEl:_drawDebug(1, 0, 0)  end
 
-	local x, y, w, h = xywh(imageEl)
+	local x, y, w, h = xywhOnScreen(imageEl)
 
 	triggerIncludingAnimations(imageEl, "beforedraw", x, y, w, h)
 	drawLayoutBackground(imageEl)
@@ -9708,12 +9740,12 @@ end
 
 
 
--- INTERNAL REPLACE  text:_draw( childToDrawNavTargetAfter )
-function Cs.text._draw(textEl, childToDrawNavTargetAfter)
+-- INTERNAL REPLACE  text:_draw( cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter )
+function Cs.text._draw(textEl, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 	if textEl._hidden    then  return  end
 	if textEl._gui.debug then  return textEl:_drawDebug(1, 0, 0)  end
 
-	local x, y, w, h = xywh(textEl)
+	local x, y, w, h = xywhOnScreen(textEl)
 
 	triggerIncludingAnimations(textEl, "beforedraw", x, y, w, h)
 	drawLayoutBackground(textEl)
@@ -9901,12 +9933,12 @@ end
 
 
 
--- INTERNAL REPLACE  button:_draw( childToDrawNavTargetAfter )
-function Cs.button._draw(button, childToDrawNavTargetAfter)
+-- INTERNAL REPLACE  button:_draw( cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter )
+function Cs.button._draw(button, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 	if button._hidden    then  return  end
 	if button._gui.debug then  return button:_drawDebug(0, 180, 0)  end
 
-	local x, y, w, h = xywh(button)
+	local x, y, w, h = xywhOnScreen(button)
 
 	triggerIncludingAnimations(button, "beforedraw", x, y, w, h)
 	drawLayoutBackground(button)
@@ -10232,12 +10264,12 @@ end
 
 
 
--- INTERNAL REPLACE  input:_draw( childToDrawNavTargetAfter )
-function Cs.input._draw(inputEl, childToDrawNavTargetAfter)
+-- INTERNAL REPLACE  input:_draw( cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter )
+function Cs.input._draw(inputEl, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 	if inputEl._hidden    then  return  end
 	if inputEl._gui.debug then  return inputEl:_drawDebug(0, 180, 0)  end
 
-	local x, y, w, h                     = xywh(inputEl)
+	local x, y, w, h                     = xywhOnScreen(inputEl)
 	local valueX, valueY, valueW, valueH = inputEl:getValueLayout()
 	local curOffsetX, curOffsetY, curH   = inputEl._field:getCursorLayout()
 

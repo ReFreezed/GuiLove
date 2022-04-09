@@ -95,7 +95,7 @@ gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(
 			},
 
 			-- More max sizes.
-			{"vbar", canScrollY=true, height=80, spacing=5,
+			{"vbar", canScrollY=true, height=80, spacing=5, background="warning",
 				{"vbar", spacing=5,
 					{"hbar", homogeneous=true,
 						{"button", weight=0, text="1:10%", relativeWidth=.1},
