@@ -316,7 +316,7 @@ if love.getVersion() < 11 then
 	end
 end
 
-local class      = (function()  @insert "src/class.lua"       end)()
+local newClass   = (function()  @insert "src/class.lua"       end)()
 local InputField = (function()  @insert "src/InputField.lua"  end)()
 
 
@@ -331,7 +331,7 @@ local _M = { -- The module.
 	_VERSION = "0.2.0",
 }
 
-local Gui = class("Gui", {
+local Gui = newClass("Gui", {
 	TOOLTIP_DELAY = 0.15, -- @Incomplete: Make this a setting.
 
 	VALUE_MASK_INT    =  "^%-?%d+$",       -- Integer.  @Revise these masks.
@@ -529,26 +529,26 @@ end
 -- class = newElementClass( abstract, className, parentClass|nil, includes, classTable, events )
 local function newElementClass(abstract, className, parentClass, includes, classTable, events)
 	classTable._abstract = abstract
-	local C              = parentClass and parentClass:extend(className, classTable) or class(className, classTable)
+	local class          = parentClass and parentClass:extend(className, classTable) or newClass(className, classTable)
 
 	-- Include includes.
 	for _, includeName in ipairs(includes) do
 		for k, v in pairs(Is[includeName]) do
-			@@ASSERT(C[k] == nil, k) -- An include should only add new stuff to classes, not override anything.
-			C[k] = v
+			@@ASSERT(class[k] == nil, k) -- An include should only add new stuff to classes, not override anything.
+			class[k] = v
 		end
 	end
 
 	-- Register events.
-	for i, event in ipairs(C._events) do
+	for i, event in ipairs(class._events) do
 		table.insert(events, i, event)
 	end
 	for i, event in ipairs(events) do
 		events[event] = true
 	end
-	C._events = events
+	class._events = events
 
-	return C
+	return class
 end
 
 
@@ -1834,6 +1834,8 @@ function Gui.draw(gui)
 
 		if gui._hoveredElement and not gui._mouseFocus then
 			gui._hoveredElement:_drawTooltip()
+		else
+			gui._tooltipTime = 0 -- @Cleanup: We currently reset this in two places.
 		end
 	end
 end
@@ -3451,9 +3453,9 @@ end
 -- closestElement|nil = element:getClosest( elementType )
 -- Returns closest ancestor matching elementType (including self).
 function Cs.element.getClosest(el, elType)
-	local C = requireElementClass(elType, 2)
+	local class = requireElementClass(elType, 2)
 	repeat
-		if el:is(C) then  return el  end
+		if el:is(class) then  return el  end
 		el = el._parent
 	until not el
 	return nil
@@ -3464,7 +3466,7 @@ end
 do
 	!local MAX_ANGLE_DIFF = TAU/4
 
-	local function _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, elToIgnore)
+	local function _getClosestInDirection(navRoot, class, fromX,fromY, angle, ignoreCapture, elToIgnore)
 		fromX = round(fromX)
 		fromY = round(fromY)
 
@@ -3473,7 +3475,7 @@ do
 		local closestAngDiff = 1/0
 
 		for _, el in ipairs(navRoot:collectVisible(@@STATIC{})) do
-			if el ~= elToIgnore and el:is(C) then
+			if el ~= elToIgnore and el:is(class) then
 				local x, y = el:getPositionOnScreen()
 				x          = math.min(math.max(fromX, x+.01), x+el._layoutWidth -.01)
 				y          = math.min(math.max(fromY, y+.01), y+el._layoutHeight-.01)
@@ -3506,7 +3508,7 @@ do
 	function Cs.element.getClosestInDirection(el, angle, elType, ignoreCapture, ignoreConfinement)
 		!ARGS"2 angle:number ? elType:string ignoreCapture,ignoreConfinement:boolean"
 
-		local C = elType and requireElementClass(elType, 2) or Cs.widget
+		local class = elType and requireElementClass(elType, 2) or Cs.widget
 
 		updateLayoutIfNeeded(el._gui)
 
@@ -3516,12 +3518,12 @@ do
 
 		local fromX     = centerX + el._layoutOffsetX + .495*el._layoutWidth *math.cos(angle)
 		local fromY     = centerY + el._layoutOffsetY + .495*el._layoutHeight*math.sin(angle)
-		local closestEl = _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, el)
+		local closestEl = _getClosestInDirection(navRoot, class, fromX,fromY, angle, ignoreCapture, el)
 
 		if not closestEl and not ignoreConfinement and navRoot._confineNavigation then
 			fromX     = centerX + el._layoutOffsetX - 10000*math.cos(angle)
 			fromY     = centerY + el._layoutOffsetY - 10000*math.sin(angle)
-			closestEl = _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, nil)
+			closestEl = _getClosestInDirection(navRoot, class, fromX,fromY, angle, ignoreCapture, nil)
 		end
 
 		return closestEl
@@ -3530,7 +3532,7 @@ end
 
 do
 	local function getNextOrPrevious(el, elType, ignoreCapture, usePrev)
-		local C = elType and requireElementClass(elType, 3) or Cs.widget
+		local class = elType and requireElementClass(elType, 3) or Cs.widget
 
 		local root = el._gui._root
 		if not root or root._hidden then  return nil  end
@@ -3541,7 +3543,7 @@ do
 		for _, otherEl in ipairs(el:getNavigationRoot():collectVisible(@@STATIC{})) do
 			-- Note: Remember that we're traversing backwards.
 
-			local elIsValid = otherEl:is(C)
+			local elIsValid = otherEl:is(class)
 			if elIsValid and usePrev and foundSelf then  return otherEl  end
 
 			foundSelf = (foundSelf or otherEl == el)
@@ -5044,8 +5046,8 @@ function Cs.container.init(container, gui, elData, parent)
 	container._paddingBottom = elData.paddingBottom or elData.paddingVertical   or elData.padding
 
 	for i, childData in ipairs(elData) do
-		local C      = Cs[getTypeFromElementData(childData)] or errorf("Bad element type '%s'.", getTypeFromElementData(childData))
-		local child  = C(gui, childData, container)
+		local class  = Cs[getTypeFromElementData(childData)] or errorf("Bad element type '%s'.", getTypeFromElementData(childData))
+		local child  = class(gui, childData, container)
 		container[i] = child
 	end
 end
@@ -5180,10 +5182,10 @@ end
 
 -- element|nil = container:findType( elementType )
 function Cs.container.findType(container, elType)
-	local C = requireElementClass(elType, 2)
+	local class = requireElementClass(elType, 2)
 
 	for el in container:traverse() do
-		if el:is(C) then  return el  end
+		if el:is(class) then  return el  end
 	end
 
 	return nil
@@ -5729,8 +5731,8 @@ end
 function Cs.container.insert(container, childData, i)
 	!ARGS"2 childData:table ? i:number"
 
-	local C     = Cs[getTypeFromElementData(childData)] or errorf("Bad element type '%s'.", getTypeFromElementData(childData))
-	local child = C(container._gui, childData, container)
+	local class = Cs[getTypeFromElementData(childData)] or errorf("Bad element type '%s'.", getTypeFromElementData(childData))
+	local child = class(container._gui, childData, container)
 	table.insert(container, (i or #container+1), child)
 
 	printHeres(container._gui)
@@ -6008,8 +6010,8 @@ end
 
 -- for element in container:traverseType( elementType )
 function Cs.container.traverseType(container, elType)
-	local C = requireElementClass(elType, 2)
-	@@eachElement(child:is(C))
+	local class = requireElementClass(elType, 2)
+	@@eachElement(child:is(class))
 end
 
 do

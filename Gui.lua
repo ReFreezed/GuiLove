@@ -307,7 +307,7 @@ if love.getVersion() < 11 then
 	end
 end
 
-local class      = (function()
+local newClass   = (function()
 	--[[============================================================
 	--=
 	--=  Simple class library
@@ -328,56 +328,70 @@ local class      = (function()
 
 	--============================================================]]
 
+	local setmetatable = setmetatable
+	local tostring     = tostring
+	local match        = string.match
+	local gsub         = string.gsub
+	local F            = string.format
+
 	local classMt = {
-		__call = function(C, ...)
-			local instance = {class=C, __id=""}
+		__call = function(class, ...)
+			local instance = {--[[ class=class, __id="" ]]} -- The ID is generated when needed.
 
-			local id      = tostring(instance)
-			instance.__id = id:match"0x(%x+)" or id:gsub("^table: ", "")
-
-			setmetatable(instance, C)
+			setmetatable(instance, class)
 			instance:init(...)
 
 			return instance
 		end,
 
-		__tostring = function(C)
-			return ("class(%s)"):format(C.__name)
+		__tostring = function(class)
+			return F("class: %s", class.__name)
 		end,
 	}
 
 	-- class = newClass( name, classTable )
-	local function newClass(name, C)
+	local function newClass(name, class)
 		-- Instances use their class as metatable.
-		C.__index = C
-		C.__name  = name
-		return setmetatable(C, classMt)
+		class.__index = class
+		class.__name  = name
+		class.class   = class
+		return setmetatable(class, classMt)
 	end
 
 	local BaseClass = newClass("Class", {
-		__tostring = function(self)
-			return ("%s(%s)"):format(self.class.__name, self.__id)
+		__tostring = function(instance)
+			if not instance.__id then
+				local class = getmetatable(instance)
+				setmetatable(instance, nil)
+
+				local id      = tostring(instance)
+				instance.__id = match(id, "0x(%x+)") or gsub(id, "^table: ", "")
+
+				setmetatable(instance, class)
+			end
+
+			return F("%s: 0x%s", instance.class.__name, instance.__id)
 		end,
 
 		-- subClass = class:extend( name, subClassTable )
-		extend = function(C, name, SubC)
+		extend = function(class, name, subClass)
 			-- Subclasses do NOT use superclasses as metatables - we just copy everything over.
-			for k, v in pairs(C) do
-				if SubC[k] == nil then  SubC[k] = v  end
+			for k, v in pairs(class) do
+				if subClass[k] == nil then  subClass[k] = v  end
 			end
 
-			SubC.super = C
+			subClass.super = class
 
-			return newClass(name, SubC)
+			return newClass(name, subClass)
 		end,
 
 		-- bool = instance:is( class )
-		is = function(obj, C)
-			local currentClass = obj.class
+		is = function(instance, class)
+			local currentClass = instance.class
 
 			-- Look through the whole inheritance.
 			while currentClass do
-				if currentClass == C then  return true  end
+				if currentClass == class then  return true  end
 				currentClass = currentClass.super
 			end
 
@@ -2846,7 +2860,7 @@ local _M = { -- The module.
 	_VERSION = "0.2.0",
 }
 
-local Gui = class("Gui", {
+local Gui = newClass("Gui", {
 	TOOLTIP_DELAY = 0.15, -- @Incomplete: Make this a setting.
 
 	VALUE_MASK_INT    =  "^%-?%d+$",       -- Integer.  @Revise these masks.
@@ -3008,26 +3022,26 @@ end
 -- class = newElementClass( abstract, className, parentClass|nil, includes, classTable, events )
 local function newElementClass(abstract, className, parentClass, includes, classTable, events)
 	classTable._abstract = abstract
-	local C              = parentClass and parentClass:extend(className, classTable) or class(className, classTable)
+	local class          = parentClass and parentClass:extend(className, classTable) or newClass(className, classTable)
 
 	-- Include includes.
 	for _, includeName in ipairs(includes) do
 		for k, v in pairs(Is[includeName]) do
-			if not (C[k] == nil) then  error((k))  end -- An include should only add new stuff to classes, not override anything.
-			C[k] = v
+			if not (class[k] == nil) then  error((k))  end -- An include should only add new stuff to classes, not override anything.
+			class[k] = v
 		end
 	end
 
 	-- Register events.
-	for i, event in ipairs(C._events) do
+	for i, event in ipairs(class._events) do
 		table.insert(events, i, event)
 	end
 	for i, event in ipairs(events) do
 		events[event] = true
 	end
-	C._events = events
+	class._events = events
 
-	return C
+	return class
 end
 
 
@@ -4297,6 +4311,8 @@ function Gui.draw(gui)
 
 		if gui._hoveredElement and not gui._mouseFocus then
 			gui._hoveredElement:_drawTooltip()
+		else
+			gui._tooltipTime = 0 -- @Cleanup: We currently reset this in two places.
 		end
 	end
 end
@@ -5929,9 +5945,9 @@ end
 -- closestElement|nil = element:getClosest( elementType )
 -- Returns closest ancestor matching elementType (including self).
 function Cs.element.getClosest(el, elType)
-	local C = requireElementClass(elType, 2)
+	local class = requireElementClass(elType, 2)
 	repeat
-		if el:is(C) then  return el  end
+		if el:is(class) then  return el  end
 		el = el._parent
 	until not el
 	return nil
@@ -5942,7 +5958,7 @@ end
 do
 
 
-	local function _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, elToIgnore)
+	local function _getClosestInDirection(navRoot, class, fromX,fromY, angle, ignoreCapture, elToIgnore)
 		fromX = round(fromX)
 		fromY = round(fromY)
 
@@ -5951,7 +5967,7 @@ do
 		local closestAngDiff = 1/0
 
 		for _, el in ipairs(navRoot:collectVisible(__STATIC8)) do
-			if el ~= elToIgnore and el:is(C) then
+			if el ~= elToIgnore and el:is(class) then
 				local x, y = el:getPositionOnScreen()
 				x          = math.min(math.max(fromX, x+.01), x+el._layoutWidth -.01)
 				y          = math.min(math.max(fromY, y+.01), y+el._layoutHeight-.01)
@@ -5987,7 +6003,7 @@ do
 		if not(type(ignoreCapture)=="boolean" or ignoreCapture==nil) then argerror(2,3,"ignoreCapture",ignoreCapture,"boolean","nil") end
 		if not(type(ignoreConfinement)=="boolean" or ignoreConfinement==nil) then argerror(2,4,"ignoreConfinement",ignoreConfinement,"boolean","nil") end
 
-		local C = elType and requireElementClass(elType, 2) or Cs.widget
+		local class = elType and requireElementClass(elType, 2) or Cs.widget
 
 		updateLayoutIfNeeded(el._gui)
 
@@ -5997,12 +6013,12 @@ do
 
 		local fromX     = centerX + el._layoutOffsetX + .495*el._layoutWidth *math.cos(angle)
 		local fromY     = centerY + el._layoutOffsetY + .495*el._layoutHeight*math.sin(angle)
-		local closestEl = _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, el)
+		local closestEl = _getClosestInDirection(navRoot, class, fromX,fromY, angle, ignoreCapture, el)
 
 		if not closestEl and not ignoreConfinement and navRoot._confineNavigation then
 			fromX     = centerX + el._layoutOffsetX - 10000*math.cos(angle)
 			fromY     = centerY + el._layoutOffsetY - 10000*math.sin(angle)
-			closestEl = _getClosestInDirection(navRoot, C, fromX,fromY, angle, ignoreCapture, nil)
+			closestEl = _getClosestInDirection(navRoot, class, fromX,fromY, angle, ignoreCapture, nil)
 		end
 
 		return closestEl
@@ -6011,7 +6027,7 @@ end
 
 do
 	local function getNextOrPrevious(el, elType, ignoreCapture, usePrev)
-		local C = elType and requireElementClass(elType, 3) or Cs.widget
+		local class = elType and requireElementClass(elType, 3) or Cs.widget
 
 		local root = el._gui._root
 		if not root or root._hidden then  return nil  end
@@ -6022,7 +6038,7 @@ do
 		for _, otherEl in ipairs(el:getNavigationRoot():collectVisible(__STATIC9)) do
 			-- Note: Remember that we're traversing backwards.
 
-			local elIsValid = otherEl:is(C)
+			local elIsValid = otherEl:is(class)
 			if elIsValid and usePrev and foundSelf then  return otherEl  end
 
 			foundSelf = (foundSelf or otherEl == el)
@@ -7527,8 +7543,8 @@ function Cs.container.init(container, gui, elData, parent)
 	container._paddingBottom = elData.paddingBottom or elData.paddingVertical   or elData.padding
 
 	for i, childData in ipairs(elData) do
-		local C      = Cs[getTypeFromElementData(childData)] or errorf("Bad element type '%s'.", getTypeFromElementData(childData))
-		local child  = C(gui, childData, container)
+		local class  = Cs[getTypeFromElementData(childData)] or errorf("Bad element type '%s'.", getTypeFromElementData(childData))
+		local child  = class(gui, childData, container)
 		container[i] = child
 	end
 end
@@ -7663,10 +7679,10 @@ end
 
 -- element|nil = container:findType( elementType )
 function Cs.container.findType(container, elType)
-	local C = requireElementClass(elType, 2)
+	local class = requireElementClass(elType, 2)
 
 	for el in container:traverse() do
-		if el:is(C) then  return el  end
+		if el:is(class) then  return el  end
 	end
 
 	return nil
@@ -8214,8 +8230,8 @@ function Cs.container.insert(container, childData, i)
 	if type(childData)~="table" then argerror(2,1,"childData",childData,"table") end
 	if not(type(i)=="number" or i==nil) then argerror(2,2,"i",i,"number","nil") end
 
-	local C     = Cs[getTypeFromElementData(childData)] or errorf("Bad element type '%s'.", getTypeFromElementData(childData))
-	local child = C(container._gui, childData, container)
+	local class = Cs[getTypeFromElementData(childData)] or errorf("Bad element type '%s'.", getTypeFromElementData(childData))
+	local child = class(container._gui, childData, container)
 	table.insert(container, (i or #container+1), child)
 
 	printHeres(container._gui)
@@ -8489,7 +8505,7 @@ end
 
 -- for element in container:traverseType( elementType )
 function Cs.container.traverseType(container, elType)
-	local C = requireElementClass(elType, 2)
+	local class = requireElementClass(elType, 2)
 
 	return function(stack) -- @Memory
 		local len = stack[0]
@@ -8513,7 +8529,7 @@ function Cs.container.traverseType(container, elType)
 				stack[len-1] = child
 				stack[len  ] = 0
 			end
-		until child:is(C)
+		until child:is(class)
 
 		stack[0] = len
 		return child

@@ -21,7 +21,7 @@ function love.load(args)
 	gui = Gui()
 
 	gui:defineStyle("_MENU", {
-		[1] = {background="something"},
+		[1] = {padding=10, background="something"},
 	})
 
 	gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(),
@@ -258,7 +258,7 @@ function love.load(args)
 		local iSetFontDefault = #items+1 ; table.insert(items, "Set font: default")
 		local iSetFontLarge   = #items+1 ; table.insert(items, "Set font: large")
 
-		button:showMenu(items, 0, button:getLayoutHeight(), function(i)
+		button:showMenu(items, function(i)
 			if i == iSetFontDefault then
 				gui:setFont(Gui.getDefaultFont())
 			elseif i == iSetFontLarge then

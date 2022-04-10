@@ -18,56 +18,70 @@
 
 --============================================================]]
 
+local setmetatable = setmetatable
+local tostring     = tostring
+local match        = string.match
+local gsub         = string.gsub
+local F            = string.format
+
 local classMt = {
-	__call = function(C, ...)
-		local instance = {class=C, __id=""}
+	__call = function(class, ...)
+		local instance = {--[[ class=class, __id="" ]]} -- The ID is generated when needed.
 
-		local id      = tostring(instance)
-		instance.__id = id:match"0x(%x+)" or id:gsub("^table: ", "")
-
-		setmetatable(instance, C)
+		setmetatable(instance, class)
 		instance:init(...)
 
 		return instance
 	end,
 
-	__tostring = function(C)
-		return ("class(%s)"):format(C.__name)
+	__tostring = function(class)
+		return F("class: %s", class.__name)
 	end,
 }
 
 -- class = newClass( name, classTable )
-local function newClass(name, C)
+local function newClass(name, class)
 	-- Instances use their class as metatable.
-	C.__index = C
-	C.__name  = name
-	return setmetatable(C, classMt)
+	class.__index = class
+	class.__name  = name
+	class.class   = class
+	return setmetatable(class, classMt)
 end
 
 local BaseClass = newClass("Class", {
-	__tostring = function(self)
-		return ("%s(%s)"):format(self.class.__name, self.__id)
+	__tostring = function(instance)
+		if not instance.__id then
+			local class = getmetatable(instance)
+			setmetatable(instance, nil)
+
+			local id      = tostring(instance)
+			instance.__id = match(id, "0x(%x+)") or gsub(id, "^table: ", "")
+
+			setmetatable(instance, class)
+		end
+
+		return F("%s: 0x%s", instance.class.__name, instance.__id)
 	end,
 
 	-- subClass = class:extend( name, subClassTable )
-	extend = function(C, name, SubC)
+	extend = function(class, name, subClass)
 		-- Subclasses do NOT use superclasses as metatables - we just copy everything over.
-		for k, v in pairs(C) do
-			if SubC[k] == nil then  SubC[k] = v  end
+		for k, v in pairs(class) do
+			if subClass[k] == nil then  subClass[k] = v  end
 		end
 
-		SubC.super = C
+		subClass.super = class
 
-		return newClass(name, SubC)
+		return newClass(name, subClass)
 	end,
 
 	-- bool = instance:is( class )
-	is = function(obj, C)
-		local currentClass = obj.class
+	is = function(instance, class)
+		local currentClass = instance.class
 
 		-- Look through the whole inheritance.
 		while currentClass do
-			if currentClass == C then  return true  end
+			if currentClass == class then  return true  end
 			currentClass = currentClass.super
 		end
 
