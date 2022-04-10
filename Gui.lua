@@ -87,7 +87,7 @@
 	find, findAll, findActive, findToggled, match, matchAll
 	getDefaultSound, setDefaultSound
 	getElementAt
-	getFont, setFont, getBoldFont, setBoldFont, getSmallFont, setSmallFont, getLargeFont, setLargeFont, getTooltipFont, setTooltipFont
+	getFont, setFont, getTooltipFont, setTooltipFont
 	getHoveredElement
 	getNavigationTarget, navigateTo, navigateToNext, navigateToPrevious, navigateToFirst, navigate, canNavigateTo
 	getRoot
@@ -142,6 +142,7 @@
 	- getPosition, setPosition, getX, setX, getY, setY
 	- getPositionOnScreen, getXOnScreen, getYOnScreen, getLayoutOnScreen
 	- getRelativeDimensions, getRelativeWidth, getRelativeHeight, setRelativeDimensions, setRelativeWidth, setRelativeHeight
+	- getResultingTooltipFont, useTooltipFont
 	- getRoot, getNavigationRoot
 	- getSibling
 	- getSound, getResultingSound, setSound
@@ -149,7 +150,6 @@
 	- getStyle
 	- getTimeSinceBecomingVisible
 	- getTooltip, setTooltip
-	- getTooltipFont, useTooltipFont
 	- getWeight, setWeight
 	- hasFixedWidth, hasFixedHeight, hasDynamicWidth, hasDynamicHeight, hasRelativeWidth, hasRelativeHeight
 	- hasTag, addTag, removeTag, removeAllTags, setTag
@@ -221,13 +221,10 @@
 	(leaf)
 	- drawText, drawAlignedText
 	- getAlign, setAlign
-	- getFont, useFont
+	- getFont, getResultingFont, setFont, useFont
 	- getMnemonicOffset
 	- getText, getUnprocessedText, setText
 	- getTextColor, setTextColor, hasTextColor, useTextColor
-	- isBold, setBold
-	- isLarge, setLarge
-	- isSmall, setSmall
 
 		canvas
 		- getCanvasBackgroundColor, setCanvasBackgroundColor
@@ -288,6 +285,7 @@
 	clamp, clamp01, clamp11
 	create9PartQuads
 	draw9PartScaled
+	getDefaultFont
 	lerp, lerpColor
 	newMonochromeImage, newImageUsingPalette
 	parseTargetAndEvent
@@ -2859,10 +2857,7 @@ local Gui = class("Gui", {
 	_allAnimations      = nil,
 	_animationLockCount = 0,
 
-	_font        = nil,
-	_fontBold    = nil,
-	_fontSmall   = nil,
-	_fontLarge   = nil,
+	_font        = nil, -- May be overridden by individual leaves.
 	_fontTooltip = nil,
 
 	_defaultSounds = nil,
@@ -2971,11 +2966,18 @@ local function printf(s, ...)
 end
 
 -- printerr( depth, formatString, ... )
+-- warn( depth, formatString, ... )
 local function printerr(depth, s, ...)
 	local time    = require"socket".gettime()
 	local timeStr = os.date("%H:%M:%S", time)
 	local msStr   = F("%.3f", time%1):sub(2)
-	io.stderr:write(debug.traceback(F("[%s%s] ERROR: "..s, timeStr, msStr, ...), 1+depth), "\n")
+	io.stderr:write(debug.traceback(F("[%s%s] Error: "..s, timeStr, msStr, ...), 1+depth), "\n")
+end
+local function warn(depth, s, ...)
+	local time    = require"socket".gettime()
+	local timeStr = os.date("%H:%M:%S", time)
+	local msStr   = F("%.3f", time%1):sub(2)
+	io.stderr:write(debug.traceback(F("[%s%s] Warning: "..s, timeStr, msStr, ...), 1+depth), "\n")
 end
 
 
@@ -3168,8 +3170,8 @@ end
 -- frames = { frame1, ... }
 -- frame  = { duration=duration, quad=quad }
 local function newSprite(image, framesOrQuad)
-	if type(image)~="userdata" then argerror(1,1,"image",image,"userdata") end
-	if not(type(framesOrQuad)=="userdata" or type(framesOrQuad)=="table" or framesOrQuad==nil) then argerror(1,2,"framesOrQuad",framesOrQuad,"userdata","table","nil") end
+	if not(type(image)=='userdata'and(image):typeOf"Image") then argerror(1,1,"image",image,"Image") end
+	if not((type(framesOrQuad)=='userdata'and(framesOrQuad):typeOf"Quad") or type(framesOrQuad)=="table" or framesOrQuad==nil) then argerror(1,2,"framesOrQuad",framesOrQuad,"Quad","table","nil") end
 	local frames
 
 	if not framesOrQuad then
@@ -3744,15 +3746,6 @@ end
 
 
 
-local font = nil
-
-local function getDefaultFont()
-	font = font or love.graphics.newFont(12)
-	return font
-end
-
-
-
 local function clamp(v, vMin, vMax)
 	return math.max(math.min(v, vMax), vMin)
 end
@@ -4139,17 +4132,27 @@ _M.setColor = setColor
 
 
 
--- value = clamp( value, min, max )
+-- value = Gui.clamp( value, min, max )
 -- Clamp a value between two other values.
 _M.clamp = clamp
 
--- value = clamp01( value )
+-- value = Gui.clamp01( value )
 -- Clamp a value between 0 and 1.
 _M.clamp01 = clamp01
 
--- value = clamp11( value )
+-- value = Gui.clamp11( value )
 -- Clamp a value between -1 and +1.
 _M.clamp11 = clamp11
+
+
+
+local defaultFont = nil
+
+-- font = Gui.getDefaultFont()
+function _M.getDefaultFont()
+	defaultFont = defaultFont or love.graphics.newFont(12)
+	return defaultFont
+end
 
 
 
@@ -4611,7 +4614,7 @@ end
 -- Examples:
 --     gui:defineStyle("centered", {originX=.5, originY=.5, anchorX=.5, anchorY=.5})
 --     gui:defineStyle("dialogHeader", {background="header",
---         [2] = {bold=true, textColor={1,1,1,.86}}, -- Style data for the second child.
+--         [2] = {minWidth=200, textColor={1,1,1,.86}}, -- Style data for the second child.
 --     })
 --
 -- @Incomplete: A way to specify style for a child (or grandchild?) by ID.
@@ -4706,62 +4709,23 @@ end
 
 
 
--- font = gui:getFont( )
-function Gui.getFont(gui)
-	return gui._font
-end
+-- font|nil = gui:getFont( )
+-- font|nil = gui:getTooltipFont( )
+function Gui.getFont       (gui)  return gui._font         end
+function Gui.getTooltipFont(gui)  return gui._fontTooltip  end
 
--- gui:setFont( font )
+-- gui:setFont( font|nil )
+-- gui:setTooltipFont( font|nil )
+-- A nil font will result in a default font being used.
 function Gui.setFont(gui, font)
+	if not((type(font)=='userdata'and(font):typeOf"Font") or font==nil) then argerror(2,1,"font",font,"Font","nil") end
 	if gui._font == font then  return  end
 	gui._font              = font
 	gui._layoutNeedsUpdate = true
 end
-
--- font = gui:getBoldFont( )
-function Gui.getBoldFont(gui)
-	return gui._fontBold
-end
-
--- gui:setBoldFont( font )
-function Gui.setBoldFont(gui, font)
-	if gui._fontBold == font then  return  end
-	gui._fontBold          = font
-	gui._layoutNeedsUpdate = true
-end
-
--- font = gui:getSmallFont( )
-function Gui.getSmallFont(gui)
-	return gui._fontSmall
-end
-
--- gui:setSmallFont( font )
-function Gui.setSmallFont(gui, font)
-	if gui._fontSmall == font then  return  end
-	gui._fontSmall         = font
-	gui._layoutNeedsUpdate = true
-end
-
--- font = gui:getLargeFont( )
-function Gui.getLargeFont(gui)
-	return gui._fontLarge
-end
-
--- gui:setLargeFont( font )
-function Gui.setLargeFont(gui, font)
-	if gui._fontLarge == font then  return  end
-	gui._fontLarge         = font
-	gui._layoutNeedsUpdate = true
-end
-
--- font = gui:getTooltipFont( )
-function Gui.getTooltipFont(gui)
-	return gui._fontTooltip
-end
-
--- gui:setTooltipFont( font )
 function Gui.setTooltipFont(gui, font)
-	gui._fontTooltip = font
+	if not((type(font)=='userdata'and(font):typeOf"Font") or font==nil) then argerror(2,1,"font",font,"Font","nil") end
+	gui._fontTooltip = font -- No need to update layout for tooltips currently. :CacheTooltipValues
 end
 
 
@@ -5295,7 +5259,7 @@ function Is.imageInclude.hasImageBackgroundColor(imageInc)
 end
 
 -- hasImageBackgroundColor = imageIncludeElement:useImageBackgroundColor( [ alphaMultiplier=1 ] )
--- Tell LÖVE to use the image background color.
+-- Tell LÖVE to use the imageInclude's resulting image background color.
 function Is.imageInclude.useImageBackgroundColor(imageInc, opacity)
 	local color = imageInc._imageBackgroundColor
 	useColor((color or COLOR_TRANSPARENT), opacity)
@@ -5320,7 +5284,7 @@ function Is.imageInclude.hasImageColor(imageInc)
 end
 
 -- hasImageColor = imageIncludeElement:useImageColor( [ alphaMultiplier=1 ] )
--- Tell LÖVE to use the image color.
+-- Tell LÖVE to use the imageInclude's resulting image color.
 function Is.imageInclude.useImageColor(imageInc, opacity)
 	local color = imageInc._imageColor
 	useColor((color or COLOR_WHITE), opacity)
@@ -5415,7 +5379,7 @@ end
 -- frames = { frame1, ... }
 -- frame  = { duration=duration, quad=quad }
 function Is.imageInclude.setSprite(imageInc, imageOrName, framesOrQuad)
-	if not(type(imageOrName)=="userdata" or type(imageOrName)=="string" or imageOrName==nil) then argerror(2,1,"imageOrName",imageOrName,"userdata","string","nil") end
+	if not((type(imageOrName)=='userdata'and(imageOrName):typeOf"Image") or type(imageOrName)=="string" or imageOrName==nil) then argerror(2,1,"imageOrName",imageOrName,"Image","string","nil") end
 
 	local image      = nil
 	local spriteName = ""
@@ -5437,7 +5401,7 @@ function Is.imageInclude.setSprite(imageInc, imageOrName, framesOrQuad)
 		end
 
 	elseif imageOrName then
-		if not(type(framesOrQuad)=="userdata" or type(framesOrQuad)=="table" or framesOrQuad==nil) then argerror(2,2,"framesOrQuad",framesOrQuad,"userdata","table","nil") end
+		if not((type(framesOrQuad)=='userdata'and(framesOrQuad):typeOf"Quad") or type(framesOrQuad)=="table" or framesOrQuad==nil) then argerror(2,2,"framesOrQuad",framesOrQuad,"Quad","table","nil") end
 		image = imageOrName
 	end
 
@@ -5749,7 +5713,7 @@ function Cs.element._drawDebug(el, r, g, b, bgOpacity)
 	r = lerp(r, 1, .5)
 	g = lerp(g, 1, .5)
 	b = lerp(b, 1, .5)
-	love.graphics.setFont(gui._font or getDefaultFont())
+	love.graphics.setFont(gui._font or _M.getDefaultFont())
 	setColor(r, g, b, .8)
 	if el._automaticId then
 		love.graphics.print(F("%d.%d"   , el:getDepth(), (el:getIndex() or 0)        ), 2, 1)
@@ -5768,11 +5732,11 @@ function Cs.element._drawTooltip(el)
 	if text == "" or gui._tooltipTime < gui.TOOLTIP_DELAY then  return  end
 
 	local root = gui._root
+	local font = el:getResultingTooltipFont()
 
-	local font         = gui._font or getDefaultFont()
 	local textW, textH = getTextDimensions(font, text, 1/0)
 
-	local w, h = themeGetSize(el, "tooltip", textW, textH) -- @Speed: Get tooltip size when tooltip text changes.
+	local w, h = themeGetSize(el, "tooltip", textW, textH) -- @Speed: Get tooltip size when tooltip text changes. :CacheTooltipValues
 
 	local x = clamp(el._layoutX+el._layoutImmediateOffsetX, 0, root._width-w)
 	local y = el._layoutY + el._layoutHeight + el._layoutImmediateOffsetY
@@ -6507,7 +6471,7 @@ end
 
 -- element:setMouseCursor( cursor|systemCursorType|nil )
 function Cs.element.setMouseCursor(el, cur)
-	if not(type(cur)=="userdata" or type(cur)=="string" or cur==nil) then argerror(2,1,"cur",cur,"userdata","string","nil") end
+	if not((type(cur)=='userdata'and(cur):typeOf"Cursor") or type(cur)=="string" or cur==nil) then argerror(2,1,"cur",cur,"Cursor","string","nil") end
 
 	if type(cur) == "string" and not pcall(love.mouse.getSystemCursor, cur) then
 		errorf(2, "Invalid system cursor type '%s'.", cur)
@@ -6874,15 +6838,17 @@ end
 
 
 
--- font = element:getTooltipFont( )
-function Cs.element.getTooltipFont(el)
-	return el._gui._fontTooltip or getDefaultFont()
+-- font = element:getResultingTooltipFont( )
+function Cs.element.getResultingTooltipFont(el)
+	return el._gui._fontTooltip or _M.getDefaultFont()
 end
 
--- element:useTooltipFont( )
--- Tell LÖVE to use the tooltip font.
+-- fontBeingUsed = element:useTooltipFont( )
+-- Tell LÖVE to use the element's resulting tooltip font.
 function Cs.element.useTooltipFont(el)
-	love.graphics.setFont(el:getTooltipFont())
+	local font = el:getResultingTooltipFont()
+	love.graphics.setFont(font)
+	return font
 end
 
 
@@ -7280,13 +7246,13 @@ end
 
 
 
--- menuElement = element:showMenu( items, [ highlightedIndex,   ] [ offsetX=0, offsetY=0, ] callback )
--- menuElement = element:showMenu( items, [ highlightedIndices, ] [ offsetX=0, offsetY=0, ] callback )
--- items       = { itemText1, ... }
--- items       = { { itemText1, itemExtraText1 }, ... }
+-- menuElement = element:showMenu( items [, highlightedIndex|highlightedIndices ][, offsetX=0, offsetY=0 ][, callback ] )
+-- items       = { itemText1|itemInfo1, ... }
+-- itemInfo    = { itemText1, itemExtraText1 }
 -- callback    = function( index, itemText ) -- 'index' will be 0 if no item was chosen.
 function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 	if type(items)~="table" then argerror(2,1,"items",items,"table") end
+	-- @Cleanup
 
 	-- showMenu( items, highlightedIndex,   offsetX, offsetY, callback )
 	-- showMenu( items, highlightedIndices, offsetX, offsetY, callback )
@@ -7305,16 +7271,14 @@ function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 	-- showMenu( items, callback )
 	else
 		hlIndices, offsetX, offsetY, cb = nil, 0, 0, hlIndices
-
 	end
+
 	if type(cb) ~= "function" then
 		error("Missing callback argument.", 2)
 	end
-
 	if type(hlIndices) == "number" then
 		hlIndices = {hlIndices}
 	end
-
 
 	local gui  = el._gui
 	local root = el:getRoot()
@@ -7350,7 +7314,7 @@ function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 		if type(text) == "table" then  text, text2 = unpack(text)  end
 
 		local isToggled = (hlIndices ~= nil and indexOf(hlIndices, i) ~= nil)
-		local button = buttons:insert{ type="button", text=text, text2=text2, align="left", toggled=isToggled }
+		local button    = buttons:insert{ type="button", text=text, text2=text2, align="left", toggled=isToggled }
 
 		button:on("mousepressed", function(button, event, mx, my, mbutton, pressCount)
 			if mbutton == 1 then  button:press()  end
@@ -7359,7 +7323,7 @@ function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 
 		button:on("press", function(button, event)
 			local _cb = cb
-			cb = nil
+			cb        = nil
 
 			menu:remove()
 
@@ -7369,6 +7333,10 @@ function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 		button:on("navigated", function(button, event)
 			buttons:setToggledChild(button._id)
 		end)
+	end
+
+	if not buttons[1] then
+		warn(2, "No menu buttons.")
 	end
 
 	local searchTerm       = ""
@@ -7413,6 +7381,8 @@ function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 	end
 
 	menu:on("textinput", function(button, event, text)
+		if not buttons[1] then  return  end
+
 		-- Append to old or start a new term.
 		local time = gui._time
 		if time-lastInputTime > 1.00 then
@@ -7510,10 +7480,10 @@ end
 
 
 Cs.container = newElementClass(false, "GuiContainer", Cs.element, {}, {
-	SCROLL_SMOOTHNESS = 0.65,
+	SCROLL_SMOOTHNESS = 0.65, -- @Incomplete: Make this a setting.
 
-	SCROLL_SPEED_X = 30,
-	SCROLL_SPEED_Y = 50,
+	SCROLL_SPEED_X = 30, -- @Incomplete: Make this a setting.
+	SCROLL_SPEED_Y = 50, -- @Incomplete: Make this a setting.
 
 	-- Parameters.
 	_confineNavigation = false,
@@ -8395,7 +8365,7 @@ end
 -- OVERRIDE  container:remove( )
 function Cs.container.remove(container, _removeAt_i)
 	if _removeAt_i ~= nil then
-		printerr(2, "WARNING: container:remove() called with an argument. Did you mean to call container:removeAt(index)?")
+		warn(2, "container:remove() called with an argument. Did you mean to call container:removeAt(index)?")
 	end
 	return Cs.container.super.remove(container)
 end
@@ -8752,14 +8722,14 @@ do
 
 	end
 
-	-- for element in container:traverseVisible( )
+	-- for element in container:traverseVisible( ) -- @Cleanup: Maybe remove in favor of visitVisible()? Easy way to get rid of newIteratorCoroutine()!
 	-- for element in container:traverseVisible( x, y )
 	function Cs.container.traverseVisible(container, x, y)
 		if x then  return newIteratorCoroutine(_traverseVisibleAt, container, x, y, themeGet(container._gui, "scrollbarWidth"))
 		else       return newIteratorCoroutine(_traverseVisible  , container)  end
 	end
 
-	-- container:visitVisible( callback )
+	-- container:visitVisible( callback ) -- @Doc and maybe @Cleanup.
 	-- container:visitVisible( x, y, callback )
 	-- traversalAction = callback( element )
 	-- traversalAction = "continue" | "stop" -- Returning nil means "continue".
@@ -8768,7 +8738,7 @@ do
 		else       _visitVisible  (container, x)  end
 	end
 
-	-- elements = container:collectVisible( [ array={} ] )
+	-- elements = container:collectVisible( [ array={} ] ) -- @Doc and maybe @Cleanup.
 	-- elements = container:collectVisible( x, y, [, array={} ] )
 	function Cs.container.collectVisible(container, x, y, elements)
 		if y then
@@ -9317,9 +9287,7 @@ Cs.leaf = newElementClass(true, "GuiLeaf", Cs.element, {}, {
 	-- Parameters.
 	_align = "center", -- "left" | "right" | "center"
 
-	_bold  = false,
-	_large = false,
-	_small = false,
+	_font = nil, -- Overrides gui._font if set.
 
 	_mnemonics = false,
 
@@ -9339,7 +9307,7 @@ function Cs.leaf.init(leaf, gui, elData, parent)
 	Cs.leaf.super.init(leaf, gui, elData, parent)
 
 	if elData.align ~= nil then leaf._align = elData.align end
-	if elData.bold ~= nil then leaf._bold = elData.bold end if elData.small ~= nil then leaf._small = elData.small end if elData.large ~= nil then leaf._large = elData.large end
+	if elData.font ~= nil then leaf._font = elData.font end
 	if elData.mnemonics ~= nil then leaf._mnemonics = elData.mnemonics end
 	-- @@retrieve(leaf, elData, _text)
 	if elData.textColor ~= nil then leaf._textColor = elData.textColor end
@@ -9363,26 +9331,27 @@ end
 
 
 
--- font = leaf:getFont( )
+-- font|nil = leaf:getFont( )
 function Cs.leaf.getFont(leaf)
-	local k = (leaf._large and "_fontLarge")
-	       or (leaf._small and "_fontSmall")
-	       or (leaf._bold  and "_fontBold" )
-	       or                  "_font"
-
-	local font = leaf._gui[k] or getDefaultFont()
-
-	-- if leaf:isType"input" then
-	-- 	leaf._field:setFont(font) -- @Robustness: Do this in appropriate places. (Maybe not here... Probably in _calculateNaturalSize()...)
-	-- end
-
-	return font
+	return leaf._font
 end
 
--- Tell LÖVE to use the font.
+-- font = leaf:getResultingFont( )
+function Cs.leaf.getResultingFont(leaf)
+	return leaf._font or leaf._gui._font or _M.getDefaultFont()
+end
+
+-- leaf:setFont( font|nil )
+function Cs.leaf.setFont(leaf, font)
+	if leaf._font == font then  return  end
+	leaf._font = font
+	scheduleLayoutUpdateIfDisplayed(leaf)
+end
+
 -- fontBeingUsed = leaf:useFont( )
+-- Tell LÖVE to use the leaf's resulting font.
 function Cs.leaf.useFont(leaf)
-	local font = leaf:getFont()
+	local font = leaf:getResultingFont()
 	love.graphics.setFont(font)
 	return font
 end
@@ -9394,7 +9363,7 @@ end
 function Cs.leaf.getMnemonicOffset(leaf)
 	if not leaf._mnemonicBytePosition then  return nil  end
 
-	local font = leaf:getFont()
+	local font = leaf:getResultingFont()
 	local text = leaf._text
 
 	-- @Incomplete: Handle kerning.
@@ -9455,7 +9424,7 @@ function Cs.leaf.setText(leaf, unprocessedText)
 	leaf._unprocessedText = unprocessedText
 
 	local oldW      = leaf._textWidth
-	leaf._textWidth = leaf:getFont():getWidth(text)
+	leaf._textWidth = leaf:getResultingFont():getWidth(text)
 
 	if leaf._textWidth ~= oldW then
 		scheduleLayoutUpdateIfDisplayed(leaf)
@@ -9497,48 +9466,12 @@ function Cs.leaf.hasTextColor(leaf)
 	return leaf._textColor ~= nil
 end
 
--- Tell LÖVE to use the text color.
 -- hasTextColor = leaf:useTextColor( [ alphaMultiplier=1 ] )
+-- Tell LÖVE to use the leaf's resulting text color.
 function Cs.leaf.useTextColor(leaf, opacity)
 	local color = leaf._textColor
 	useColor((color or COLOR_WHITE), opacity)
 	return color ~= nil
-end
-
-
-
--- bool = leaf:isBold( )
--- bool = leaf:isLarge( )
--- bool = leaf:isSmall( )
-function Cs.leaf.isBold(leaf, text)
-	return leaf._bold
-end
-function Cs.leaf.isLarge(leaf, text)
-	return leaf._large
-end
-function Cs.leaf.isSmall(leaf, text)
-	return leaf._small
-end
-
--- leaf:setBold ( bool )
--- leaf:setLarge( bool )
--- leaf:setSmall( bool )
-function Cs.leaf.setBold(leaf, bold)
-	if leaf._bold == bold then  return  end
-	leaf._bold = bold
-	scheduleLayoutUpdateIfDisplayed(leaf)
-end
-function Cs.leaf.setLarge(leaf, large)
-	if leaf._large == large then  return  end
-	leaf._large = large
-	scheduleLayoutUpdateIfDisplayed(leaf)
-end
-function Cs.leaf.setSmall(leaf, small)
-	if leaf._small == small then
-		return
-	end
-	leaf._small = small
-	scheduleLayoutUpdateIfDisplayed(leaf)
 end
 
 
@@ -9783,7 +9716,7 @@ function Cs.text._calculateNaturalSize(textEl)
 		end
 	end
 
-	local textW, textH = getTextDimensions(textEl:getFont(), textEl._text, wrapLimit)
+	local textW, textH = getTextDimensions(textEl:getResultingFont(), textEl._text, wrapLimit)
 	textEl._textWidth  = textW
 	textEl._textHeight = textH
 
@@ -10008,7 +9941,7 @@ function Cs.button.setText2(button, unprocessedText)
 	button._unprocessedText2 = unprocessedText
 
 	local oldW         = button._textWidth
-	button._textWidth2 = button:getFont():getWidth(text)
+	button._textWidth2 = button:getResultingFont():getWidth(text)
 	button._textWidth  = button._textWidth1 + button._textWidth2
 
 	if button._textWidth ~= oldW then
@@ -10186,7 +10119,7 @@ end
 
 -- INTERNAL REPLACE  button:_calculateNaturalSize( )
 function Cs.button._calculateNaturalSize(button)
-	local font         = button:getFont()
+	local font         = button:getResultingFont()
 	button._textWidth1 = font:getWidth(button._text)
 	button._textWidth2 = font:getWidth(button._text2)
 	button._textWidth  = button._textWidth1 + button._textWidth2 -- This value is pretty useless...
@@ -10250,7 +10183,7 @@ function Cs.input.init(inputEl, gui, elData, parent)
 	-- @@retrieve(inputEl, elData, _value) -- This is saved in the field instead.
 
 	inputEl._field = InputField(elData.value--[[default=""]], elData.fieldType--[[default="normal"]])
-	inputEl._field:setFont(inputEl:getFont())
+	inputEl._field:setFont(inputEl:getResultingFont())
 	inputEl._field:setFontFilteringActive(true)
 end
 
@@ -10564,7 +10497,10 @@ end
 
 -- INTERNAL REPLACE  input:_calculateNaturalSize( )
 function Cs.input._calculateNaturalSize(inputEl)
-	local _, h = themeGetSize(inputEl, "input", _, inputEl:getFont():getHeight())
+	local font = inputEl:getResultingFont()
+	inputEl._field:setFont(font)
+
+	local _, h = themeGetSize(inputEl, "input", _, font:getHeight())
 
 	inputEl._layoutWidth, inputEl._layoutHeight = applySizeLimits(inputEl, 0, h)
 
