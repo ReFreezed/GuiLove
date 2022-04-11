@@ -283,8 +283,8 @@
 	----------------------------------------------------------------
 
 	clamp, clamp01, clamp11
-	create9PartQuads
-	draw9PartScaled
+	create9SliceQuads
+	draw9SliceScaled
 	getDefaultFont
 	lerp, lerpColor
 	newMonochromeImage, newImageUsingPalette
@@ -3956,13 +3956,13 @@ end
 
 
 
--- quads = create9PartQuads( image, leftColumnSize, topRowSize [, rightColumnSize=leftColumnSize, bottomRowSize=topRowSize ] )
+-- quads = Gui.create9SliceQuads( image, leftColumnSize, topRowSize [, rightColumnSize=leftColumnSize, bottomRowSize=topRowSize ] )
 -- quads = {
 --     topLeftQuad,    topCenterQuad,    topRightQuad,
 --     middleLeftQuad, middleCenterQuad, middleRightQuad,
 --     bottomLeftQuad, bottomCenterQuad, bottomRightQuad,
 -- }
-function _M.create9PartQuads(image, l, t, r, b)
+function _M.create9SliceQuads(image, l, t, r, b)
 	r = r or l
 	b = b or t
 	local iw, ih = image:getDimensions()
@@ -3981,19 +3981,19 @@ end
 
 
 
--- draw9PartScaled(
+-- Gui.draw9SliceScaled(
 --     x, y, width, height,
 --     topLeftImage,    topCenterImage,    topRightImage,
 --     middleLeftImage, middleCenterImage, middleRightImage,
 --     bottomLeftImage, bottomCenterImage, bottomRightImage
 -- )
--- draw9PartScaled(
+-- Gui.draw9SliceScaled(
 --     x, y, width, height, image,
 --     topLeftQuad,    topCenterQuad,    topRightQuad,
 --     middleLeftQuad, middleCenterQuad, middleRightQuad,
 --     bottomLeftQuad, bottomCenterQuad, bottomRightQuad
 -- )
-function _M.draw9PartScaled(x, y, w, h, image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33)
+function _M.draw9SliceScaled(x, y, w, h, image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33)
 	if not obj33 then
 		image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33
 			= nil, image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32
@@ -4037,6 +4037,8 @@ function _M.draw9PartScaled(x, y, w, h, image, obj11, obj12, obj13, obj21, obj22
 
 	love.graphics.pop()
 end
+
+-- @Incomplete: draw9SliceRepeated
 
 
 
@@ -10594,7 +10596,7 @@ defaultTheme = (function()
 
 	-- Images.
 
-	local BUTTON_BG_IMAGE = Gui.newMonochromeImage{
+	local buttonBackgroundImage = Gui.newMonochromeImage{
 		" FFFF ",
 		"FFFFFF",
 		"FFFFFF",
@@ -10602,18 +10604,18 @@ defaultTheme = (function()
 		"FFFFFF",
 		" FFFF ",
 	}
-	local BUTTON_BG_QUADS = Gui.create9PartQuads(BUTTON_BG_IMAGE, 2, 2)
+	local buttonBackgroundQuads = Gui.create9SliceQuads(buttonBackgroundImage, 2, 2)
 
-	local BUTTON_ARROW_IMAGE = Gui.newMonochromeImage{
+	local buttonArrowImage = Gui.newMonochromeImage{
 		"F  ",
 		"FF ",
 		"FFF",
 		"FF ",
 		"F  ",
 	}
-	local BUTTON_ARROW_LENGTH = BUTTON_ARROW_IMAGE:getWidth()
+	local buttonArrowLength = buttonArrowImage:getWidth()
 
-	local NAV_IMAGE = Gui.newMonochromeImage{
+	local navigationImage = Gui.newMonochromeImage{
 		"  FFFF  ",
 		" F2222F ",
 		"F222222F",
@@ -10623,7 +10625,7 @@ defaultTheme = (function()
 		" F2222F ",
 		"  FFFF  ",
 	}
-	local NAV_QUADS = Gui.create9PartQuads(NAV_IMAGE, 3, 3)
+	local navigationQuads = Gui.create9SliceQuads(navigationImage, 3, 3)
 
 
 
@@ -10674,7 +10676,7 @@ defaultTheme = (function()
 			end,
 
 			-- Text element.
-			-- size.text( textElement, textWidth, textHeight )
+			-- size.text( textElement, textIndentation, textWidth, textHeight )
 			["text"] = function(textEl, textIndent, textW, textH)
 				return textW+2*textIndent, textH+2*TEXT_PADDING
 			end,
@@ -10682,11 +10684,12 @@ defaultTheme = (function()
 			-- Button element.
 			-- size.button( buttonElement, text1Width, text2Width, textHeight, imageWidth, imageHeight )
 			["button"] = function(button, text1W, text2W, textH, imageW, imageH)
+				--
 				-- Buttons generally have 3 main states: only image, only text, or both image and text.
 				-- The text can include two texts - a main and a secondary. Buttons can also have
 				-- an arrow pointing in any axis-aligned direction. In this theme all these parameters
 				-- affects the size and looks differently.
-
+				--
 				local textW = text1W + (text2W > 0 and BUTTON_TEXT_SPACING+text2W or 0)
 				local w, h
 
@@ -10702,7 +10705,7 @@ defaultTheme = (function()
 
 				-- Image and text.
 				else
-					w = imageW+BUTTON_IMAGE_SPACING+textW
+					w = imageW + BUTTON_IMAGE_SPACING + textW
 					h = math.max(textH, imageH)
 				end
 
@@ -10712,9 +10715,9 @@ defaultTheme = (function()
 				local arrow = button:getArrow()
 
 				if arrow == "left" or arrow == "right" then
-					w = w+BUTTON_ARROW_LENGTH
+					w = w + buttonArrowLength
 				elseif arrow == "up" or arrow == "down" then
-					h = h+BUTTON_ARROW_LENGTH
+					h = h + buttonArrowLength
 				else
 					-- No arrow.
 				end
@@ -10793,15 +10796,15 @@ defaultTheme = (function()
 				local x, y  = 0, 0
 
 				if     arrow == "right" then
-					w = w-BUTTON_ARROW_LENGTH
+					w = w-buttonArrowLength
 				elseif arrow == "down"  then
-					h = h-BUTTON_ARROW_LENGTH
+					h = h-buttonArrowLength
 				elseif arrow == "left"  then
-					w = w-BUTTON_ARROW_LENGTH
-					x = x+BUTTON_ARROW_LENGTH
+					w = w-buttonArrowLength
+					x = x+buttonArrowLength
 				elseif arrow == "up"    then
-					h = h-BUTTON_ARROW_LENGTH
-					y = y+BUTTON_ARROW_LENGTH
+					h = h-buttonArrowLength
+					y = y+buttonArrowLength
 				else
 					-- No arrow
 				end
@@ -10827,12 +10830,12 @@ defaultTheme = (function()
 				local a = .8 * opacity
 
 				Gui.setColor(r, g, b, a)
-				Gui.draw9PartScaled(x+1, y+1, w-2, h-2, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
+				Gui.draw9SliceScaled(x+1, y+1, w-2, h-2, buttonBackgroundImage, unpack(buttonBackgroundQuads))
 
 				-- Arrow.
 				if arrow and button:isToggled() then
-					local image  = BUTTON_ARROW_IMAGE
-					local arrLen = BUTTON_ARROW_LENGTH
+					local image  = buttonArrowImage
+					local arrLen = buttonArrowLength
 
 					Gui.setColor(1, 1, 1)
 
@@ -10982,7 +10985,7 @@ defaultTheme = (function()
 				local a = (isScrolling and .2) or (isHandleHovered and .3) or (.2)
 				Gui.setColor(1, 1, 1, a)
 
-				Gui.draw9PartScaled(handleX, handleY, handleW, handleH, BUTTON_BG_IMAGE, unpack(BUTTON_BG_QUADS))
+				Gui.draw9SliceScaled(handleX, handleY, handleW, handleH, buttonBackgroundImage, unpack(buttonBackgroundQuads))
 			end,
 			["scrollbardeadzone"] = function(container, w, h)
 				-- This is the area where the two scrollbars meet (if there are two).
@@ -11000,7 +11003,7 @@ defaultTheme = (function()
 				h            = h + 2*offset
 
 				Gui.setColor(1, 1, 0, 1)
-				Gui.draw9PartScaled(x, y, w, h, NAV_IMAGE, unpack(NAV_QUADS))
+				Gui.draw9SliceScaled(x, y, w, h, navigationImage, unpack(navigationQuads))
 			end,
 
 			-- Tooltip.

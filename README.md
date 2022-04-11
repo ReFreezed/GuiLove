@@ -27,7 +27,7 @@
 
 **GuiLove** is a GUI library for the [LÖVE](https://love2d.org/) game framework.
 
-[The library](Gui.lua) is a single file with no external dependencies other than LÖVE.
+[The library](https://raw.githubusercontent.com/ReFreezed/GuiLove/master/Gui.lua) is a single file with no external dependencies other than LÖVE.
 [MIT license](LICENSE.txt).
 
 **Note: The library is in beta, so many things (including documentation) are missing!**

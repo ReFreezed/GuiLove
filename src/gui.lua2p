@@ -283,8 +283,8 @@
 	----------------------------------------------------------------
 
 	clamp, clamp01, clamp11
-	create9PartQuads
-	draw9PartScaled
+	create9SliceQuads
+	draw9SliceScaled
 	getDefaultFont
 	lerp, lerpColor
 	newMonochromeImage, newImageUsingPalette
@@ -1477,13 +1477,13 @@ end
 
 
 
--- quads = create9PartQuads( image, leftColumnSize, topRowSize [, rightColumnSize=leftColumnSize, bottomRowSize=topRowSize ] )
+-- quads = Gui.create9SliceQuads( image, leftColumnSize, topRowSize [, rightColumnSize=leftColumnSize, bottomRowSize=topRowSize ] )
 -- quads = {
 --     topLeftQuad,    topCenterQuad,    topRightQuad,
 --     middleLeftQuad, middleCenterQuad, middleRightQuad,
 --     bottomLeftQuad, bottomCenterQuad, bottomRightQuad,
 -- }
-function _M.create9PartQuads(image, l, t, r, b)
+function _M.create9SliceQuads(image, l, t, r, b)
 	r = r or l
 	b = b or t
 	local iw, ih = image:getDimensions()
@@ -1502,19 +1502,19 @@ end
 
 
 
--- draw9PartScaled(
+-- Gui.draw9SliceScaled(
 --     x, y, width, height,
 --     topLeftImage,    topCenterImage,    topRightImage,
 --     middleLeftImage, middleCenterImage, middleRightImage,
 --     bottomLeftImage, bottomCenterImage, bottomRightImage
 -- )
--- draw9PartScaled(
+-- Gui.draw9SliceScaled(
 --     x, y, width, height, image,
 --     topLeftQuad,    topCenterQuad,    topRightQuad,
 --     middleLeftQuad, middleCenterQuad, middleRightQuad,
 --     bottomLeftQuad, bottomCenterQuad, bottomRightQuad
 -- )
-function _M.draw9PartScaled(x, y, w, h, image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33)
+function _M.draw9SliceScaled(x, y, w, h, image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33)
 	if not obj33 then
 		image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33
 			= nil, image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32
@@ -1558,6 +1558,8 @@ function _M.draw9PartScaled(x, y, w, h, image, obj11, obj12, obj13, obj21, obj22
 
 	$LG.pop()
 end
+
+-- @Incomplete: draw9SliceRepeated
 
 
 
