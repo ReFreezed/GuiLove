@@ -65,7 +65,6 @@
 	function love.update(dt)
 		gui:update(dt)
 	end
-
 	function love.draw()
 		gui:draw()
 	end
@@ -75,11 +74,10 @@
 	Gui methods
 	----------------------------------------------------------------
 
-	update
-	draw
-
 	keypressed, keyreleased, textinput
 	mousepressed, mousemoved, mousereleased, wheelmoved
+	update
+	draw
 
 	areStandardKeysActive, setStandardKeysActive
 	blur
@@ -321,8 +319,8 @@ local InputField = (function()  @insert "src/InputField.lua"  end)()
 
 
 
-local COLOR_TRANSPARENT = {1,1,1,0}
-local COLOR_WHITE       = {1,1,1,1}
+local COLOR_WHITE             = {1,1,1,1}
+local COLOR_TRANSPARENT_WHITE = {1,1,1,0}
 
 local LCTRL = (love.system.getOS() == "OS X") and "lgui" or "lctrl"
 local RCTRL = (love.system.getOS() == "OS X") and "rgui" or "rctrl"
@@ -906,7 +904,7 @@ end
 
 
 
--- Prepare a sound for being played (Useful if it's possible the element will be removed in an event)
+-- Prepare a sound for being played. (Useful if it's possible the element will be removed in an event.)
 -- playSound:function = prepareSound( element, soundKey )
 local function prepareSound(el, soundK)
 	local gui         = el._gui
@@ -1140,7 +1138,7 @@ end
 
 -- value = trigger( element, event, value1, ... )
 local function trigger(el, event, ...)
-	local cb = el._callbacks[event]
+	local cb = el._callbacks and el._callbacks[event]
 	if not cb then  return nil  end
 
 	return (cb(el, event, ...))
@@ -1148,11 +1146,13 @@ end
 
 -- value = triggerIncludingAnimations( element, event, value, ... )
 local function triggerIncludingAnimations(el, event, ...)
-	local time = el._gui._time
+	if el._animations then
+		local time = el._gui._time
 
-	for _, anim in ipairs(el._animations) do
-		local cb = anim.callbacks[event]
-		if cb then  cb(el, event, (time-anim.startTime)/anim.duration, ...)  end
+		for _, anim in ipairs(el._animations) do
+			local cb = anim.callbacks[event]
+			if cb then  cb(el, event, (time-anim.startTime)/anim.duration, ...)  end
+		end
 	end
 
 	return (trigger(el, event, ...))
@@ -1566,7 +1566,7 @@ end
 --
 -- image     = Gui.newMonochromeImage( pixelRows [, red=1, green=1, blue=1 ] )
 -- pixelRows = { pixelRow1, ... }
--- pixelRow: String with single-digit hexadecimal numbers. Invalid characters counts as 0.
+-- pixelRow: String with single-digit hexadecimal numbers representing alpha values. Invalid characters count as 0 (transparent).
 --
 -- Example:
 --     blurryDiagonalLine = Gui.newMonochromeImage{
@@ -1595,7 +1595,7 @@ end
 --
 -- image     = Gui.newImageUsingPalette( pixelRows, palette )
 -- pixelRows = { pixelRow1, ... }
--- pixelRow: String with single-character palette indices. Invalid indices counts as transparent pixels.
+-- pixelRow: String with single-character palette indices. Invalid indices count as transparent pixels.
 -- palette   = { ["index"]=color... }
 -- color     = { red, green, blue [, alpha=1 ] }
 --
@@ -1620,7 +1620,7 @@ function _M.newImageUsingPalette(pixelRows, palette)
 
 	for row, pixelRow in ipairs(pixelRows) do
 		for col = 1, #pixelRow do
-			local pixel      = (palette[pixelRow:sub(col, col)] or COLOR_TRANSPARENT)
+			local pixel      = (palette[pixelRow:sub(col, col)] or COLOR_TRANSPARENT_WHITE)
 			local r, g, b, a = unpack(pixel)
 			imageData:setPixel(col-1, row-1, r, g, b, (a or 1)) -- @Speed
 		end
@@ -1635,7 +1635,7 @@ end
 -- targetAndEvent = "ID.subID.anotherSubID.event" -- Sequence of dot-separated IDs followed by a dot and an event name.
 -- Returns nil and a message on error.
 function _M.parseTargetAndEvent(targetAndEvent)
-	local target, event = targetAndEvent:match"^(.-)%.?([^.]+)$"
+	local target, event = targetAndEvent:match"^(.-)%.?([^.]+)$" -- @Revise
 	if not target then
 		return nil, F("Bad targetAndEvent format '%s'.", targetAndEvent)
 	end
@@ -1662,7 +1662,7 @@ end
 
 
 
--- setColor( red, green, blue [, alpha=1 ] )
+-- Gui.setColor( red, green, blue [, alpha=1 ] )
 -- Set the current color in LÖVE. Color component values are within
 -- the range of 0 to 1 (even in LÖVE versions prior to 11.0).
 _M.setColor = setColor
@@ -1723,7 +1723,7 @@ function Gui.update(gui, dt)
 	local allAnims = gui._allAnimations
 
 	if allAnims[1] then
-		for i, anim in ipairsr(allAnims) do
+		for iInAllAnims, anim in ipairsr(allAnims) do
 			local el = anim.element
 
 			if time >= anim.endTime then
@@ -1733,9 +1733,11 @@ function Gui.update(gui, dt)
 				cb = anim.callbacks["done"]
 				if cb then  cb(el, "done")  end
 
-				local anims = el._animations
-				table.remove(allAnims, i)
-				table.remove(anims, assert(indexOf(anims, anim)))
+				local anims = el._animations       or error("Internal error: Element has an animation but has no animation table.")
+				local i     = indexOf(anims, anim) or error("Internal error: Element is part of an animation that is not in its animation table.")
+
+				table.remove(allAnims, iInAllAnims)
+				table.remove(anims   , i          )
 
 				if anim.lockInteraction then
 					gui._animationLockCount = gui._animationLockCount-1
@@ -1841,10 +1843,6 @@ function Gui.draw(gui)
 		end
 	end
 end
-
-
-
---==============================================================
 
 
 
@@ -2540,6 +2538,7 @@ end
 function Gui.setTextPreprocessor(gui, func)
 	!ARGS"2 func:function,nil"
 	gui._textPreprocessor = func
+	-- Should we call reprocessTexts() here? @Incomplete
 end
 
 -- gui:reprocessTexts( )
@@ -2790,7 +2789,7 @@ end
 -- Tell LÖVE to use the imageInclude's resulting image background color.
 function Is.imageInclude.useImageBackgroundColor(imageInc, opacity)
 	local color = imageInc._imageBackgroundColor
-	useColor((color or COLOR_TRANSPARENT), opacity)
+	useColor((color or COLOR_TRANSPARENT_WHITE), opacity)
 	return color ~= nil
 end
 
@@ -3076,9 +3075,6 @@ function Cs.element.init(el, gui, elData, parent)
 	el._gui    = gui or error("Missing gui object argument.")
 	el._parent = parent
 
-	el._animations = {}
-	el._callbacks  = {}
-
 	local styleName = elData.style
 
 	if styleName then
@@ -3137,20 +3133,18 @@ function Cs.element.init(el, gui, elData, parent)
 	end
 
 	-- Set sounds table.
-	el._sounds = {}
-
 	if elData.sounds ~= nil then
 		for soundK, sound in pairs(elData.sounds) do
 			checkValidSoundKey(soundK, 2)
+			el._sounds         = el._sounds or {}
 			el._sounds[soundK] = sound
 		end
 	end
 
 	-- Add tags.
-	el._tags = {}
-
 	if elData.tags ~= nil then
 		for _, tag in ipairs(elData.tags) do
+			el._tags      = el._tags or {}
 			el._tags[tag] = true
 		end
 	end
@@ -3312,7 +3306,8 @@ function Cs.element.animate(el, duration, lockInteraction, callbacks)
 		duration        = duration,
 	}
 
-	table.insert(el._animations, anim)
+	el._animations = el._animations or {}
+	table.insert(el._animations    , anim)
 	table.insert(gui._allAnimations, anim)
 
 	if lockInteraction then
@@ -3392,7 +3387,7 @@ end
 
 -- callback|nil = element:getCallback( event )
 function Cs.element.getCallback(el, event)
-	return el._callbacks[event]
+	return el._callbacks and el._callbacks[event]
 end
 
 -- element:setCallback( event, callback|nil )
@@ -3404,6 +3399,9 @@ function Cs.element.setCallback(el, event, cb)
 		return
 	end
 
+	if not (cb or el._callbacks) then  return  end
+
+	el._callbacks        = el._callbacks or {}
 	el._callbacks[event] = cb
 
 	-- Since callbacks can only be attached to elements after the actual
@@ -4283,7 +4281,7 @@ end
 function Cs.element.getSound(el, soundK)
 	!ARGS"2 soundK:string"
 	checkValidSoundKey(soundK, 2)
-	return el._sounds[soundK]
+	return el._sounds and el._sounds[soundK]
 end
 
 -- sound|nil = element:getResultingSound( soundKey )
@@ -4291,11 +4289,11 @@ function Cs.element.getResultingSound(el, soundK)
 	!ARGS"2 soundK:string"
 	checkValidSoundKey(soundK, 2)
 
-	local sound = el._sounds[soundK]
+	local sound = el._sounds and el._sounds[soundK]
 
 	if sound == nil then
 		for _, parent in el:parents() do
-			sound = parent._sounds[soundK]
+			sound = parent._sounds and parent._sounds[soundK]
 			if sound ~= nil then  break  end
 		end
 		if sound == nil and el._gui then
@@ -4303,16 +4301,18 @@ function Cs.element.getResultingSound(el, soundK)
 		end
 	end
 
-	if sound == "" then  sound = nil  end -- Special case: An empty string intercepts the bubbling and tells that no sound should be played.
+	if sound == false then  sound = nil  end -- Special case: The value false intercepts the bubbling and tells that no sound should be played.
 
 	return sound
 end
 
 -- element:setSound( soundKey, sound )
--- element:setSound( soundKey, nil ) -- Remove sound.
+-- element:setSound( soundKey, false ) -- Prevent sound from playing, even if a default sound is set.
+-- element:setSound( soundKey, nil   ) -- Remove sound.
 function Cs.element.setSound(el, soundK, sound)
 	!ARGS"2 soundK:string"
 	checkValidSoundKey(soundK, 2)
+	el._sounds         = el._sounds or {}
 	el._sounds[soundK] = sound
 end
 
@@ -4374,22 +4374,24 @@ end
 
 -- bool = element:hasTag( tag )
 function Cs.element.hasTag(el, tag)
-	return el._tags[tag] ~= nil -- @Memory: _tags probably don't need to be set at all times. :NilTagsTable
+	return (el._tags and el._tags[tag]) ~= nil
 end
 
 -- element:addTag( tag )
 function Cs.element.addTag(el, tag)
+	el._tags      = el._tags or {}
 	el._tags[tag] = true
 end
 
 -- element:removeTag( tag )
 -- element:removeAllTags( )
 function Cs.element.removeTag(el, tag)
+	if not el._tags then  return  end
 	el._tags[tag] = nil
 end
 function Cs.element.removeAllTags(el)
-	if next(el._tags) then
-		el._tags = {} -- @Memory :NilTagsTable
+	if el._tags and next(el._tags) then
+		el._tags = nil
 	end
 end
 
@@ -5513,6 +5515,7 @@ do
 		if contentSize > insideSize then
 			handleMaxPos = childAreaSize - handleLen
 			handlePos    = -scroll * handleMaxPos / (contentSize - insideSize)
+			handlePos    = math.min(handlePos, handleMaxPos)
 		end
 
 		return handlePos, handleLen, handleMaxPos

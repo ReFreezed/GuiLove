@@ -106,7 +106,6 @@ end
 function love.update(dt)
 	gui:update(dt)
 end
-
 function love.draw()
 	gui:draw()
 end
@@ -116,17 +115,17 @@ end
 
 ## API
 
-Check the source code for more info.
+Check the source code for more and up-to-date info.
+These lists are outdated!
 
 
 ### Gui Methods
 
 ```
-update
-draw
-
 keypressed, keyreleased, textinput
 mousepressed, mousemoved, mousereleased, wheelmoved
+update
+draw
 
 areStandardKeysActive, setStandardKeysActive
 blur
