@@ -100,7 +100,7 @@
 	isBusy, isKeyboardBusy, isMouseBusy
 	isCullingActive, setCullingActive
 	isIgnoringKeyboardInput
-	isInputCaptured
+	isInputCaptured, getInputCapturingElement
 	isInteractionLocked
 	isMouseGrabbed, setMouseIsGrabbed
 	load
@@ -2887,11 +2887,13 @@ local Gui = newClass("Gui", {
 
 	_keyboardFocus                = nil,
 	_ignoreKeyboardInputThisFrame = false,
-	_standardKeysAreActive        = true,
+
+	_standardKeysAreActive        = false,
+	_standardKeysAreActiveInMenus = true,
 
 	_navigationTarget    = nil,
 	_timeSinceNavigation = 0.0,
-	_lockNavigation      = false,
+	_lockNavigation      = false, -- True when an input has keyboard focus.
 
 	_scrollSpeedX = 1.0,
 	_scrollSpeedY = 1.0,
@@ -2913,7 +2915,7 @@ local Gui = newClass("Gui", {
 	_textPreprocessor = nil,
 	_spriteLoader     = nil,
 
-	_culling = true, -- Affects scrollables.
+	_culling = true, -- Affects scrollables and root.
 
 	_heres = nil,
 
@@ -2951,16 +2953,17 @@ local __STATIC6 = {}
 local __STATIC7 = {}
 local __STATIC8 = {}
 local __STATIC9 = {}
+local __STATIC10 = {}
 local __LAMBDA3 = (function() local time ; local __func = function(el)
 	el._timeBecomingVisible = time
 end ; return function(__time) time = __time ; return __func end end)()
-local __STATIC10 = {}
 local __STATIC11 = {}
 local __STATIC12 = {}
 local __STATIC13 = {}
 local __STATIC14 = {}
 local __STATIC15 = {}
 local __STATIC16 = {}
+local __STATIC17 = {}
 
 
 
@@ -3565,18 +3568,13 @@ end
 
 -- themeRenderOnScreen( element, what, x, y, w, h, extraArgument1, ... )
 local function themeRenderOnScreen(el, what, x, y, w, h, ...)
-	if   w <= 0 or   h <= 0 then  return  end
-	if x+w <  0 or y+h <  0 then  return  end
-
-	local gui          = el._gui
-	local rootW, rootH = gui._root:getDimensions()
-	if x >= rootW or y >= rootH then  return  end
+	if w <= 0 or h <= 0 then  return  end
 
 	love.graphics.push("all")
 	love.graphics.translate(x, y)
 
-	themeCallBack(gui, "draw", what, el, w, h, ...)
-	el:unsetScissor()
+	themeCallBack(el._gui, "draw", what, el, w, h, ...)
+	el:unsetScissor() -- In case the theme set one but didn't unset it.
 
 	love.graphics.pop()
 end
@@ -4311,7 +4309,21 @@ function Gui.draw(gui)
 		--
 		-- Draw stuff.
 		--
-		gui._root:_draw(-1/0, -1/0, 1/0, 1/0, childToDrawNavTargetAfter)
+		local cullX1, cullY1, cullX2, cullY2
+		if gui._culling then
+			local rootX, rootY, rootW, rootH = gui._root:getLayout()
+			cullX1 = rootX
+			cullY1 = rootY
+			cullX2 = rootX + rootW
+			cullY2 = rootY + rootH
+		else
+			cullX1 = -1/0
+			cullY1 = -1/0
+			cullX2 = 1/0
+			cullY2 = 1/0
+		end
+
+		gui._root:_draw(cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 
 		if gui._hoveredElement and not gui._mouseFocus then
 			gui._hoveredElement:_drawTooltip()
@@ -4329,25 +4341,20 @@ function Gui.keypressed(gui, key, scancode, isRepeat)
 	if type(scancode)~="string" then argerror(2,2,"scancode",scancode,"string") end
 	if type(isRepeat)~="boolean" then argerror(2,3,"isRepeat",isRepeat,"boolean") end
 
-	if gui._animationLockCount > 0 then  return true  end
+	if gui._ignoreKeyboardInputThisFrame then  return true  end
+	if gui._animationLockCount > 0       then  return true  end
 
 	local focus = gui._keyboardFocus or gui._mouseFocus
-	local el    = focus or gui._hoveredElement
-
-	if gui._ignoreKeyboardInputThisFrame then
-		return el ~= nil
-	end
-
-	el = el or gui._navigationTarget -- Can this be on the 'el' declaration line?
+	local el    = focus or gui._hoveredElement or gui._navigationTarget or gui:getInputCapturingElement(true) or gui._root
 
 	if el then
 		if focus then
-			if trigger(focus,     "keypressed", key, scancode, isRepeat) then  return true  end
+			if trigger(focus,     "keypressed", key, scancode, isRepeat) then  return true  end -- The focus has exclusive rights to the event. No bubbling!
 		else
 			if el:triggerBubbling("keypressed", key, scancode, isRepeat) then  return true  end
 		end
 
-		local handled, grabKbFocus = el:_keypressed(key, scancode, isRepeat)
+		local handled, grabKbFocus = el:_keypressed(key, scancode, isRepeat) -- @Cleanup: I don't think grabKbFocus is ever true.
 
 		if handled then
 			if grabKbFocus then  setKeyboardFocus(gui, el)  end
@@ -4356,6 +4363,36 @@ function Gui.keypressed(gui, key, scancode, isRepeat)
 	end
 
 	if focus then  return true  end
+
+	if gui._standardKeysAreActive then
+		if key == "right" then
+			gui:navigate(0)
+			return true
+		elseif key == "down" then
+			gui:navigate(1.5707963267949)
+			return true
+		elseif key == "left" then
+			gui:navigate(3.1415926535898)
+			return true
+		elseif key == "up" then
+			gui:navigate( -1.5707963267949)
+			return true
+
+		elseif key == "tab" then
+			if love.keyboard.isDown("lshift","rshift") then
+				gui:navigateToPrevious()
+			else
+				gui:navigateToNext()
+			end
+			return true
+
+		elseif key == "return" or key == "kpenter" then
+			if gui:ok() then  return true  end
+
+		elseif key == "escape" then
+			if gui:back() then  return true  end
+		end
+	end
 
 	local root = gui._root
 
@@ -4593,13 +4630,21 @@ end
 
 
 -- bool = gui:areStandardKeysActive( )
+-- bool = gui:areStandardKeysActiveInMenus( )
 function Gui.areStandardKeysActive(gui)
 	return gui._standardKeysAreActive
 end
+function Gui.areStandardKeysActiveInMenus(gui)
+	return gui._standardKeysAreActiveInMenus
+end
 
 -- gui:setStandardKeysActive( bool )
+-- gui:setStandardKeysActiveInMenus( bool )
 function Gui.setStandardKeysActive(gui, active)
 	gui._standardKeysAreActive = active
+end
+function Gui.setStandardKeysActiveInMenus(gui, active)
+	gui._standardKeysAreActiveInMenus = active
 end
 
 
@@ -4823,12 +4868,12 @@ do
 		-- element = gui:navigateToNext( [ id=any, allowNone=false ] )
 		-- Note: Calls gui:navigateToFirst() if there's no current navigation target.
 		function Gui.navigateToNext(gui, id, allowNone)
-			return navigateToNextOrPrevious(gui, id, allowNone, false)
+			return (navigateToNextOrPrevious(gui, id, allowNone, false))
 		end
 
 		-- element = gui:navigateToPrevious( [ id=any, allowNone=false ] )
 		function Gui.navigateToPrevious(gui, id, allowNone)
-			return navigateToNextOrPrevious(gui, id, allowNone, true)
+			return (navigateToNextOrPrevious(gui, id, allowNone, true))
 		end
 	end
 
@@ -5093,7 +5138,7 @@ end
 
 
 -- bool = gui:isInputCaptured( [ includeGuiInput=false ] )
-function Gui.isInputCaptured(gui, includeGuiInput)
+function Gui.isInputCaptured(gui, includeGuiInput) -- @Cleanup: Remove in favor of getInputCapturingElement.
 	local root = gui._root
 	if not root or root._hidden then  return false  end
 
@@ -5104,6 +5149,20 @@ function Gui.isInputCaptured(gui, includeGuiInput)
 	end
 
 	return false
+end
+
+-- element|nil = gui:getInputCapturingElement( [ includeGuiInput=false ] )
+function Gui.getInputCapturingElement(gui, includeGuiInput)
+	local root = gui._root
+	if not root or root._hidden then  return false  end
+
+	for _, el in ipairs(root:collectVisible(__STATIC7)) do
+		if el._captureInput or (includeGuiInput and el._captureGuiInput) then
+			return el
+		end
+	end
+
+	return nil
 end
 
 
@@ -5168,7 +5227,7 @@ function Gui.back(gui)
 	-- Close closable (like Escape does).
 	local elToClose = nil
 
-	for _, el in ipairs(root:_collectVisibleUntilInputCapture(__STATIC7)) do
+	for _, el in ipairs(root:_collectVisibleUntilInputCapture(__STATIC8)) do
 		if el:canClose() then
 			elToClose = el
 			break
@@ -5966,7 +6025,7 @@ do
 		local closestDistSqr = 1/0
 		local closestAngDiff = 1/0
 
-		for _, el in ipairs(navRoot:collectVisible(__STATIC8)) do
+		for _, el in ipairs(navRoot:collectVisible(__STATIC9)) do
 			if el ~= elToIgnore and el:is(class) then
 				local x, y = el:getPositionOnScreen()
 				x          = math.min(math.max(fromX, x+.01), x+el._layoutWidth -.01)
@@ -6035,7 +6094,7 @@ do
 		local foundSelf = false
 		local lastMatch = nil
 
-		for _, otherEl in ipairs(el:getNavigationRoot():collectVisible(__STATIC9)) do
+		for _, otherEl in ipairs(el:getNavigationRoot():collectVisible(__STATIC10)) do
 			-- Note: Remember that we're traversing backwards.
 
 			local elIsValid = otherEl:is(class)
@@ -7363,7 +7422,7 @@ function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 	local searchStartIndex = 1
 	local lastInputTime    = -99
 
-	if gui._standardKeysAreActive then
+	if gui._standardKeysAreActive or gui._standardKeysAreActiveInMenus then
 		menu:on("keypressed", function(button, event, key, scancode, isRepeat)
 			if key == "up" then
 				local button     = buttons:getToggledChild()
@@ -7396,6 +7455,9 @@ function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 				if button then  button:press()  end
 				return true
 
+			elseif gui._standardKeysAreActive and (key == "left" or key == "right" or key == "tab") then
+				-- Prevent _standardKeysAreActive from doing stuff in gui:keypressed().
+				return true
 			end
 		end)
 	end
@@ -8012,7 +8074,8 @@ do
 
 		if contentSize > insideSize then
 			handleMaxPos = childAreaSize - handleLen
-			handlePos    = math.min(-scroll * handleMaxPos / (contentSize - insideSize), handleMaxPos)
+			handlePos    = -scroll * handleMaxPos / (contentSize - insideSize)
+			handlePos    = math.min(handlePos, handleMaxPos)
 		end
 
 		return handlePos, handleLen, handleMaxPos
@@ -8217,7 +8280,7 @@ function Cs.container.getElementAt(container, x, y, nonSolid)
 		if y >= containerY+container:getChildAreaHeight() then  return nil  end
 	end
 
-	for _, el in ipairs(container:_collectVisibleUntilInputCapture(x, y, __STATIC10)) do
+	for _, el in ipairs(container:_collectVisibleUntilInputCapture(x, y, __STATIC11)) do
 		if ((nonSolid or el:isSolid()) and el:isAt(x, y)) or (el._captureInput or el._captureGuiInput) then
 			return el
 		end
@@ -8964,9 +9027,9 @@ function Cs.hbar._expandAndPositionChildren(bar)
 	--
 
 	-- Calculate dimensions.
-	local widths  = __STATIC11
-	local heights = __STATIC12
-	local ignore  = __STATIC13
+	local widths  = __STATIC12
+	local heights = __STATIC13
+	local ignore  = __STATIC14
 
 	for phase = 1, 2 do -- We need two phases to apply min/max size properly when also expanding.
 		local advance         = 0
@@ -9113,9 +9176,9 @@ function Cs.vbar._expandAndPositionChildren(bar)
 	--
 
 	-- Calculate dimensions.
-	local widths  = __STATIC14
-	local heights = __STATIC15
-	local ignore  = __STATIC16
+	local widths  = __STATIC15
+	local heights = __STATIC16
+	local ignore  = __STATIC17
 
 	for phase = 1, 2 do -- We need two phases to apply min/max size properly when also expanding.
 		local advance         = 0
@@ -9293,6 +9356,13 @@ function Cs.root._calculateNaturalSize(root)
 	root._layoutWidth  = root._width
 	root._layoutHeight = root._height
 	calculateContainerChildNaturalSizes(root)
+end
+
+-- INTERNAL OVERRIDE  root:_expandAndPositionChildren( )
+function Cs.root._expandAndPositionChildren(root)
+	root._layoutX = root._x
+	root._layoutY = root._y
+	Cs.root.super._expandAndPositionChildren(root)
 end
 
 

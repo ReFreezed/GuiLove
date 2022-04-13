@@ -3,7 +3,8 @@ io.stderr:setvbuf("no")
 
 love.keyboard.setKeyRepeat(true)
 
-local TAU = 2*math.pi
+local TAU         = 2*math.pi
+local ROOT_MARGIN = 10
 
 local Gui = require("Gui")
 local gui
@@ -19,12 +20,14 @@ function love.load(args)
 	local largeFont = love.graphics.newFont(20)
 
 	gui = Gui()
+	gui:setStandardKeysActive(true)
+	-- gui:setCullingActive(false)
 
 	gui:defineStyle("_MENU", {
 		[1] = {padding=10, background="something"},
 	})
 
-	gui:load{"root", width=love.graphics.getWidth(), height=love.graphics.getHeight(),
+	gui:load{"root", x=ROOT_MARGIN, y=ROOT_MARGIN, width=love.graphics.getWidth()-2*ROOT_MARGIN, height=love.graphics.getHeight()-2*ROOT_MARGIN,
 		{"hbar", relativeWidth=1, relativeHeight=1,
 			{"vbar", weight=1,
 				{"button", id="menu", text="...", spacing=5},
@@ -283,30 +286,8 @@ end
 function love.keypressed(key, scancode, isRepeat)
 	if gui:keypressed(key, scancode, isRepeat) then
 		-- void
-
-	elseif key == "right" then
-		gui:navigate(0)
-	elseif key == "down" then
-		gui:navigate(TAU/4)
-	elseif key == "left" then
-		gui:navigate(TAU/2)
-	elseif key == "up" then
-		gui:navigate(-TAU/4)
-
-	elseif key == "tab" then
-		if love.keyboard.isDown("lshift","rshift") then
-			gui:navigateToPrevious()
-		else
-			gui:navigateToNext()
-		end
-
-	elseif key == "return" or key == "kpenter" then
-		gui:ok()
-
 	elseif key == "escape" then
-		if not gui:back() then
-			love.event.quit()
-		end
+		love.event.quit()
 	end
 end
 
@@ -383,7 +364,7 @@ end
 
 
 function love.resize(w, h)
-	gui:getRoot():setDimensions(w, h)
+	gui:getRoot():setDimensions(w-2*ROOT_MARGIN, h-2*ROOT_MARGIN)
 end
 
 function love.errorhandler(err)
