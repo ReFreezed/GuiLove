@@ -307,12 +307,16 @@ end
 
 
 function love.keypressed(key, scancode, isRepeat)
-	if gui:keypressed(key, scancode, isRepeat) then
-		-- void
+	if scancode == "`" then
+		if isRepeat then  return  end
+		gui.debug = not gui.debug
 
 	elseif key == "f1" then
 		if isRepeat then  return  end
 		showStats = not showStats
+
+	elseif gui:keypressed(key, scancode, isRepeat) then
+		-- void
 
 	elseif key == "escape" then
 		love.event.quit()
@@ -352,7 +356,6 @@ end
 local updateTime = 0.00
 
 function love.update(dt)
-	gui.debug  = love.keyboard.isScancodeDown"`"
 	updateTime = love.timer.getTime()
 	gui:update(dt)
 	updateTime = love.timer.getTime() - updateTime
@@ -367,8 +370,8 @@ function love.draw()
 	drawTime = love.timer.getTime() - drawTime
 
 	love.graphics.setColor(0, 1, 0, .4)
-	Gui.draw9SliceScaled  (30,200, 47,47, sliceImage, unpack(sliceQuads))
-	Gui.draw9SliceRepeated(90,200, 47,47, sliceImage, unpack(sliceQuads))
+	Gui.draw9SliceScaled  (30,250, 47,47, sliceImage, unpack(sliceQuads))
+	Gui.draw9SliceRepeated(90,250, 47,47, sliceImage, unpack(sliceQuads))
 
 	-- Stats.
 	if showStats then

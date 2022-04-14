@@ -194,7 +194,7 @@
 	- getElementAt
 	- getInnerSpace, getInnerSpaceX, getInnerSpaceY
 	- getPadding, getPaddingLeft, getPaddingRight, getPaddingTop, getPaddingBottom, setPadding
-	- getScroll, getScrollX, getScrollY, setScroll, setScrollX, setScrollY, scroll, updateScroll
+	- getScroll, getScrollX, getScrollY, setScroll, setScrollX, setScrollY, scroll
 	- getScrollHandleX, getScrollHandleY
 	- getScrollLimit, getScrollLimitX, getScrollLimitY
 	- getToggledChild, setToggledChild
@@ -2875,6 +2875,8 @@ local Gui = newClass("Gui", {
 	_defaultSounds = nil,
 	_soundPlayer   = nil, -- soundPlayer = function( sound )
 
+	_scrollSoundSuppressionLevel = 0,
+
 	_scissorCoordsConverter = nil,
 	_elementScissorIsSet    = false,
 
@@ -2897,7 +2899,7 @@ local Gui = newClass("Gui", {
 
 	_scrollSpeedX     = 3.5,
 	_scrollSpeedY     = 3.5,
-	_scrollSmoothness = 50,
+	_scrollSmoothness = 60,
 
 	_time        = 0.0,
 	_tooltipTime = 0.0,
@@ -2913,6 +2915,7 @@ local Gui = newClass("Gui", {
 	_lastAutomaticId = 0,
 
 	_layoutNeedsUpdate = false,
+	_isUpdatingLayout  = false,
 	_layoutUpdateTime  = 0.00,
 
 	_textPreprocessor = nil, -- newText       = function( text, element, mnemonicsAreEnabled )
@@ -2929,14 +2932,16 @@ local Cs = {} -- gui element Classes.
 local Is = {} -- gui element Includes.
 
 local validSoundKeys = {
-	-- Generic
-	["close"]  = true, -- Usually containers, but any element can be a closable.
-	["focus"]  = true, -- Only used by Inputs so far.
-	["press"]  = true, -- Buttons.
+	-- Generic.
+	["close" ] = true, -- Usually containers, but any element can be a closable.
+	["focus" ] = true, -- Only used by Inputs so far.
+	["press" ] = true, -- Buttons.
+	["toggle"] = true, -- Buttons. Overrides "press".
 	["scroll"] = true, -- Containers.
 
-	-- Element specific
-	["inputsubmit"] = true, ["inputrevert"] = true,
+	-- Element specific.
+	["inputsubmit"] = true,
+	["inputrevert"] = true,
 }
 
 local defaultTheme
@@ -3441,16 +3446,18 @@ end
 
 
 
--- Prepare a sound for being played. (Useful if it's possible the element will be removed in an event.)
--- playSound:function = prepareSound( element, soundKey )
+--
+-- playSoundFunction = prepareSound( element, soundKey )
+--
+-- Prepare a sound for being played. Useful if it's possible the element will
+-- be removed in an event. Returns nil if no sound will be played.
+--
 local function prepareSound(el, soundK)
 	local gui         = el._gui
 	local soundPlayer = gui and gui._soundPlayer
 	local sound       = soundPlayer and el:getResultingSound(soundK)
 
-	return function()
-		if sound ~= nil then  soundPlayer(sound)  end
-	end
+	return (sound ~= nil) and function()soundPlayer(sound)end or nil
 end
 
 
@@ -3704,23 +3711,35 @@ end
 
 -- didUpdate = updateLayout( element )
 local function updateLayout(el)
+	-- Guard against accidental recursion (specifically the 'layout' event
+	-- callback triggering an update... though maybe the 'layout' event is a
+	-- bad idea to begin with... need to mention this in the docs).
 	local gui = el._gui
+	if gui._isUpdatingLayout then  return false  end -- The returned value is confusing here as we didn't update, but someone else is in the middle of it!
+
+	local root = el:getRoot() -- @Temp
+	-- local container = el -- @Incomplete @Speed: Maybe make any element able to update it's layout. (See comment below.)
+	if root._hidden then
+		gui._layoutNeedsUpdate = false
+		return false
+	end
+
 	if gui.debug then
 		print("Gui: Updating layout.")
 	end
-
-	local root = el:getRoot() -- @Temp
-	-- local container = el -- @Incomplete @Speed: Make any element able to update it's layout. (See comment below.)
-	if root._hidden then  return false  end
+	gui._isUpdatingLayout = true
 
 	local getTime = (love.timer and love.timer.getTime) or (pcall(require, "socket") and require"socket".gettime) or os.clock
 	local time    = getTime()
 
 	root:_calculateNaturalSize()
 
+	--
 	-- Note: This currently, most likely only works correctly if 'container'
 	-- is the root. (I think we need to save the last values we use and know
-	-- if the parent would change size if we changed size. 2022-03-28)
+	-- if the parent would change size if we changed size. All the extra work
+	-- may be expensive and not worth it in the end. 2022-03-28)
+	--
 	root._layoutWidth  = root._width
 	root._layoutHeight = root._height
 	root:_expandAndPositionChildren()
@@ -3732,23 +3751,29 @@ local function updateLayout(el)
 
 	updateHoveredElement(gui)
 
+	gui._isUpdatingLayout = false
+	if gui.debug then
+		print("Gui: Finished updating layout.")
+	end
 	return true
 end
 
 -- didUpdate = updateLayoutIfNeeded( gui )
 local function updateLayoutIfNeeded(gui)
 	if not gui._layoutNeedsUpdate then  return false  end
+	if gui._isUpdatingLayout      then  return false  end
 	gui._layoutNeedsUpdate = false
 
 	local root = gui._root
 	if not root then  return false  end
 
-	updateLayout(root)
+	return (updateLayout(root))
 end
 
 local function scheduleLayoutUpdateIfDisplayed(el)
 	local gui = el._gui
 	if gui._layoutNeedsUpdate then  return  end
+	if gui._isUpdatingLayout  then  return  end
 
 	gui._layoutNeedsUpdate = el:isDisplayed()
 	if gui.debug and gui._layoutNeedsUpdate then
@@ -3788,12 +3813,11 @@ end
 
 -- useColor( color [, alphaMultiplier=1 ] )
 local function useColor(color, opacity)
-	if not opacity then
-		setColor(color)
-	else
-		local r, g, b, a = unpack(color)
-		setColor(r, g, b, (a or 1)*opacity)
+	local r, g, b, a = unpack(color)
+	if opacity then
+		a = (a or 1) * opacity
 	end
+	setColor(r, g, b, a)
 end
 
 
@@ -5200,8 +5224,9 @@ end
 -- newText = textPreprocessor( text, element, mnemonicsAreEnabled )
 function Gui.setTextPreprocessor(gui, func)
 	if not(type(func)=="function" or func==nil) then argerror(2,1,"func",func,"function","nil") end
+	if gui._textPreprocessor == func then  return  end
 	gui._textPreprocessor = func
-	-- Should we call reprocessTexts() here? @Incomplete
+	gui:reprocessTexts() -- @Speed: Maybe add a system for scheduling reprocessing of texts. (Probably not necessary.)
 end
 
 -- gui:reprocessTexts( )
@@ -6020,7 +6045,9 @@ function Cs.element.close(el)
 		return false -- Suppress default behavior.
 	end
 
-	preparedSound()
+	if preparedSound then
+		preparedSound()
+	end
 	el:hide()
 	el:triggerBubbling("closed", el)
 
@@ -7223,8 +7250,7 @@ function Cs.element.setHidden(el, hidden)
 		gui._layoutNeedsUpdate = true
 
 		if isDisplayed then
-			local time = gui._time
-
+			local time              = gui._time
 			el._timeBecomingVisible = time
 
 			if el:is(Cs.container) then
@@ -8157,17 +8183,18 @@ function Cs.container.setScroll(container, scrollX, scrollY, immediate)
 	if dx == 0 and dy == 0 then  return false  end
 	--
 
-	container._scrollX, container._scrollY = scrollX, scrollY
+	container._scrollX = scrollX
+	container._scrollY = scrollY
 
 	for el in container:traverse() do
-		el._layoutImmediateOffsetX = el._layoutImmediateOffsetX+dx
-		el._layoutImmediateOffsetY = el._layoutImmediateOffsetY+dy
+		el._layoutImmediateOffsetX = el._layoutImmediateOffsetX + dx
+		el._layoutImmediateOffsetY = el._layoutImmediateOffsetY + dy
 	end
 
 	if immediate then  setVisualScroll(container, scrollX, scrollY)  end
 
-	if container:isDisplayed() then
-		container:playSound("scroll") -- @Robustness: May have to add more limitations to whether "scroll" sound plays or not.
+	if container._gui._scrollSoundSuppressionLevel == 0 and container:isDisplayed() then
+		container:playSound("scroll") -- @Robustness: May have to add more limitations to whether the 'scroll' sound plays or not.
 		updateHoveredElement(container._gui)
 	end
 
@@ -8188,10 +8215,11 @@ function Cs.container.scroll(container, dx, dy, immediate)
 	return (container:setScroll(container._scrollX+dx, container._scrollY+dy, immediate))
 end
 
--- scrollChanged = container:updateScroll( [, immediate=false ] )
--- @Incomplete: Update scroll automatically when elements change size etc.
-function Cs.container.updateScroll(container, immediate)
-	return (container:scroll(0, 0, immediate))
+local function updateScroll(container)
+	local gui                        = container._gui
+	gui._scrollSoundSuppressionLevel = gui._scrollSoundSuppressionLevel + 1 -- There might be a possibility we get called recursively. Better not taking any chances and use a level instead of a bool.
+	container:setScroll(container._scrollX, container._scrollY, false)
+	gui._scrollSoundSuppressionLevel = gui._scrollSoundSuppressionLevel - 1
 end
 
 
@@ -9020,6 +9048,8 @@ function Cs.container._expandAndPositionChildren(container)
 			expandAndPositionFloatingElement(child, innerW, innerH) -- All children count as floating in plain/non-layout containers.
 		end
 	end
+
+	updateScroll(container)
 end
 
 
@@ -9273,6 +9303,8 @@ function Cs.hbar._expandAndPositionChildren(bar)
 	-- Make sure scrolling uses the final expanded content size.
 	bar._contentWidth = x
 
+	updateScroll(bar)
+
 end
 function Cs.vbar._expandAndPositionChildren(bar)
 
@@ -9422,6 +9454,8 @@ function Cs.vbar._expandAndPositionChildren(bar)
 	-- Make sure scrolling uses the final expanded content size.
 	bar._contentHeight = y
 
+	updateScroll(bar)
+
 end
 
 
@@ -9458,8 +9492,7 @@ function Cs.root._draw(root, cullX1, cullY1, cullX2, cullY2, childToDrawNavTarge
 	drawLayoutBackground(root)
 	root:_drawDebug(0, 0, 1, 0)
 
-	-- @Incomplete: Culling, though it's probably not important for roots as they
-	-- probably cover the whole screen and contains everything inside its bounds.
+	-- @Cleanup: Move root culling from caller to here.
 	drawChildrenAndMaybeNavigationTarget(root, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
 
 	if not root._gui.debug then
@@ -9523,7 +9556,7 @@ Cs.leaf = newElementClass(true, "GuiLeaf", Cs.element, {}, {
 	_textColor = nil,
 	--
 
-	_mnemonicBytePosition = nil,
+	_mnemonicBytePosition = 0, -- 0 means no position.
 	_textWidth            = 0, _textHeight = 0,
 	_unprocessedText      = "",
 }, {
@@ -9588,12 +9621,12 @@ end
 -- offsetX, offsetY, width = leaf:getMnemonicOffset( )
 -- Returns nil if there's no mnemonic.
 function Cs.leaf.getMnemonicOffset(leaf)
-	if not leaf._mnemonicBytePosition then  return nil  end
+	if leaf._mnemonicBytePosition == 0 then  return nil  end
 
 	local font = leaf:getResultingFont()
 	local text = leaf._text
 
-	-- @Incomplete: Handle kerning.
+	-- @Polish: Handle kerning.
 	local    i1 = leaf._mnemonicBytePosition
 	local _, i2 = text:find("^[%z\1-\127\194-\244][\128-\191]*", i1)
 	local x1    = font:getWidth(text:sub(1, i1-1)) -- @Speed @Memory
@@ -9623,7 +9656,7 @@ function Cs.leaf.setText(leaf, unprocessedText)
 	if leaf._text == text then  return  end
 
 	-- Check text for mnemonics (using "&").
-	leaf._mnemonicBytePosition = nil
+	leaf._mnemonicBytePosition = 0
 
 	if leaf._mnemonics then
 		local matchCount    = 0
@@ -9727,6 +9760,7 @@ end
 Cs.canvas = newElementClass(false, "GuiCanvas", Cs.leaf, {}, {
 	-- Parameters.
 	_canvasBackgroundColor = nil,
+	-- @Incomplete: Padding?
 }, {
 	"draw", -- function( canvasElement, event, drawAreaWidth, drawAreaHeight )
 })
@@ -9764,7 +9798,7 @@ function Cs.canvas._draw(canvas, cullX1, cullY1, cullX2, cullY2, childToDrawNavT
 		local bgColor = canvas._canvasBackgroundColor
 
 		if bgColor then
-			setColor(bgColor)
+			setColor(unpack(bgColor))
 			love.graphics.rectangle("fill", cx, cy, cw, ch)
 		end
 
@@ -10274,7 +10308,7 @@ function Cs.button.press(button, ignoreActiveState)
 	end
 
 	-- Press/toggle the button.
-	local preparedSound = prepareSound(button, "press")
+	local preparedSound = button._canToggle and prepareSound(button, "toggle") or prepareSound(button, "press") -- 'toggle' falls back to 'press'.
 
 	if button._canToggle then
 		if button._radio ~= "" then
@@ -10322,7 +10356,7 @@ function Cs.button.press(button, ignoreActiveState)
 			end
 		end
 	end
-	if not closedAnything then
+	if preparedSound and not closedAnything then
 		preparedSound() -- 'close' has its own sound.
 	end
 
@@ -10433,7 +10467,7 @@ function Cs.input._draw(inputEl, cullX1, cullY1, cullX2, cullY2, childToDrawNavT
 	local valueX, valueY, valueW, valueH = inputEl:getValueLayout()
 	local curOffsetX, curOffsetY, curH   = inputEl._field:getCursorLayout()
 
-	-- @Incomplete: Draw scrollbars.
+	-- @Incomplete: Draw scrollbars. (We really ought to handle mouse events for them too!)
 
 	triggerIncludingAnimations(inputEl, "beforedraw", x, y, w, h)
 
