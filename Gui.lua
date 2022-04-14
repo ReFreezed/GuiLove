@@ -1106,23 +1106,27 @@ local InputField = (function()
 
 	-- @UX: Improve how the cursor and selection are restored on undo.
 	local function undoEdit(field)
-		if field.editHistoryIndex == 1 then  return  end
+		if field.editHistoryIndex == 1 then  return false  end
 
 		finilizeHistoryGroup(field)
 		applyHistoryState(field, -1)
 
 		field:resetBlinking()
 		field:scrollToCursor()
+
+		return true
 	end
 
 	local function redoEdit(field)
-		if field.editHistoryIndex == #field.editHistory then  return  end
+		if field.editHistoryIndex == #field.editHistory then  return false  end
 
 		finilizeHistoryGroup(field)
 		applyHistoryState(field, 1)
 
 		field:resetBlinking()
 		field:scrollToCursor()
+
+		return true
 	end
 
 
@@ -2504,17 +2508,13 @@ local InputField = (function()
 		if not field.editingEnabled then  return false, false  end
 
 		-- @Robustness: Filter and/or font filter could have changed after the last edit.
-		if field.type ~= "password" then  undoEdit(field)  end
-
-		return true, true
+		return true, (field.type ~= "password" and undoEdit(field))
 	end
 	local function action_redo(field, isRepeat)
 		if not field.editingEnabled then  return false, false  end
 
 		-- @Robustness: Filter and/or font filter could have changed after the last edit.
-		if field.type ~= "password" then  redoEdit(field)  end
-
-		return true, true
+		return true, (field.type ~= "password" and redoEdit(field))
 	end
 
 
@@ -2935,8 +2935,9 @@ local validSoundKeys = {
 	-- Generic.
 	["close" ] = true, -- Usually containers, but any element can be a closable.
 	["focus" ] = true, -- Only used by Inputs so far.
+	["type"  ] = true, -- Inputs (when entering text).
 	["press" ] = true, -- Buttons.
-	["toggle"] = true, -- Buttons. Overrides "press".
+	["toggle"] = true, -- Buttons. Overrides/falls back to "press".
 	["scroll"] = true, -- Containers.
 
 	-- Element specific.
@@ -4481,25 +4482,27 @@ function Gui.keypressed(gui, key, scancode, isRepeat)
 	if gui._ignoreKeyboardInputThisFrame then  return true  end
 	if gui._animationLockCount > 0       then  return true  end
 
-	local focus = gui._keyboardFocus or gui._mouseFocus
-	local el    = focus or gui._hoveredElement or gui._navigationTarget or gui:getInputCapturingElement(true) or gui._root
+	do
+		local focus = gui._keyboardFocus or gui._mouseFocus
+		local el    = focus or gui._hoveredElement or gui._navigationTarget or gui:getInputCapturingElement(true) or gui._root
 
-	if el then
-		if focus then
-			if trigger(focus,     "keypressed", key, scancode, isRepeat) then  return true  end -- The focus has exclusive rights to the event. No bubbling!
-		else
-			if el:triggerBubbling("keypressed", key, scancode, isRepeat) then  return true  end
+		if el then
+			if focus then
+				if trigger(focus,     "keypressed", key, scancode, isRepeat) then  return true  end -- The focus has exclusive rights to the event. No bubbling!
+			else
+				if el:triggerBubbling("keypressed", key, scancode, isRepeat) then  return true  end
+			end
+
+			local handled, grabKbFocus = el:_keypressed(key, scancode, isRepeat) -- @Cleanup: I don't think grabKbFocus is ever true.
+
+			if handled then
+				if grabKbFocus then  setKeyboardFocus(gui, el)  end
+				return true
+			end
 		end
 
-		local handled, grabKbFocus = el:_keypressed(key, scancode, isRepeat) -- @Cleanup: I don't think grabKbFocus is ever true.
-
-		if handled then
-			if grabKbFocus then  setKeyboardFocus(gui, el)  end
-			return true
-		end
+		if focus then  return true  end
 	end
-
-	if focus then  return true  end
 
 	if gui._standardKeysAreActive then
 		if key == "right" then
@@ -4524,6 +4527,10 @@ function Gui.keypressed(gui, key, scancode, isRepeat)
 			return true
 
 		elseif key == "return" or key == "kpenter" then
+			if isRepeat and gui._navigationTarget and gui._navigationTarget._active and gui._navigationTarget:is(Cs.input) then
+				-- Prevent input focus right after submission.
+				return true
+			end
 			if gui:ok() then  return true  end
 
 		elseif key == "escape" then
@@ -4573,24 +4580,21 @@ end
 function Gui.textinput(gui, text)
 	if type(text)~="string" then argerror(2,1,"text",text,"string") end
 
-	if gui._animationLockCount > 0 then  return true  end
+	if gui._ignoreKeyboardInputThisFrame then  return true  end
+	if gui._animationLockCount > 0       then  return true  end
 
-	local focus = gui._keyboardFocus or gui._mouseFocus
-	local el    = focus or gui._hoveredElement
+	do
+		local focus = gui._keyboardFocus or gui._mouseFocus
+		local el    = focus or gui._hoveredElement or gui._navigationTarget or gui:getInputCapturingElement(true) or gui._root
 
-	if gui._ignoreKeyboardInputThisFrame then
-		return el ~= nil
+		if el then
+			if not focus and el:triggerBubbling("textinput", text) then  return true  end -- Should there not be an event if there is focus? @Revise
+
+			if el:_textinput(text) then  return true  end
+		end
+
+		if focus then  return true  end
 	end
-
-	el = el or gui._navigationTarget -- Can this be on the 'el' declaration line?
-
-	if el then
-		if not focus and el:triggerBubbling("textinput", text) then  return true  end
-
-		if el:_textinput(text) then  return true  end
-	end
-
-	if focus then  return true  end
 
 	local root = gui._root
 
@@ -4673,10 +4677,10 @@ function Gui.mousemoved(gui, mx, my)
 		updateHoveredElement(gui) -- Make sure hovered element updates whenever mouse moves.
 	end
 
-	local focus = gui._mouseFocus
-	if not focus then  return false  end
+	local mouseFocus = gui._mouseFocus
+	if not mouseFocus then  return false  end
 
-	local el = (mx and focus or gui._hoveredElement)
+	local el = (mx and mouseFocus or gui._hoveredElement)
 	if el then
 		el:_mousemoved(mx, my)
 		trigger(el, "mousemoved", mx-el:getXOnScreen(), my-el:getYOnScreen())
@@ -4696,15 +4700,15 @@ function Gui.mousereleased(gui, mx, my, mbutton, pressCount)
 	gui._mouseX = mx
 	gui._mouseY = my
 
-	local focus = gui._mouseFocus
-	if not (focus and gui._mouseFocusButtonStates[mbutton]) then
+	local mouseFocus = gui._mouseFocus
+	if not (mouseFocus and gui._mouseFocusButtonStates[mbutton]) then
 		return false
 	end
 
 	blurMouseFocus(gui, mbutton)
 	updateLayoutIfNeeded(gui) -- Updates hovered element.
 
-	local el = focus or gui._hoveredElement
+	local el = mouseFocus or gui._hoveredElement
 	if el then
 		el:_mousereleased(mx, my, mbutton, pressCount)
 	end
@@ -4732,14 +4736,14 @@ function Gui.wheelmoved(gui, dx, dy)
 		dx, dy = dy, dx
 	end
 
-	local focus = gui._mouseFocus
-	if not focus then
+	local mouseFocus = gui._mouseFocus
+	if not mouseFocus then
 		updateLayoutIfNeeded(gui) -- Updates hovered element.
 	end
 
 	-- Focus (non-bubbling event)
 	-- OR hovered element (bubbling event).
-	local el         = focus or gui._hoveredElement
+	local el         = mouseFocus or gui._hoveredElement
 	local anyIsSolid = false
 
 	while el do
@@ -4751,7 +4755,7 @@ function Gui.wheelmoved(gui, dx, dy)
 			if el:_wheelmoved(dx, dy, dx0, dy0) then  return true  end
 		end
 
-		if focus then  return focus:isSolid()  end
+		if mouseFocus then  return mouseFocus:isSolid()  end
 
 		anyIsSolid = anyIsSolid or el:isSolid()
 		el         = el._parent
@@ -10641,7 +10645,7 @@ function Cs.input._keypressed(inputEl, key, scancode, isRepeat)
 		if newValue ~= oldValue then
 			inputEl:setValue(newValue)
 			inputEl._field:selectAll()
-			-- @Incomplete: Play a sound here. :TypingSound
+			inputEl:playSound("type")
 			trigger(inputEl, "valuechange")
 		end
 
@@ -10654,7 +10658,7 @@ function Cs.input._keypressed(inputEl, key, scancode, isRepeat)
 		elseif inputEl._mask ~= "" and not inputEl:getValue():find(inputEl._mask) then
 			inputEl:setValue(oldValue) -- Undo the change.  @UX: Handle the cursor better.
 		else
-			-- :TypingSound
+			inputEl:playSound("type")
 			trigger(inputEl, "valuechange")
 		end
 	end
@@ -10687,7 +10691,7 @@ function Cs.input._textinput(inputEl, text)
 		inputEl:scrollIntoView(true)
 	else
 		inputEl:scrollIntoView(true)
-		-- :TypingSound
+		inputEl:playSound("type")
 		trigger(inputEl, "valuechange")
 	end
 
@@ -10730,7 +10734,11 @@ end
 
 -- INTERNAL REPLACE  handled = input:_wheelmoved( deltaX, deltaY, deltaX0, deltaY0 )
 function Cs.input._wheelmoved(inputEl, dx, dy, dx0, dy0)
-	return (inputEl._field:wheelmoved(dx0, dy0)) -- @Incomplete: Smooth scrolling for inputs. (Maybe it should be implemented in InputField?)
+	local handled = inputEl._field:wheelmoved(dx0, dy0) -- @Incomplete: Smooth scrolling for inputs. (Maybe it should be implemented in InputField?)
+	if handled then
+		inputEl:playSound("scroll")
+	end
+	return handled
 end
 
 
@@ -10738,10 +10746,10 @@ end
 -- INTERNAL REPLACE  handled = input:_ok( )
 function Cs.input._ok(inputEl)
 	inputEl._gui._ignoreKeyboardInputThisFrame = true
-	if not inputEl:isFocused() then
-		inputEl:focus()
-	else
+	if inputEl:isFocused() then
 		inputEl:blur()
+	else
+		inputEl:focus()
 	end
 	return true
 end

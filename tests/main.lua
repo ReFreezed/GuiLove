@@ -284,6 +284,28 @@ function love.load(args)
 		myContainer:insert{ "text", text=text }
 	end)
 
+	gui:setSoundPlayer(function(source)
+		local PITCH_VARIATION = .06
+		source                = source:clone()
+		source:setPitch((1-PITCH_VARIATION/2)+PITCH_VARIATION*math.random())
+		source:play()
+	end)
+
+	local function newSound(filename, vol)
+		local source = love.audio.newSource("sounds/"..filename, "static")
+		source:setVolume(vol^2)
+		return source
+	end
+
+	gui:setDefaultSound("close",       newSound("close.ogg"      , 1.0))
+	gui:setDefaultSound("focus",       newSound("focus.ogg"      , 1.0))
+	gui:setDefaultSound("type",        newSound("type.ogg"       , 1.0))
+	gui:setDefaultSound("press",       newSound("press.ogg"      , 1.0))
+	gui:setDefaultSound("toggle",      newSound("toggle.ogg"     , 0.9))
+	gui:setDefaultSound("scroll",      newSound("scroll.ogg"     , 0.5))
+	gui:setDefaultSound("inputsubmit", newSound("inputsubmit.ogg", 1.0))
+	gui:setDefaultSound("inputrevert", newSound("inputrevert.ogg", 0.8))
+
 	sliceImage = Gui.newMonochromeImage{
 		"   ff    ff   ",
 		"  f  f  f  f  ",
@@ -319,6 +341,7 @@ function love.keypressed(key, scancode, isRepeat)
 		-- void
 
 	elseif key == "escape" then
+		if isRepeat then  return  end
 		love.event.quit()
 	end
 end
