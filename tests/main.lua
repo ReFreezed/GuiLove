@@ -9,6 +9,8 @@ local ROOT_MARGIN = 10
 local Gui = require("Gui")
 local gui
 
+local showStats = false
+
 
 
 function love.load(args)
@@ -286,6 +288,11 @@ end
 function love.keypressed(key, scancode, isRepeat)
 	if gui:keypressed(key, scancode, isRepeat) then
 		-- void
+
+	elseif key == "f1" then
+		if isRepeat then  return  end
+		showStats = not showStats
+
 	elseif key == "escape" then
 		love.event.quit()
 	end
@@ -337,28 +344,25 @@ function love.draw()
 	drawTime = love.timer.getTime() - drawTime
 
 	-- Stats.
-	love.graphics.getStats(stats)
+	if showStats then
+		love.graphics.getStats(stats)
 
-	formatStr = formatStr or table.concat({
-		"draw: calls=%d batched=%d",
-		"memory: lua=%.2fMiB",
-		"time: layout=%.2f update=%.1fms draw=%.1fms",
-	}, "\n")
-	local text = string.format(formatStr
-		, stats.drawcalls, stats.drawcallsbatched
-		, collectgarbage"count"/1024
-		, gui:getLayoutUpdateTime(), updateTime*1000, drawTime*1000
-	)
+		formatStr = formatStr or table.concat({
+			"draw: calls=%d batched=%d",
+			"memory: lua=%.2fMiB",
+			"time: layout=%.2f update=%.1fms draw=%.1fms",
+		}, "\n")
+		local text = string.format(formatStr
+			, stats.drawcalls, stats.drawcallsbatched
+			, collectgarbage"count"/1024
+			, gui:getLayoutUpdateTime(), updateTime*1000, drawTime*1000
+		)
 
-	local w      = 300
-	local h      = 3*love.graphics.getFont():getHeight()
-	local mx, my = love.mouse.getPosition()
-	local a      = love.window.hasMouseFocus() and Gui.clamp01(math.max(mx-w, my-h)/70) or 1
-
-	love.graphics.setColor(.2, 0, .2, .8*a)
-	love.graphics.rectangle("fill", 0, 0, w, h)
-	love.graphics.setColor(1, 1, 1, a)
-	love.graphics.print(text, 0, 0)
+		love.graphics.setColor(.2, 0, .2, .8)
+		love.graphics.rectangle("fill", 0, 0, 300, 3*love.graphics.getFont():getHeight())
+		love.graphics.setColor(1, 1, 1)
+		love.graphics.print(text, 0, 0)
+	end
 end
 
 

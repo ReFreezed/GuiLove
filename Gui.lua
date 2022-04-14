@@ -90,6 +90,7 @@
 	getNavigationTarget, navigateTo, navigateToNext, navigateToPrevious, navigateToFirst, navigate, canNavigateTo
 	getRoot
 	getScissorCoordsConverter, setScissorCoordsConverter
+	getScrollSmoothness, setScrollSmoothness
 	getScrollSpeed, setScrollSpeed
 	getSoundPlayer, setSoundPlayer
 	getSpriteLoader, setSpriteLoader
@@ -97,6 +98,7 @@
 	getTextPreprocessor, setTextPreprocessor, reprocessTexts
 	getTheme, setTheme
 	getTime, getTimeSinceNavigation
+	getTooltipDelay, setTooltipDelay
 	isBusy, isKeyboardBusy, isMouseBusy
 	isCullingActive, setCullingActive
 	isIgnoringKeyboardInput
@@ -2859,8 +2861,6 @@ local _M = { -- The module.
 }
 
 local Gui = newClass("Gui", {
-	TOOLTIP_DELAY = 0.15, -- @Incomplete: Make this a setting.
-
 	VALUE_MASK_INT    =  "^%-?%d+$",       -- Integer.  @Revise these masks.
 	VALUE_MASK_UINT   =  "^%d+$",          -- Unsigned integer.
 	VALUE_MASK_FLOAT  =  "^%-?%d+%.?%d*$", -- Floating point number.
@@ -2895,11 +2895,14 @@ local Gui = newClass("Gui", {
 	_timeSinceNavigation = 0.0,
 	_lockNavigation      = false, -- True when an input has keyboard focus.
 
-	_scrollSpeedX = 1.0,
-	_scrollSpeedY = 1.0,
+	_scrollSpeedX     = 3.5,
+	_scrollSpeedY     = 3.5,
+	_scrollSmoothness = 50,
 
 	_time        = 0.0,
 	_tooltipTime = 0.0,
+
+	_tooltipDelay = 0.15,
 
 	_theme  = nil,
 	_styles = nil,
@@ -2912,8 +2915,8 @@ local Gui = newClass("Gui", {
 	_layoutNeedsUpdate = false,
 	_layoutUpdateTime  = 0.00,
 
-	_textPreprocessor = nil,
-	_spriteLoader     = nil,
+	_textPreprocessor = nil, -- newText       = function( text, element, mnemonicsAreEnabled )
+	_spriteLoader     = nil, -- image, frames = function( spriteName )
 
 	_culling = true, -- Affects scrollables and root.
 
@@ -3164,6 +3167,11 @@ end
 
 local function lerp(v1, v2, t)
 	return v1 + (v2-v1) * t
+end
+
+local function damp(current, target, lambda, dt)
+	-- http://www.rorydriscoll.com/2016/03/07/frame-rate-independent-damping-using-lerp/
+	return lerp(current, target, 1-math.exp(-lambda*dt))
 end
 
 
@@ -3646,7 +3654,7 @@ local function updateHoveredElement(gui)
 	local oldEl         = gui._hoveredElement
 	gui._hoveredElement = el
 
-	if not (el and oldEl and el._tooltip ~= "" and oldEl._tooltip ~= "" and gui._tooltipTime >= gui.TOOLTIP_DELAY) then
+	if not (el and oldEl and el._tooltip ~= "" and oldEl._tooltip ~= "" and gui._tooltipTime >= gui._tooltipDelay) then
 		-- @UX: Don't reset tooltip time instantly - add a delay.
 		gui._tooltipTime = 0
 	end
@@ -4973,11 +4981,25 @@ function Gui.getScrollSpeed(gui)
 end
 
 -- gui:setScrollSpeed( speedX [, speedY=speedX ] )
+-- Note: The scroll speed is relative to the GUI's font size (gui:getFont() or Gui.getDefaultFont()).
 function Gui.setScrollSpeed(gui, speedX, speedY)
 	if type(speedX)~="number" then argerror(2,1,"speedX",speedX,"number") end
 	if not(type(speedY)=="number" or speedY==nil) then argerror(2,2,"speedY",speedY,"number","nil") end
 	gui._scrollSpeedX = speedX
 	gui._scrollSpeedY = speedY or speedX
+end
+
+
+
+-- smoothness = gui:getScrollSmoothness( )
+function Gui.getScrollSmoothness(gui)
+	return gui._scrollSmoothness
+end
+
+-- gui:setScrollSmoothness( smoothness )
+function Gui.setScrollSmoothness(gui, smoothness)
+	if type(smoothness)~="number" then argerror(2,1,"smoothness",smoothness,"number") end
+	gui._scrollSmoothness = smoothness
 end
 
 
@@ -5097,6 +5119,19 @@ function Gui.setTheme(gui, theme)
 	if gui._theme == theme then  return  end
 	gui._theme             = theme
 	gui._layoutNeedsUpdate = true
+end
+
+
+
+-- delay = gui:getTooltipDelay( )
+function Gui.getTooltipDelay(gui)
+	return gui._tooltipDelay
+end
+
+-- gui:setTooltipDelay( delay )
+function Gui.setTooltipDelay(gui, delay)
+	if type(delay)~="number" then argerror(2,1,"delay",delay,"number") end
+	gui._tooltipDelay = delay
 end
 
 
@@ -5800,7 +5835,7 @@ function Cs.element._drawTooltip(el)
 	local gui  = el._gui
 	local text = el._tooltip
 
-	if text == "" or gui._tooltipTime < gui.TOOLTIP_DELAY then  return  end
+	if text == "" or gui._tooltipTime < gui._tooltipDelay then  return  end
 
 	local root = gui._root
 	local font = el:getResultingTooltipFont()
@@ -5816,7 +5851,7 @@ function Cs.element._drawTooltip(el)
 		y = math.max(y-h-el._layoutHeight, 0)
 	end
 
-	themeRenderOnScreen(el, "tooltip", x, y, w, h, text, textW, textH, gui._tooltipTime-gui.TOOLTIP_DELAY)
+	themeRenderOnScreen(el, "tooltip", x, y, w, h, text, textW, textH, gui._tooltipTime-gui._tooltipDelay)
 end
 
 
@@ -7562,11 +7597,6 @@ end
 
 
 Cs.container = newElementClass(false, "GuiContainer", Cs.element, {}, {
-	SCROLL_SMOOTHNESS = 0.65, -- @Incomplete: Make this a setting.
-
-	SCROLL_SPEED_X = 30, -- @Incomplete: Make this a setting.
-	SCROLL_SPEED_Y = 50, -- @Incomplete: Make this a setting.
-
 	-- Parameters.
 	_confineNavigation = false,
 	_solid             = false,
@@ -7634,12 +7664,12 @@ function Cs.container._update(container, dt)
 	local didScroll = false
 
 	if visualScrollX ~= scrollX then
-		visualScrollX = scrollX + container.SCROLL_SMOOTHNESS * (visualScrollX - scrollX)
+		visualScrollX = damp(scrollX, visualScrollX, container._gui._scrollSmoothness, dt)
 		if math.abs(visualScrollX-scrollX) < .5 then  visualScrollX = scrollX  end
 		didScroll = true
 	end
 	if visualScrollY ~= scrollY then
-		visualScrollY = scrollY + container.SCROLL_SMOOTHNESS * (visualScrollY - scrollY)
+		visualScrollY = damp(scrollY, visualScrollY, container._gui._scrollSmoothness, dt)
 		if math.abs(visualScrollY-scrollY) < .5 then  visualScrollY = scrollY  end
 		didScroll = true
 	end
@@ -8433,13 +8463,14 @@ end
 -- INTERNAL REPLACE  handled = container:_wheelmoved( deltaX, deltaY, deltaX0, deltaY0 )
 function Cs.container._wheelmoved(container, dx, dy, dx0, dy0)
 	if (dx ~= 0 and container:canScrollX()) or (dy ~= 0 and container:canScrollY()) then
-		if container:scroll(
-			container._gui._scrollSpeedX * container.SCROLL_SPEED_X * dx, -- @Incomplete: Scroll relative to font size instead of SCROLL_SPEED_*.
-			container._gui._scrollSpeedY * container.SCROLL_SPEED_Y * dy
-		) then
+		local gui   = container._gui
+		local fontH = (gui._font or _M.getDefaultFont()):getHeight()
+
+		if container:scroll(gui._scrollSpeedX*fontH*dx, gui._scrollSpeedY*fontH*dy) then
 			return true
 		end
 	end
+
 	return false
 end
 
