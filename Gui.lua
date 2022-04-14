@@ -284,7 +284,7 @@
 
 	clamp, clamp01, clamp11
 	create9SliceQuads
-	draw9SliceScaled
+	draw9SliceScaled, draw9SliceRepeated
 	getDefaultFont
 	lerp, lerpColor
 	newMonochromeImage, newImageUsingPalette
@@ -2873,7 +2873,7 @@ local Gui = newClass("Gui", {
 	_fontTooltip = nil,
 
 	_defaultSounds = nil,
-	_soundPlayer   = nil,
+	_soundPlayer   = nil, -- soundPlayer = function( sound )
 
 	_scissorCoordsConverter = nil,
 	_elementScissorIsSet    = false,
@@ -3107,14 +3107,47 @@ end
 
 
 
--- drawImage( image, quad, ... )
--- drawImage( image, nil, ... )
--- drawImage( nil, image, ... )
-local function drawImage(image, quadOrImage, ...)
+-- drawImageScaled( image,quad , x,y, scaleX,scaleY )
+-- drawImageScaled( image,nil  , x,y, scaleX,scaleY )
+-- drawImageScaled( nil  ,image, x,y, scaleX,scaleY )
+local function drawImageScaled(image,quadOrImage, x,y, sx,sy)
 	if image and quadOrImage then
-		love.graphics.draw(image, quadOrImage, ...)
+		love.graphics.draw(image,quadOrImage, x,y, 0, sx,sy)
 	else
-		love.graphics.draw((image or quadOrImage), ...)
+		love.graphics.draw((image or quadOrImage), x,y, 0, sx,sy)
+	end
+end
+
+local tempQuad = love.graphics.newQuad(0,0, 1,1, 1,1)
+
+-- drawImageLimited( image,quad , x,y, width,height, maxX,maxY )
+-- drawImageLimited( image,nil  , x,y, width,height, maxX,maxY )
+-- drawImageLimited( nil  ,image, x,y, width,height, maxX,maxY )
+local function drawImageLimited(image,quadOrImage, x,y, w,h, maxX,maxY)
+	if x+w < maxX and y+h < maxY then
+		if image and quadOrImage then
+			love.graphics.draw(image,quadOrImage, x,y)
+		else
+			love.graphics.draw((image or quadOrImage), x,y)
+		end
+
+	else
+		local qx,qy, qw,qh, iw,ih
+
+		if image and quadOrImage then
+			iw, ih       = image:getDimensions()
+			qx,qy, qw,qh = quadOrImage:getViewport()
+		else
+			image        = image or quadOrImage
+			iw, ih       = image:getDimensions()
+			qx,qy, qw,qh = 0,0, iw,ih
+		end
+
+		qw = math.min(qw, maxX-x)
+		qh = math.min(qh, maxY-y)
+
+		tempQuad:setViewport(qx,qy, qw,qh, iw,ih)
+		love.graphics.draw(image,tempQuad, x,y)
 	end
 end
 
@@ -3188,13 +3221,12 @@ end
 
 
 
--- sprite = newSprite( image [, quad ] )
--- sprite = newSprite( image, frames )
+-- sprite = newSprite( image, quad|frames|nil, errorLevel )
 -- frames = { frame1, ... }
 -- frame  = { duration=duration, quad=quad }
-local function newSprite(image, framesOrQuad)
-	if not(type(image)=='userdata'and(image):typeOf"Image") then argerror(1,1,"image",image,"Image") end
-	if not((type(framesOrQuad)=='userdata'and(framesOrQuad):typeOf"Quad") or type(framesOrQuad)=="table" or framesOrQuad==nil) then argerror(1,2,"framesOrQuad",framesOrQuad,"Quad","table","nil") end
+local function newSprite(image, framesOrQuad, errLevel)
+	if not(type(image)=='userdata'and(image):typeOf"Image") then argerror(1+errLevel,1,"image",image,"Image") end
+	if not((type(framesOrQuad)=='userdata'and(framesOrQuad):typeOf"Quad") or type(framesOrQuad)=="table" or framesOrQuad==nil) then argerror(1+errLevel,2,"framesOrQuad",framesOrQuad,"Quad","table","nil") end
 	local frames
 
 	if not framesOrQuad then
@@ -3207,11 +3239,11 @@ local function newSprite(image, framesOrQuad)
 	else
 		frames = framesOrQuad
 		if not frames[1] then
-			error("The frames table is empty. We need at least one frame!", 2)
+			error("The frames table is empty. We need at least one frame!", 1+errLevel)
 		end
 		for i, frame in ipairs(frames) do
-			if not frame.duration then  errorf(2, "Frame %d is missing a duration.", i)  end
-			if not frame.quad     then  errorf(2, "Frame %d is missing a quad."    , i)  end
+			if not frame.duration then  errorf(1+errLevel, "Frame %d is missing a duration.", i)  end
+			if not frame.quad     then  errorf(1+errLevel, "Frame %d is missing a quad."    , i)  end
 		end
 	end
 
@@ -3240,9 +3272,9 @@ local function newSprite(image, framesOrQuad)
 	return sprite
 end
 
--- -- clone = cloneSprite( sprite )
--- local function cloneSprite(sprite)
--- 	return (newSprite(sprite.image, sprite.frames))
+-- -- clone = cloneSprite( sprite, errorLevel )
+-- local function cloneSprite(sprite, errLevel)
+-- 	return (newSprite(sprite.image, sprite.frames, 1+errLevel))
 -- end
 
 -- image, quad, width, height = getCurrentViewOfSprite( sprite )
@@ -4001,8 +4033,8 @@ end
 -- )
 function _M.draw9SliceScaled(x, y, w, h, image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33)
 	if not obj33 then
-		image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33
-			= nil, image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32
+		image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33 = nil,
+		image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32
 	end
 
 	local t, l, r, b, sx, sy
@@ -4027,24 +4059,94 @@ function _M.draw9SliceScaled(x, y, w, h, image, obj11, obj12, obj13, obj21, obj2
 	love.graphics.translate(x, y)
 
 	-- Fill.
-	drawImage(image, obj22, l, t, 0, sx, sy)
+	drawImageScaled(image, obj22, l, t, sx, sy)
 
 	-- Sides.
-	drawImage(image, obj12,   l,   0, 0, sx,  1)
-	drawImage(image, obj23, w-r,   t, 0,  1, sy)
-	drawImage(image, obj32,   l, h-b, 0, sx,  1)
-	drawImage(image, obj21,   0,   t, 0,  1, sy)
+	drawImageScaled(image, obj12,   l,   0, sx,  1)
+	drawImageScaled(image, obj23, w-r,   t,  1, sy)
+	drawImageScaled(image, obj32,   l, h-b, sx,  1)
+	drawImageScaled(image, obj21,   0,   t,  1, sy)
 
 	-- Corners.
-	drawImage(image, obj11,   0,   0)
-	drawImage(image, obj13, w-r,   0)
-	drawImage(image, obj31,   0, h-b)
-	drawImage(image, obj33, w-r, h-b)
+	drawImageScaled(image, obj11,   0,   0,  1,  1)
+	drawImageScaled(image, obj13, w-r,   0,  1,  1)
+	drawImageScaled(image, obj31,   0, h-b,  1,  1)
+	drawImageScaled(image, obj33, w-r, h-b,  1,  1)
 
 	love.graphics.pop()
 end
 
--- @Incomplete: draw9SliceRepeated
+-- Gui.draw9SliceRepeated(
+--     x, y, width, height,
+--     topLeftImage,    topCenterImage,    topRightImage,
+--     middleLeftImage, middleCenterImage, middleRightImage,
+--     bottomLeftImage, bottomCenterImage, bottomRightImage
+-- )
+-- Gui.draw9SliceRepeated(
+--     x, y, width, height, image,
+--     topLeftQuad,    topCenterQuad,    topRightQuad,
+--     middleLeftQuad, middleCenterQuad, middleRightQuad,
+--     bottomLeftQuad, bottomCenterQuad, bottomRightQuad
+-- )
+function _M.draw9SliceRepeated(x, y, w, h, image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33)
+	if not obj33 then
+		image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32, obj33 = nil,
+		image, obj11, obj12, obj13, obj21, obj22, obj23, obj31, obj32
+	end
+
+	local t, l, r, b, segW, segH
+	if image then
+		local _
+		_, _, l   , t    = obj11:getViewport()
+		_, _, r   , b    = obj33:getViewport()
+		_, _, segW, segH = obj22:getViewport()
+	else
+		l   , t    = obj11:getDimensions()
+		r   , b    = obj33:getDimensions()
+		segW, segH = obj22:getDimensions()
+	end
+
+	love.graphics.push()
+	love.graphics.translate(x, y)
+
+	-- Fill.
+	local maxX = w - r
+	local maxY = h - b
+
+	local segY = t
+	while segY < maxY do
+		local segX = l
+		while segX < maxX do
+			drawImageLimited(image,obj22, segX,segY, segW,segH, maxX,maxY)
+			segX = segX + segW
+		end
+		segY = segY + segH
+	end
+
+	-- Sides: top and bottom.
+	local segX = l
+	while segX < maxX do
+		drawImageLimited(image,obj12, segX,0  , segW,0, maxX,1/0)
+		drawImageLimited(image,obj32, segX,h-t, segW,0, maxX,1/0)
+		segX = segX + segW
+	end
+
+	-- Sides: left and right.
+	local segY = t
+	while segY < maxX do
+		drawImageLimited(image,obj21, 0  ,segY, 0,segH, 1/0,maxY)
+		drawImageLimited(image,obj23, w-l,segY, 0,segH, 1/0,maxY)
+		segY = segY + segH
+	end
+
+	-- Corners.
+	drawImageScaled(image, obj11,   0,   0, 1, 1)
+	drawImageScaled(image, obj13, w-r,   0, 1, 1)
+	drawImageScaled(image, obj31,   0, h-b, 1, 1)
+	drawImageScaled(image, obj33, w-r, h-b, 1, 1)
+
+	love.graphics.pop()
+end
 
 
 
@@ -4186,9 +4288,12 @@ end
 
 -- Gui( )
 function Gui.init(gui)
-	gui._allAnimations          = {}
-	gui._defaultSounds          = {}
-	gui._heres                  = {}
+	gui._allAnimations = {}
+	gui._defaultSounds = {}
+	gui._heres         = {}
+
+	gui._soundPlayer = love.audio.play
+
 	gui._mouseFocusButtonStates = {false, false, false} -- We only handle mouse button 1-3.
 
 	gui._styles = {
@@ -4997,9 +5102,10 @@ function Gui.getScrollSmoothness(gui)
 end
 
 -- gui:setScrollSmoothness( smoothness )
+-- 0 disables smoothness.
 function Gui.setScrollSmoothness(gui, smoothness)
 	if type(smoothness)~="number" then argerror(2,1,"smoothness",smoothness,"number") end
-	gui._scrollSmoothness = smoothness
+	gui._scrollSmoothness = math.max(smoothness, 0)
 end
 
 
@@ -5519,7 +5625,7 @@ function Is.imageInclude.setSprite(imageInc, imageOrName, framesOrQuad)
 	local oldIw = imageInc._sprite and imageInc._sprite.width  or 0
 	local oldIh = imageInc._sprite and imageInc._sprite.height or 0
 
-	imageInc._sprite     = image and newSprite(image, framesOrQuad)
+	imageInc._sprite     = image and newSprite(image, framesOrQuad, 2)
 	imageInc._spriteName = spriteName
 
 	local iw = imageInc._sprite and imageInc._sprite.width  or 0
@@ -7179,7 +7285,7 @@ end
 
 
 -- bool = element:isSolid( )
--- If the element has collision or not.
+-- Solid elements have collision and cannot be clicked through.
 function Cs.element.isSolid(el)
 	return false
 end

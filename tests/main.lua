@@ -7,9 +7,11 @@ local TAU         = 2*math.pi
 local ROOT_MARGIN = 10
 
 local Gui = require("Gui")
-local gui
 
 local showStats = false
+
+local gui
+local sliceImage, sliceQuads
 
 
 
@@ -281,6 +283,25 @@ function love.load(args)
 		local text        = "Pressed button " .. pressCount .. " " .. (pressCount == 1 and "time" or "times") .. "!"
 		myContainer:insert{ "text", text=text }
 	end)
+
+	sliceImage = Gui.newMonochromeImage{
+		"   ff    ff   ",
+		"  f  f  f  f  ",
+		" f    ff    f ",
+		"f            f",
+		"f            f",
+		" f   7777   f ",
+		"  f  7777  f  ",
+		"  f  7777  f  ",
+		" f   7777   f ",
+		"f            f",
+		"f            f",
+		" f    ff    f ",
+		"  f  f  f  f  ",
+		"   ff    ff   ",
+	}
+	sliceImage:setFilter("nearest", "nearest")
+	sliceQuads = Gui.create9SliceQuads(sliceImage, 4, 4)
 end
 
 
@@ -309,7 +330,9 @@ end
 
 
 function love.mousepressed(mx, my, mbutton, isTouch, pressCount)
-	gui:mousepressed(mx, my, mbutton, pressCount)
+	if not gui:mousepressed(mx, my, mbutton, pressCount) then
+		print("Pressed on nothing at ["..mx..","..my.."]")
+	end
 end
 
 function love.mousemoved(mx, my, dx, dy, isTouch)
@@ -342,6 +365,10 @@ function love.draw()
 	local drawTime = love.timer.getTime()
 	gui:draw()
 	drawTime = love.timer.getTime() - drawTime
+
+	love.graphics.setColor(0, 1, 0, .4)
+	Gui.draw9SliceScaled  (30,200, 47,47, sliceImage, unpack(sliceQuads))
+	Gui.draw9SliceRepeated(90,200, 47,47, sliceImage, unpack(sliceQuads))
 
 	-- Stats.
 	if showStats then
