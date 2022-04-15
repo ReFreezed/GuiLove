@@ -100,8 +100,15 @@ function love.load(args)
 					{"button", text="untitled (2).txt"},
 				},
 
-				-- Multi-line input.
-				{"input", weight=1, fieldType="multiwrap", placeholder="~type me maybe~"},
+				-- Multi-line input and sliders.
+				{"hbar", weight=1,
+					{"input", weight=1, fieldType="multiwrap", placeholder="~type me maybe~"},
+
+					{"vbar", background="warning",
+						{"slider", value=.25, min=100, max=200, step=10},
+						{"slider", value=.25, min=100, max=200, step=10, vertical=true, weight=1},
+					},
+				},
 
 				-- Size precedence if weighted or not.
 				{"vbar", spacing=5,
@@ -302,27 +309,30 @@ function love.load(args)
 
 	gui:setSoundPlayer(function(source)
 		local PITCH_VARIATION = .06
+		local pitch           = 1 + PITCH_VARIATION * Gui.lerp(-.5, .5, math.random())
 		source                = source:clone()
-		source:setPitch((1-PITCH_VARIATION/2)+PITCH_VARIATION*math.random())
+		source:setPitch(pitch*source:getPitch())
 		source:play()
 	end)
 
-	local function newSound(filename, vol)
+	local function newSound(filename, vol, pitch)
 		local source = love.audio.newSource("sounds/"..filename, "static")
 		source:setVolume(vol^2)
+		source:setPitch(pitch)
 		return source
 	end
 
-	gui:setDefaultSound("close"      , newSound("close.ogg"      , 1.0))
-	gui:setDefaultSound("focus"      , newSound("focus.ogg"      , 1.0))
-	gui:setDefaultSound("type"       , newSound("type.ogg"       , 1.0))
-	gui:setDefaultSound("press"      , newSound("press.ogg"      , 1.0))
-	gui:setDefaultSound("toggle"     , newSound("toggle.ogg"     , 0.9))
-	gui:setDefaultSound("navigate"   , newSound("navigate.ogg"   , 0.7))
-	gui:setDefaultSound("scroll"     , newSound("scroll.ogg"     , 0.5))
-	gui:setDefaultSound("buttondown" , newSound("buttondown.ogg" , 0.7))
-	gui:setDefaultSound("inputsubmit", newSound("inputsubmit.ogg", 1.0))
-	gui:setDefaultSound("inputrevert", newSound("inputrevert.ogg", 0.8))
+	gui:setDefaultSound("close"      , newSound("close.ogg"      , 1.00, 1.0))
+	gui:setDefaultSound("focus"      , newSound("focus.ogg"      , 1.00, 1.0))
+	gui:setDefaultSound("type"       , newSound("type.ogg"       , 1.00, 1.0))
+	gui:setDefaultSound("press"      , newSound("press.ogg"      , 1.00, 1.0))
+	gui:setDefaultSound("toggle"     , newSound("toggle.ogg"     , 0.90, 1.0))
+	gui:setDefaultSound("navigate"   , newSound("navigate.ogg"   , 0.70, 1.0))
+	gui:setDefaultSound("scroll"     , newSound("scroll.ogg"     , 0.50, 1.0))
+	gui:setDefaultSound("buttondown" , newSound("buttondown.ogg" , 0.70, 1.0))
+	gui:setDefaultSound("inputsubmit", newSound("inputsubmit.ogg", 1.00, 1.0))
+	gui:setDefaultSound("inputrevert", newSound("inputrevert.ogg", 0.80, 1.0))
+	gui:setDefaultSound("slidermove" , newSound("type.ogg"       , 0.85, 2.0)) -- @Incomplete: Unique sound.
 
 	sliceImage = Gui.newMonochromeImage{
 		"   ff    ff   ",
@@ -376,12 +386,12 @@ end
 
 function love.mousepressed(mx, my, mbutton, isTouch, pressCount)
 	if not gui:mousepressed(mx, my, mbutton, pressCount) then
-		print("Pressed on nothing at ["..mx..","..my.."]")
+		print("Pressed nothing at ["..mx..","..my.."]")
 	end
 end
 
 function love.mousemoved(mx, my, dx, dy, isTouch)
-	gui:mousemoved(mx, my)
+	gui:mousemoved(mx, my, dx, dy)
 end
 
 function love.mousereleased(mx, my, mbutton, isTouch, pressCount)

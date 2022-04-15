@@ -4,22 +4,28 @@ local TAU = 2*math.pi
 
 -- Settings.
 
-local BUTTON_PADDING       = 3
-local BUTTON_IMAGE_SPACING = 3 -- Between text and image.
-local BUTTON_TEXT_SPACING  = 6 -- Between the texts, if there are two.
+local BUTTON_PADDING        = 3
+local BUTTON_IMAGE_SPACING  = 3 -- Between text and image.
+local BUTTON_TEXT_SPACING   = 6 -- Between the texts, if there are two.
 
-local INPUT_PADDING        = 4
+local INPUT_PADDING = 4
 
-local NAV_EXTRA_SIZE      = 10 -- In each direction.
-local NAV_SHRINK_DURATION = .10
+local SLIDER_PADDING          = 6
+local SLIDER_WIDTH            = 16
+local SLIDER_DEFAULT_LENGTH   = 80
+local SLIDER_HANDLE_THICKNESS = 3
+local SLIDER_MARKER_WIDTH     = 6
 
-local SCROLLBAR_WIDTH      = 8
-local SCROLLBAR_MIN_LENGTH = 12
+local NAV_EXTRA_SIZE        = 10 -- In each direction.
+local NAV_SHRINK_DURATION   = .10
 
-local TEXT_PADDING         = 1 -- For text elements.
+local SCROLLBAR_WIDTH       = 8
+local SCROLLBAR_MIN_LENGTH  = 12
 
-local TOOLTIP_PADDING      = 3
-local TOOLTIP_FADE_IN_TIME = .15
+local TEXT_PADDING          = 1 -- For text elements.
+
+local TOOLTIP_PADDING       = 3
+local TOOLTIP_FADE_IN_TIME  = .15
 
 
 
@@ -69,7 +75,8 @@ return {
 	-- Basic theme parameters.
 	----------------------------------------------------------------
 
-	inputIndentation   = INPUT_PADDING, -- Affects mouse interactions and scrolling for inputs.
+	inputIndentation   = INPUT_PADDING,  -- Affects mouse interactions and scrolling for inputs.
+	sliderIndentation  = SLIDER_PADDING, -- Affects mouse interactions for sliders.
 
 	navigationSize     = NAV_EXTRA_SIZE, -- How much extra size the highlight of the navigation target has. Affects scrollIntoView().
 
@@ -160,6 +167,19 @@ return {
 			-- Only the returned height is actually used. For inputs, the width
 			-- is always specified directly on the element outside the theme.
 			return 0, fontHeight+2*INPUT_PADDING
+		end,
+
+		-- Slider element.
+		-- size.slider( sliderElement, zeroWidth, zeroHeight, sliderIndentation )
+		["slider"] = function(slider, w, h, sliderIndent)
+			w = SLIDER_DEFAULT_LENGTH + 2*sliderIndent
+			h = SLIDER_WIDTH + 2*SLIDER_PADDING
+
+			if slider:isVertical() then
+				w, h = h, w
+			end
+
+			return w, h
 		end,
 
 		-- Tooltip.
@@ -388,6 +408,50 @@ return {
 				local cursorOpacity = ((math.cos(5*input:getBlinkPhase()) + 1) / 2) ^ .5
 				Gui.setColor(1, 1, 1, cursorOpacity)
 				love.graphics.rectangle("fill", valueX+curOffsetX-1, valueY+curOffsetY, 1, fontHeight)
+			end
+		end,
+
+		-- Slider element.
+		-- draw.slider( inputElement, elementWidth, elementHeight, sliderIndentation )
+		["slider"] = function(slider, w, h, sliderIndent)
+			-- @Incomplete: _continuous
+
+			if slider:isVertical() then
+				love.graphics.push()
+				love.graphics.translate(w, 0)
+				love.graphics.rotate(TAU/4)
+				w, h = h, w
+			end
+
+			local railX1  = sliderIndent
+			local railX2  = w - sliderIndent
+			local railW   = railX2 - railX1
+			local handleX = railX1 + railW * (slider:isVertical() and 1-slider:getNormalizedValue() or slider:getNormalizedValue())
+			local railY   = math.floor(.5*h)
+
+			local opacity       = slider:isActive() and 1 or .3
+			local isHighlighted = (slider:isActive() and slider:isHovered()) or slider:isMouseFocus()
+			local a             = (isHighlighted and 1 or .7) * opacity
+
+			-- Rail.
+			Gui.setColor(1, 1, 1, .7*a)
+			love.graphics.rectangle("fill", railX1, railY-1, railW, 2)
+
+			-- Helper markers.
+			Gui.setColor(1, 1, 1, .7*a)
+			love.graphics.rectangle("fill",            railX1                , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+			love.graphics.rectangle("fill", math.floor(railX1+0.25*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+			love.graphics.rectangle("fill", math.floor(railX1+0.50*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+			love.graphics.rectangle("fill", math.floor(railX1+0.75*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+			love.graphics.rectangle("fill",            railX2-1              , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+
+			-- Value handle.
+			Gui.setColor(1, 1, 1, a)
+			love.graphics.rectangle("fill", math.floor(handleX-.5*SLIDER_HANDLE_THICKNESS), railY-.5*SLIDER_WIDTH, SLIDER_HANDLE_THICKNESS, SLIDER_WIDTH)
+
+			if slider:isVertical() then
+				love.graphics.pop()
+				w, h = h, w
 			end
 		end,
 

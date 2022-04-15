@@ -53,7 +53,7 @@
 		gui:mousepressed(mx, my, mbutton, pressCount)
 	end
 	function love.mousemoved(mx, my, dx, dy, isTouch)
-		gui:mousemoved(mx, my)
+		gui:mousemoved(mx, my, dx, dy)
 	end
 	function love.mousereleased(mx, my, mbutton, isTouch, pressCount)
 		gui:mousereleased(mx, my, mbutton, pressCount)
@@ -108,7 +108,7 @@
 	isTriggeringOnMousepressed, setTriggerOnMousepressed
 	load
 	ok, back
-	updateLayout, getLayoutUpdateTime
+	updateLayout, scheduleLayoutUpdate, getLayoutUpdateTime
 
 
 
@@ -263,6 +263,15 @@
 			- getValueLayout, getCursorLayout
 			- Event: change
 			- Event: submit
+			- Event: valuechange
+
+			slider
+			- drawValue
+			- getMin, setMin, getMax, setMax
+			- getValue, getNormalizedValue, setValue, increase, decrease
+			- getValueFormat, setValueFormat
+			- isVertical, setVertical
+			- Event: change
 			- Event: valuechange
 
 
@@ -2877,7 +2886,6 @@ local Gui = newClass("Gui", {
 	_soundPlayer   = nil, -- soundPlayer = function( sound )
 
 	_navigateSoundSuppressionLevel = 0,
-	_scrollSoundSuppressionLevel   = 0,
 
 	_scissorCoordsConverter = nil,
 	_elementScissorIsSet    = false,
@@ -2949,6 +2957,7 @@ local VALID_SOUND_KEYS = {
 	["buttondown" ] = true,
 	["inputsubmit"] = true,
 	["inputrevert"] = true,
+	["slidermove" ] = true,
 }
 
 local defaultTheme
@@ -4393,7 +4402,7 @@ function Gui.update(gui, dt)
 
 	-- Check if mouse is inside window.
 	if gui._mouseX ~=  -999999 and not love.window.hasMouseFocus() then
-		gui:mousemoved( -999999,  -999999)
+		gui:mousemoved( -999999,  -999999, 0, 0)
 	end
 
 	--
@@ -4511,17 +4520,38 @@ function Gui.keypressed(gui, key, scancode, isRepeat)
 	end
 
 	if gui._standardKeysAreActive then
-		if key == "right" then
-			gui:navigate(0)
+		local navTarget = gui._navigationTarget
+
+		if key == "left" then
+			if navTarget and navTarget:is(Cs.slider) and not navTarget._vertical then
+				navTarget:decrease()
+			else
+				gui:navigate(3.1415926535898)
+			end
 			return true
-		elseif key == "down" then
-			gui:navigate(1.5707963267949)
+
+		elseif key == "right" then
+			if navTarget and navTarget:is(Cs.slider) and not navTarget._vertical then
+				navTarget:increase()
+			else
+				gui:navigate(0)
+			end
 			return true
-		elseif key == "left" then
-			gui:navigate(3.1415926535898)
-			return true
+
 		elseif key == "up" then
-			gui:navigate( -1.5707963267949)
+			if navTarget and navTarget:is(Cs.slider) and navTarget._vertical then
+				navTarget:increase()
+			else
+				gui:navigate( -1.5707963267949)
+			end
+			return true
+
+		elseif key == "down" then
+			if navTarget and navTarget:is(Cs.slider) and navTarget._vertical then
+				navTarget:decrease()
+			else
+				gui:navigate(1.5707963267949)
+			end
 			return true
 
 		elseif key == "tab" then
@@ -4533,7 +4563,7 @@ function Gui.keypressed(gui, key, scancode, isRepeat)
 			return true
 
 		elseif key == "return" or key == "kpenter" then
-			if isRepeat and gui._navigationTarget and gui._navigationTarget._active and gui._navigationTarget:is(Cs.input) then
+			if isRepeat and navTarget and navTarget._active and navTarget:is(Cs.input) then
 				-- Prevent input focus right after submission.
 				return true
 			end
@@ -4669,10 +4699,12 @@ function Gui.mousepressed(gui, mx, my, mbutton, pressCount)
 	return false
 end
 
--- handled = gui:mousemoved( mouseX, mouseY )
-function Gui.mousemoved(gui, mx, my)
+-- handled = gui:mousemoved( mouseX, mouseY, deltaX, deltaY )
+function Gui.mousemoved(gui, mx, my, dx, dy)
 	if type(mx)~="number" then argerror(2,1,"mx",mx,"number") end
 	if type(my)~="number" then argerror(2,2,"my",my,"number") end
+	if type(dx)~="number" then argerror(2,3,"dx",dx,"number") end
+	if type(dy)~="number" then argerror(2,4,"dy",dy,"number") end
 
 	gui._mouseX = mx
 	gui._mouseY = my
@@ -4688,8 +4720,8 @@ function Gui.mousemoved(gui, mx, my)
 
 	local el = (mx and mouseFocus or gui._hoveredElement)
 	if el then
-		el:_mousemoved(mx, my)
-		trigger(el, "mousemoved", mx-el:getXOnScreen(), my-el:getYOnScreen())
+		el:_mousemoved(mx, my, dx, dy)
+		trigger(el, "mousemoved", mx-el:getXOnScreen(), my-el:getYOnScreen(), dx, dy)
 	end
 
 	return true
@@ -5434,6 +5466,12 @@ function Gui.updateLayout(gui)
 	end
 end
 
+-- gui:scheduleLayoutUpdate( )
+-- Schedule a layout update. (Should never be needed as the layout is updated automatically.)
+function Gui.scheduleLayoutUpdate(gui)
+	gui._layoutNeedsUpdate = true
+end
+
 -- realTime = gui:getLayoutUpdateTime( )
 -- Returns the time it took to update the layout the last time, or 0 if no update has occurred yet.
 function Gui.getLayoutUpdateTime(gui)
@@ -5791,7 +5829,7 @@ Cs.element = newElementClass(true, "GuiElement", nil, {}, {
 	"layout"       , --            function( element, event )
 
 	"mousepressed" , --            function( element, event, mx, my, mbutton, pressCount )
-	"mousemoved"   , --            function( element, event, mx, my )
+	"mousemoved"   , --            function( element, event, mx, my, deltaX, deltaY )
 	"mousereleased", --            function( element, event, mx, my, mbutton, pressCount )
 
 	"navigated"    , --            function( element, event )
@@ -7193,8 +7231,8 @@ function Cs.element._mousepressed(el, mx, my, mbutton, pressCount)
 	return false, false
 end
 
--- INTERNAL  element:_mousemoved( mouseX, mouseY )
-function Cs.element._mousemoved(el, mx, my)
+-- INTERNAL  element:_mousemoved( mouseX, mouseY, deltaX, deltaY )
+function Cs.element._mousemoved(el, mx, my, dx, dy)
 	-- void
 end
 
@@ -8224,8 +8262,7 @@ function Cs.container.setScroll(container, scrollX, scrollY, immediate)
 
 	if immediate then  setVisualScroll(container, scrollX, scrollY)  end
 
-	if container._gui._scrollSoundSuppressionLevel == 0 and container:isDisplayed() then
-		container:playSound("scroll") -- @Robustness: May have to add more limitations to whether the "scroll" sound plays or not.
+	if container:isDisplayed() then
 		updateHoveredElement(container._gui)
 	end
 
@@ -8243,14 +8280,15 @@ end
 
 -- scrollChanged = container:scroll( deltaX, deltaY [, immediate=false ] )
 function Cs.container.scroll(container, dx, dy, immediate)
-	return (container:setScroll(container._scrollX+dx, container._scrollY+dy, immediate))
+	local scrolled = container:setScroll(container._scrollX+dx, container._scrollY+dy, immediate)
+	if scrolled then
+		container:playSound("scroll") -- @Robustness: May have to add more limitations to whether the "scroll" sound plays or not.
+	end
+	return scrolled
 end
 
 local function updateScroll(container)
-	local gui                        = container._gui
-	gui._scrollSoundSuppressionLevel = gui._scrollSoundSuppressionLevel + 1 -- There might be a possibility we get called recursively. Better not taking any chances and use a level instead of a bool.
 	container:setScroll(container._scrollX, container._scrollY, false)
-	gui._scrollSoundSuppressionLevel = gui._scrollSoundSuppressionLevel - 1
 end
 
 
@@ -8569,7 +8607,7 @@ function Cs.container._mousepressed(container, mx, my, mbutton, pressCount)
 			-- Jump and drag.
 			else
 				container._mouseScrollOffset = handleLen / 2
-				container:_mousemoved(mx, my)
+				container:_mousemoved(mx, my, 0, 0)
 			end
 
 			return true, true
@@ -8591,7 +8629,7 @@ function Cs.container._mousepressed(container, mx, my, mbutton, pressCount)
 			-- Jump and drag.
 			else
 				container._mouseScrollOffset = handleLen / 2
-				container:_mousemoved(mx, my)
+				container:_mousemoved(mx, my, 0, 0)
 			end
 
 			return true, true
@@ -8603,8 +8641,8 @@ function Cs.container._mousepressed(container, mx, my, mbutton, pressCount)
 	return false, false
 end
 
--- INTERNAL REPLACE  container:_mousemoved( mouseX, mouseY )
-function Cs.container._mousemoved(container, mx, my)
+-- INTERNAL REPLACE  container:_mousemoved( mouseX, mouseY, deltaX, deltaY )
+function Cs.container._mousemoved(container, mx, my, dx, dy)
 	-- Horizontal scrolling.
 	if container._mouseScrollDirection == "x" then
 		local _, _, handleMaxPos = container:getScrollHandleX()
@@ -8628,12 +8666,11 @@ end
 -- INTERNAL REPLACE  handled = container:_wheelmoved( deltaX, deltaY, deltaX0, deltaY0 )
 function Cs.container._wheelmoved(container, dx, dy, dx0, dy0)
 	if (dx ~= 0 and container:canScrollX()) or (dy ~= 0 and container:canScrollY()) then
-		local gui   = container._gui
-		local fontH = (gui._font or _M.getDefaultFont()):getHeight()
+		local gui      = container._gui
+		local fontH    = (gui._font or _M.getDefaultFont()):getHeight()
+		local scrolled = container:scroll(gui._scrollSpeedX*fontH*dx, gui._scrollSpeedY*fontH*dy)
 
-		if container:scroll(gui._scrollSpeedX*fontH*dx, gui._scrollSpeedY*fontH*dy) then
-			return true
-		end
+		return scrolled
 	end
 
 	return false
@@ -10326,8 +10363,8 @@ function Cs.button._mousepressed(button, mx, my, mbutton, pressCount)
 	return false, false
 end
 
--- -- INTERNAL REPLACE  button:_mousemoved( mouseX, mouseY )
--- function Cs.button._mousemoved(button, mx, my)
+-- -- INTERNAL REPLACE  button:_mousemoved( mouseX, mouseY, deltaX, deltaY )
+-- function Cs.button._mousemoved(button, mx, my, dx, dy)
 -- end
 
 -- INTERNAL REPLACE  button:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
@@ -10475,9 +10512,9 @@ Cs.input = newElementClass(false, "GuiInput", Cs.widget, {}, {
 	_savedKeyRepeat = false,
 	_savedValue     = "",
 }, {
-	"change"     , -- function( inputElement, event )
+	"change"     , -- function( inputElement, event ) -- Triggered on blur and the value has changed since before focus.
 	"submit"     , -- function( inputElement, event )
-	"valuechange", -- function( inputElement, event )
+	"valuechange", -- function( inputElement, event ) -- Triggered after every value change while focused.
 })
 
 function Cs.input.init(inputEl, gui, elData, parent)
@@ -10760,8 +10797,8 @@ function Cs.input._mousepressed(inputEl, mx, my, mbutton, pressCount)
 	end
 end
 
--- INTERNAL REPLACE  input:_mousemoved( mouseX, mouseY )
-function Cs.input._mousemoved(inputEl, mx, my)
+-- INTERNAL REPLACE  input:_mousemoved( mouseX, mouseY, deltaX, deltaY )
+function Cs.input._mousemoved(inputEl, mx, my, dx, dy)
 	local x, y        = inputEl:getPositionOnScreen()
 	local inputIndent = themeGet(inputEl._gui, "inputIndentation")
 	inputEl._field:mousemoved(mx-x-inputIndent, my-y-inputIndent)
@@ -10857,6 +10894,249 @@ end
 
 
 --==============================================================
+--= Slider element class =======================================
+--==============================================================
+
+
+
+Cs.slider = newElementClass(false, "GuiSlider", Cs.widget, {}, {
+	-- Parameters.
+	_value = 0.0,
+	_step  = 0.0, -- 0 means no step value.
+	_min   = 0,
+	_max   = 1,
+
+	_vertical   = false,
+	_continuous = false,
+
+	_valueFormat = "", -- Empty means automatic.
+	--
+
+	_savedValue = 0.0,
+}, {
+	"change"     , -- function( sliderElement, event ) -- Triggered on blur and the value has changed since before focus.
+	"valuechange", -- function( sliderElement, event ) -- Triggered after every value change while focused.
+})
+
+function Cs.slider.init(slider, gui, elData, parent)
+	Cs.slider.super.init(slider, gui, elData, parent)
+
+	if elData.value ~= nil then slider._value = elData.value end if elData.step ~= nil then slider._step = elData.step end if elData.min ~= nil then slider._min = elData.min end if elData.max ~= nil then slider._max = elData.max end
+	if elData.valueFormat ~= nil then slider._valueFormat = elData.valueFormat end
+	if elData.vertical ~= nil then slider._vertical = elData.vertical end if elData.continuous ~= nil then slider._continuous = elData.continuous end
+
+	local v = slider._value
+	if slider._step ~= 0 then
+		v = round(v / slider._step) * slider._step
+	end
+	slider._value = clamp(v, slider._min, slider._max)
+end
+
+
+
+-- INTERNAL REPLACE  slider:_calculateNaturalSize( )
+function Cs.slider._calculateNaturalSize(slider)
+	local sliderIndent = themeGet(slider._gui, "sliderIndentation")
+	local w, h         = themeGetSize(slider, "slider", 0, 0, sliderIndent)
+
+	slider._layoutWidth, slider._layoutHeight = applySizeLimits(slider, w, h)
+
+	if slider:hasFixedWidth () then  slider._layoutWidth  = slider._width   end
+	if slider:hasFixedHeight() then  slider._layoutHeight = slider._height  end
+end
+
+-- -- INTERNAL OVERRIDE  slider:_expandAndPositionChildren( )
+-- function Cs.slider._expandAndPositionChildren(slider)
+-- 	Cs.slider.super._expandAndPositionChildren(slider)
+-- end
+
+
+
+-- INTERNAL REPLACE  slider:_draw( cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter )
+function Cs.slider._draw(slider, cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
+	if slider._hidden    then  return  end
+	if slider._gui.debug then  return slider:_drawDebug(0, 180, 0)  end
+
+	local x, y, w, h   = xywhOnScreen(slider)
+	local sliderIndent = themeGet(slider._gui, "sliderIndentation")
+
+	triggerIncludingAnimations(slider, "beforedraw", x, y, w, h)
+
+	drawLayoutBackground(slider)
+	themeRender(slider, "slider", sliderIndent)
+
+	triggerIncludingAnimations(slider, "afterdraw", x, y, w, h)
+end
+
+
+
+-- drawValue( x, y [, anchorX=0, anchorY=0 ] )
+function Cs.slider.drawValue(slider, x, y, ax, ay)
+	ax = ax or 0
+	ay = ay or 0
+
+	local valueFormat = slider._valueFormat
+	if valueFormat == "" then
+		valueFormat = (slider._step == 1) and "%d" or "%.2f"
+	end
+
+	local text = F(valueFormat, slider._value)
+	local font = love.graphics.getFont() -- Should be the same font as getResultingFont() returns, but whatever.
+
+	if ax ~= 0 then  x = x - round(ax*font:getWidth(text))  end
+	if ay ~= 0 then  y = y - round(ay*font:getHeight()   )  end
+
+	love.graphics.print(text, x, y)
+end
+
+
+
+-- INTERNAL REPLACE  handled, grabMouseFocus = slider:_mousepressed( mouseX, mouseY, mouseButton, pressCount )
+function Cs.slider._mousepressed(slider, mx, my, mbutton, pressCount)
+	if not slider._active then  return true, false  end
+	if mbutton ~= 1       then  return true, false  end
+
+	slider._savedValue = slider._value
+	slider._gui:navigateTo(slider._gui._navigationTarget and slider or nil)
+
+	slider:_mousemoved(mx, my, 0, 0)
+
+	return true, true
+end
+
+-- INTERNAL REPLACE  slider:_mousemoved( mouseX, mouseY, deltaX, deltaY )
+function Cs.slider._mousemoved(slider, mx, my, dx, dy)
+	local x, y, w, h = xywhOnScreen(slider)
+
+	if slider._vertical then
+		x  = y
+		w  = h
+		mx = my
+	end
+
+	local sliderIndent = themeGet(slider._gui, "sliderIndentation")
+
+	-- @Incomplete: _continuous
+	local t = (mx-x-sliderIndent) / (w-2*sliderIndent)
+	if slider._vertical then t = 1-t  end
+
+	local v = lerp(slider._min, slider._max, t)
+	if slider._step ~= 0 then
+		v = round(v / slider._step) * slider._step
+	end
+	v = clamp(v, slider._min, slider._max) -- @Incomplete: Support min>max?
+
+	if slider._value ~= v then
+		slider._value = v
+		slider:playSound("slidermove")
+		trigger(slider, "valuechange")
+	end
+end
+
+-- INTERNAL REPLACE  slider:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
+function Cs.slider._mousereleased(slider, mx, my, mbutton, pressCount)
+	if slider._value ~= slider._savedValue then
+		trigger(slider, "change")
+	end
+end
+
+
+
+-- value = slider:getValue( )
+function Cs.slider.getValue(slider)
+	return slider._value
+end
+
+-- normalizedValue = slider:getNormalizedValue( )
+-- normalizedValue is between 0(min) and 1(max).
+function Cs.slider.getNormalizedValue(slider)
+	return (slider._value-slider._min) / (slider._max-slider._min)
+end
+
+-- slider:setValue( value )
+function Cs.slider.setValue(slider, v)
+	if slider._step ~= 0 then
+		v = round(v / slider._step) * slider._step
+	end
+	slider._value = clamp(v, slider._min, slider._max)
+end
+
+-- valueChanged = slider:increase( [ amount=auto ] )
+-- valueChanged = slider:decrease( [ amount=auto ] )
+function Cs.slider.increase(slider, amount)
+	amount  = amount or ((slider._step ~= 0) and slider._step or .1*(slider._max-slider._min))
+	local v = clamp(slider._value+amount, slider._min, slider._max)
+
+	if slider._value == v then  return false  end
+
+	slider._value = v
+	slider:playSound("slidermove")
+	return true
+end
+function Cs.slider.decrease(slider, amount)
+	amount  = amount or ((slider._step ~= 0) and slider._step or .1*(slider._max-slider._min))
+	local v = clamp(slider._value-amount, slider._min, slider._max)
+
+	if slider._value == v then  return false  end
+
+	slider._value = v
+	slider:playSound("slidermove")
+	return true
+end
+
+
+
+-- value = slider:getMin( )
+-- value = slider:getMax( )
+function Cs.slider.getMin(slider)
+	return slider._min
+end
+function Cs.slider.getMax(slider)
+	return slider._max
+end
+
+-- slider:setMin( value )
+-- slider:setMax( value )
+function Cs.slider.setMin(slider, v)
+	slider._min   = v
+	slider._value = clamp(v, slider._min, slider._max)
+end
+function Cs.slider.setMax(slider, v)
+	slider._max   = v
+	slider._value = clamp(v, slider._min, slider._max)
+end
+
+
+
+-- valueFormat = slider:getValueFormat( )
+function Cs.slider.getValueFormat(slider)
+	return slider._valueFormat
+end
+
+-- slider:setValueFormat( valueFormat )
+-- An empty string means automatic format.
+function Cs.slider.setValueFormat(slider, valueFormat)
+	if type(valueFormat)~="string" then argerror(2,1,"valueFormat",valueFormat,"string") end
+	slider._valueFormat = valueFormat
+end
+
+
+
+-- bool = slider:isVertical( )
+function Cs.slider.isVertical(slider)
+	return slider._vertical
+end
+
+-- slider:setVertical( bool )
+function Cs.slider.setVertical(slider, vertical)
+	if slider._vertical == vertical then  return  end
+	slider._vertical = vertical
+	scheduleLayoutUpdateIfDisplayed(slider)
+end
+
+
+
+--==============================================================
 --= Default theme ==============================================
 --==============================================================
 
@@ -10869,22 +11149,28 @@ defaultTheme = (function()
 
 	-- Settings.
 
-	local BUTTON_PADDING       = 3
-	local BUTTON_IMAGE_SPACING = 3 -- Between text and image.
-	local BUTTON_TEXT_SPACING  = 6 -- Between the texts, if there are two.
+	local BUTTON_PADDING        = 3
+	local BUTTON_IMAGE_SPACING  = 3 -- Between text and image.
+	local BUTTON_TEXT_SPACING   = 6 -- Between the texts, if there are two.
 
-	local INPUT_PADDING        = 4
+	local INPUT_PADDING = 4
 
-	local NAV_EXTRA_SIZE      = 10 -- In each direction.
-	local NAV_SHRINK_DURATION = .10
+	local SLIDER_PADDING          = 6
+	local SLIDER_WIDTH            = 16
+	local SLIDER_DEFAULT_LENGTH   = 80
+	local SLIDER_HANDLE_THICKNESS = 3
+	local SLIDER_MARKER_WIDTH     = 6
 
-	local SCROLLBAR_WIDTH      = 8
-	local SCROLLBAR_MIN_LENGTH = 12
+	local NAV_EXTRA_SIZE        = 10 -- In each direction.
+	local NAV_SHRINK_DURATION   = .10
 
-	local TEXT_PADDING         = 1 -- For text elements.
+	local SCROLLBAR_WIDTH       = 8
+	local SCROLLBAR_MIN_LENGTH  = 12
 
-	local TOOLTIP_PADDING      = 3
-	local TOOLTIP_FADE_IN_TIME = .15
+	local TEXT_PADDING          = 1 -- For text elements.
+
+	local TOOLTIP_PADDING       = 3
+	local TOOLTIP_FADE_IN_TIME  = .15
 
 
 
@@ -10934,7 +11220,8 @@ defaultTheme = (function()
 		-- Basic theme parameters.
 		----------------------------------------------------------------
 
-		inputIndentation   = INPUT_PADDING, -- Affects mouse interactions and scrolling for inputs.
+		inputIndentation   = INPUT_PADDING,  -- Affects mouse interactions and scrolling for inputs.
+		sliderIndentation  = SLIDER_PADDING, -- Affects mouse interactions for sliders.
 
 		navigationSize     = NAV_EXTRA_SIZE, -- How much extra size the highlight of the navigation target has. Affects scrollIntoView().
 
@@ -11025,6 +11312,19 @@ defaultTheme = (function()
 				-- Only the returned height is actually used. For inputs, the width
 				-- is always specified directly on the element outside the theme.
 				return 0, fontHeight+2*INPUT_PADDING
+			end,
+
+			-- Slider element.
+			-- size.slider( sliderElement, zeroWidth, zeroHeight, sliderIndentation )
+			["slider"] = function(slider, w, h, sliderIndent)
+				w = SLIDER_DEFAULT_LENGTH + 2*sliderIndent
+				h = SLIDER_WIDTH + 2*SLIDER_PADDING
+
+				if slider:isVertical() then
+					w, h = h, w
+				end
+
+				return w, h
 			end,
 
 			-- Tooltip.
@@ -11253,6 +11553,50 @@ defaultTheme = (function()
 					local cursorOpacity = ((math.cos(5*input:getBlinkPhase()) + 1) / 2) ^ .5
 					Gui.setColor(1, 1, 1, cursorOpacity)
 					love.graphics.rectangle("fill", valueX+curOffsetX-1, valueY+curOffsetY, 1, fontHeight)
+				end
+			end,
+
+			-- Slider element.
+			-- draw.slider( inputElement, elementWidth, elementHeight, sliderIndentation )
+			["slider"] = function(slider, w, h, sliderIndent)
+				-- @Incomplete: _continuous
+
+				if slider:isVertical() then
+					love.graphics.push()
+					love.graphics.translate(w, 0)
+					love.graphics.rotate(TAU/4)
+					w, h = h, w
+				end
+
+				local railX1  = sliderIndent
+				local railX2  = w - sliderIndent
+				local railW   = railX2 - railX1
+				local handleX = railX1 + railW * (slider:isVertical() and 1-slider:getNormalizedValue() or slider:getNormalizedValue())
+				local railY   = math.floor(.5*h)
+
+				local opacity       = slider:isActive() and 1 or .3
+				local isHighlighted = (slider:isActive() and slider:isHovered()) or slider:isMouseFocus()
+				local a             = (isHighlighted and 1 or .7) * opacity
+
+				-- Rail.
+				Gui.setColor(1, 1, 1, .7*a)
+				love.graphics.rectangle("fill", railX1, railY-1, railW, 2)
+
+				-- Helper markers.
+				Gui.setColor(1, 1, 1, .7*a)
+				love.graphics.rectangle("fill",            railX1                , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+				love.graphics.rectangle("fill", math.floor(railX1+0.25*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+				love.graphics.rectangle("fill", math.floor(railX1+0.50*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+				love.graphics.rectangle("fill", math.floor(railX1+0.75*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+				love.graphics.rectangle("fill",            railX2-1              , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+
+				-- Value handle.
+				Gui.setColor(1, 1, 1, a)
+				love.graphics.rectangle("fill", math.floor(handleX-.5*SLIDER_HANDLE_THICKNESS), railY-.5*SLIDER_WIDTH, SLIDER_HANDLE_THICKNESS, SLIDER_WIDTH)
+
+				if slider:isVertical() then
+					love.graphics.pop()
+					w, h = h, w
 				end
 			end,
 
