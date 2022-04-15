@@ -105,6 +105,7 @@
 	isInputCaptured, getInputCapturingElement
 	isInteractionLocked
 	isMouseGrabbed, setMouseIsGrabbed
+	isTriggeringOnMousepressed, setTriggerOnMousepressed
 	load
 	ok, back
 	updateLayout, getLayoutUpdateTime
@@ -2875,7 +2876,8 @@ local Gui = newClass("Gui", {
 	_defaultSounds = nil,
 	_soundPlayer   = nil, -- soundPlayer = function( sound )
 
-	_scrollSoundSuppressionLevel = 0,
+	_navigateSoundSuppressionLevel = 0,
+	_scrollSoundSuppressionLevel   = 0,
 
 	_scissorCoordsConverter = nil,
 	_elementScissorIsSet    = false,
@@ -2923,6 +2925,8 @@ local Gui = newClass("Gui", {
 
 	_culling = true, -- Affects scrollables and root.
 
+	_triggerOnMousepressed = false,
+
 	_heres = nil,
 
 	debug = false,
@@ -2931,16 +2935,18 @@ local Gui = newClass("Gui", {
 local Cs = {} -- gui element Classes.
 local Is = {} -- gui element Includes.
 
-local validSoundKeys = {
+local VALID_SOUND_KEYS = {
 	-- Generic.
-	["close" ] = true, -- Usually containers, but any element can be a closable.
-	["focus" ] = true, -- Only used by Inputs so far.
-	["type"  ] = true, -- Inputs (when entering text).
-	["press" ] = true, -- Buttons.
-	["toggle"] = true, -- Buttons. Overrides/falls back to "press".
-	["scroll"] = true, -- Containers.
+	["close"   ] = true, -- Usually containers, but any element can be a closable.
+	["focus"   ] = true, -- Only used by Inputs so far.
+	["type"    ] = true, -- Inputs (when entering text).
+	["press"   ] = true, -- Buttons.
+	["toggle"  ] = true, -- Buttons. Overrides/falls back to "press".
+	["navigate"] = true, -- Widgets.
+	["scroll"  ] = true, -- Containers.
 
 	-- Element specific.
+	["buttondown" ] = true,
 	["inputsubmit"] = true,
 	["inputrevert"] = true,
 }
@@ -3071,10 +3077,10 @@ end
 
 
 local function checkValidSoundKey(soundK, errLevel)
-	if soundK == nil or validSoundKeys[soundK] then  return  end
+	if soundK == nil or VALID_SOUND_KEYS[soundK] then  return  end
 
 	local keys = {}
-	for soundK in pairs(validSoundKeys) do
+	for soundK in pairs(VALID_SOUND_KEYS) do
 		table.insert(keys, soundK)
 	end
 	table.sort(keys)
@@ -4946,7 +4952,12 @@ do
 		gui._navigationTarget    = widget
 		gui._timeSinceNavigation = 0
 
-		if widget then  widget:scrollIntoView(false)  end
+		if widget then
+			widget:scrollIntoView(false)
+			if gui._navigateSoundSuppressionLevel == 0 then
+				widget:playSound("navigate") -- @Robustness: May have to add more limitations to whether the "navigate" sound plays or not.
+			end
+		end
 
 		;(widget or gui._root):triggerBubbling("navigated", widget)
 
@@ -5439,6 +5450,18 @@ end
 -- gui:setCullingActive( bool )
 function Gui.setCullingActive(gui, culling)
 	gui._culling = culling
+end
+
+
+
+-- bool = gui:isTriggeringOnMousepressed( )
+function Gui.isTriggeringOnMousepressed(gui)
+	return gui._triggerOnMousepressed
+end
+
+-- gui:setTriggerOnMousepressed( bool )
+function Gui.setTriggerOnMousepressed(gui, doTrigger)
+	gui._triggerOnMousepressed = doTrigger
 end
 
 
@@ -7540,7 +7563,7 @@ function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 	local menu = root:insert{
 		type="container", style="_MENU", relativeWidth=1, relativeHeight=1,
 		closable=true, captureGuiInput=true, confineNavigation=true,
-		[1] = {type="vbar", minWidth=el._layoutWidth, maxHeight=root._height},
+		[1] = {type="vbar", minWidth=el._layoutWidth, maxHeight=root._layoutHeight-root:getInnerSpaceY()},
 	}
 
 	menu:on("closed", function(button, event)
@@ -7693,9 +7716,13 @@ function Cs.element.showMenu(el, items, hlIndices, offsetX, offsetY, cb)
 
 	menu:_calculateNaturalSize() -- Expanding and positioning of the whole menu isn't necessary right here.
 
+	if buttons._layoutHeight >= buttons._maxHeight then
+		buttons._canScrollY = true -- @Incomplete @Cleanup: Add setCanScrollX/Y() method.
+	end
+
 	buttons:setPosition(
-		clamp(el:getXOnScreen()+offsetX, 0, root._width -buttons._layoutWidth ),
-		clamp(el:getYOnScreen()+offsetY, 0, root._height-buttons._layoutHeight)
+		clamp(el:getXOnScreen()-(root:getXOnScreen()+root._paddingLeft)+offsetX, 0, root._width -root:getInnerSpaceX()-buttons._layoutWidth ),
+		clamp(el:getYOnScreen()-(root:getYOnScreen()+root._paddingTop )+offsetY, 0, root._height-root:getInnerSpaceY()-buttons._layoutHeight)
 	)
 
 	local button = buttons:getToggledChild()
@@ -8198,7 +8225,7 @@ function Cs.container.setScroll(container, scrollX, scrollY, immediate)
 	if immediate then  setVisualScroll(container, scrollX, scrollY)  end
 
 	if container._gui._scrollSoundSuppressionLevel == 0 and container:isDisplayed() then
-		container:playSound("scroll") -- @Robustness: May have to add more limitations to whether the 'scroll' sound plays or not.
+		container:playSound("scroll") -- @Robustness: May have to add more limitations to whether the "scroll" sound plays or not.
 		updateHoveredElement(container._gui)
 	end
 
@@ -10273,10 +10300,26 @@ function Cs.button._mousepressed(button, mx, my, mbutton, pressCount)
 	if mbutton == 1 then
 		if not button._active then  return true, false  end
 
-		button._isPressed = true
-		button._gui:navigateTo(button._gui._navigationTarget and button or nil)
+		local gui = button._gui
 
-		return true, true
+		if gui._triggerOnMousepressed then
+			gui._navigateSoundSuppressionLevel = gui._navigateSoundSuppressionLevel + 1
+			gui:navigateTo(gui._navigationTarget and button or nil)
+			gui._navigateSoundSuppressionLevel = gui._navigateSoundSuppressionLevel - 1
+
+			button:press()
+			return true, false
+
+		else
+			button._isPressed = true
+			button:playSound("buttondown")
+
+			gui._navigateSoundSuppressionLevel = gui._navigateSoundSuppressionLevel + 1
+			gui:navigateTo(gui._navigationTarget and button or nil)
+			gui._navigateSoundSuppressionLevel = gui._navigateSoundSuppressionLevel - 1
+
+			return true, true
+		end
 	end
 	-- @Incomplete: Trigger events and stuff for other mouse buttons.
 
@@ -10312,7 +10355,7 @@ function Cs.button.press(button, ignoreActiveState)
 	end
 
 	-- Press/toggle the button.
-	local preparedSound = button._canToggle and prepareSound(button, "toggle") or prepareSound(button, "press") -- 'toggle' falls back to 'press'.
+	local preparedSound = button._canToggle and prepareSound(button, "toggle") or prepareSound(button, "press") -- "toggle" falls back to "press".
 
 	if button._canToggle then
 		if button._radio ~= "" then

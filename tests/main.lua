@@ -3,8 +3,8 @@ io.stderr:setvbuf("no")
 
 love.keyboard.setKeyRepeat(true)
 
-local TAU         = 2*math.pi
-local ROOT_MARGIN = 10
+local TAU                     = 2*math.pi
+local ROOT_PADDING_AND_MARGIN = 5
 
 local Gui = require("Gui")
 
@@ -31,10 +31,20 @@ function love.load(args)
 		[1] = {padding=10, background="something"},
 	})
 
-	gui:load{"root", x=ROOT_MARGIN, y=ROOT_MARGIN, width=love.graphics.getWidth()-2*ROOT_MARGIN, height=love.graphics.getHeight()-2*ROOT_MARGIN,
+	gui:load{"root",
+		x       = ROOT_PADDING_AND_MARGIN,
+		y       = ROOT_PADDING_AND_MARGIN,
+		width   = love.graphics.getWidth () - 2*ROOT_PADDING_AND_MARGIN,
+		height  = love.graphics.getHeight() - 2*ROOT_PADDING_AND_MARGIN,
+		padding = ROOT_PADDING_AND_MARGIN,
+
 		{"hbar", relativeWidth=1, relativeHeight=1,
 			{"vbar", weight=1,
-				{"button", id="menu", text="...", spacing=5},
+				{"hbar", spacing=5,
+					{"text",   text="<<"},
+					{"button", text="MENU", id="menu", weight=1},
+					{"text",   text=">>"},
+				},
 
 				-- Homogeneous + max/min size.
 				{"vbar", spacing=5,
@@ -261,11 +271,17 @@ function love.load(args)
 	}
 
 	gui:find("menu"):on("press", function(button, event)
+		local menuY           = 0
 		local items           = {}
 		local iSetFontDefault = #items+1 ; table.insert(items, "Set font: default")
 		local iSetFontLarge   = #items+1 ; table.insert(items, "Set font: large")
 
-		button:showMenu(items, function(i)
+		-- menuY = 50
+		-- for i = 1, 100 do
+		-- 	table.insert(items, "Set font: large")
+		-- end
+
+		button:showMenu(items, 0, menuY, function(i)
 			if i == iSetFontDefault then
 				gui:setFont(Gui.getDefaultFont())
 			elseif i == iSetFontLarge then
@@ -297,12 +313,14 @@ function love.load(args)
 		return source
 	end
 
-	gui:setDefaultSound("close",       newSound("close.ogg"      , 1.0))
-	gui:setDefaultSound("focus",       newSound("focus.ogg"      , 1.0))
-	gui:setDefaultSound("type",        newSound("type.ogg"       , 1.0))
-	gui:setDefaultSound("press",       newSound("press.ogg"      , 1.0))
-	gui:setDefaultSound("toggle",      newSound("toggle.ogg"     , 0.9))
-	gui:setDefaultSound("scroll",      newSound("scroll.ogg"     , 0.5))
+	gui:setDefaultSound("close"      , newSound("close.ogg"      , 1.0))
+	gui:setDefaultSound("focus"      , newSound("focus.ogg"      , 1.0))
+	gui:setDefaultSound("type"       , newSound("type.ogg"       , 1.0))
+	gui:setDefaultSound("press"      , newSound("press.ogg"      , 1.0))
+	gui:setDefaultSound("toggle"     , newSound("toggle.ogg"     , 0.9))
+	gui:setDefaultSound("navigate"   , newSound("navigate.ogg"   , 0.7))
+	gui:setDefaultSound("scroll"     , newSound("scroll.ogg"     , 0.5))
+	gui:setDefaultSound("buttondown" , newSound("buttondown.ogg" , 0.7))
 	gui:setDefaultSound("inputsubmit", newSound("inputsubmit.ogg", 1.0))
 	gui:setDefaultSound("inputrevert", newSound("inputrevert.ogg", 0.8))
 
@@ -421,7 +439,7 @@ end
 
 
 function love.resize(w, h)
-	gui:getRoot():setDimensions(w-2*ROOT_MARGIN, h-2*ROOT_MARGIN)
+	gui:getRoot():setDimensions(w-2*ROOT_PADDING_AND_MARGIN, h-2*ROOT_PADDING_AND_MARGIN)
 end
 
 function love.errorhandler(err)
