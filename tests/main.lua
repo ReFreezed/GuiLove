@@ -105,8 +105,12 @@ function love.load(args)
 					{"input", weight=1, fieldType="multiwrap", placeholder="~type me maybe~"},
 
 					{"vbar", background="warning",
-						{"slider", value=.25, min=100, max=200, step=10},
-						{"slider", value=.25, min=100, max=200, step=10, vertical=true, weight=1},
+						{"slider", min=100, max=200, step=10, value=150},
+						{"slider", min=100, max=200, step=10, value=150, vertical=true, weight=1},
+						{"hbar",
+							{"slider", weight=1, vertical=true, continuous=true},
+							{"slider", weight=1, vertical=true, continuous=true, continuousSpeed=.2, min=-100, max=100, step=5, value=25},
+						},
 					},
 				},
 

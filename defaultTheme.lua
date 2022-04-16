@@ -39,9 +39,9 @@ local TAU = 2*math.pi
 
 -- Settings.
 
-local BUTTON_PADDING        = 3
-local BUTTON_IMAGE_SPACING  = 3 -- Between text and image.
-local BUTTON_TEXT_SPACING   = 6 -- Between the texts, if there are two.
+local BUTTON_PADDING       = 3
+local BUTTON_IMAGE_SPACING = 3 -- Between text and image.
+local BUTTON_TEXT_SPACING  = 6 -- Between the texts, if there are two.
 
 local INPUT_PADDING = 4
 
@@ -51,16 +51,18 @@ local SLIDER_DEFAULT_LENGTH   = 80
 local SLIDER_HANDLE_THICKNESS = 3
 local SLIDER_MARKER_WIDTH     = 6
 
-local NAV_EXTRA_SIZE        = 10 -- In each direction.
-local NAV_SHRINK_DURATION   = .10
+local CONTINUOUS_SLIDER_DEFAULT_WIDTH = 3 -- Relative to font size.
 
-local SCROLLBAR_WIDTH       = 8
-local SCROLLBAR_MIN_LENGTH  = 12
+local NAV_EXTRA_SIZE      = 10 -- In each direction.
+local NAV_SHRINK_DURATION = .10
 
-local TEXT_PADDING          = 1 -- For text elements.
+local SCROLLBAR_WIDTH      = 8
+local SCROLLBAR_MIN_LENGTH = 12
 
-local TOOLTIP_PADDING       = 3
-local TOOLTIP_FADE_IN_TIME  = .15
+local TEXT_PADDING = 1 -- For text elements.
+
+local TOOLTIP_PADDING      = 3
+local TOOLTIP_FADE_IN_TIME = .15
 
 
 
@@ -96,6 +98,18 @@ local navigationImage = Gui.newMonochromeImage{
 	"  FFFF  ",
 }
 local navigationQuads = Gui.create9SliceQuads(navigationImage, 3, 3)
+
+local continuousSliderImage = Gui.newMonochromeImage{
+	"FF",
+	"66",
+	"22",
+	"00",
+	"00",
+	"22",
+	"66",
+	"FF",
+}
+continuousSliderImage:setFilter("linear", "linear")
 
 
 
@@ -205,13 +219,19 @@ return {
 		end,
 
 		-- Slider element.
-		-- size.slider( sliderElement, zeroWidth, zeroHeight, sliderIndentation )
-		["slider"] = function(slider, w, h, sliderIndent)
-			w = SLIDER_DEFAULT_LENGTH + 2*sliderIndent
-			h = SLIDER_WIDTH + 2*SLIDER_PADDING
+		-- size.slider( sliderElement, zeroWidth, zeroHeight, sliderIndentation, fontHeight )
+		["slider"] = function(slider, w, h, sliderIndent, fontH)
+			if slider:isContinuous() then
+				w = CONTINUOUS_SLIDER_DEFAULT_WIDTH*fontH + 2*SLIDER_PADDING
+				h = fontH + 2*SLIDER_PADDING
 
-			if slider:isVertical() then
-				w, h = h, w
+			else
+				w = SLIDER_DEFAULT_LENGTH + 2*sliderIndent
+				h = SLIDER_WIDTH + 2*SLIDER_PADDING
+
+				if slider:isVertical() then
+					w, h = h, w
+				end
 			end
 
 			return w, h
@@ -449,44 +469,57 @@ return {
 		-- Slider element.
 		-- draw.slider( inputElement, elementWidth, elementHeight, sliderIndentation )
 		["slider"] = function(slider, w, h, sliderIndent)
-			-- @Incomplete: _continuous
+			if slider:isContinuous() then
+				local opacity       = slider:isActive() and 1 or .3
+				local isHighlighted = (slider:isActive() and slider:isHovered()) or slider:isMouseFocus()
+				local a             = (isHighlighted and 1 or .7) * opacity
 
-			if slider:isVertical() then
-				love.graphics.push()
-				love.graphics.translate(w, 0)
-				love.graphics.rotate(TAU/4)
-				w, h = h, w
-			end
+				Gui.setColor(1, 1, 1, .6*a)
+				love.graphics.rectangle("fill", 0, 0,  2, h)
+				love.graphics.rectangle("fill", w, 0, -2, h)
+				love.graphics.draw(continuousSliderImage, 0,0, 0, w/continuousSliderImage:getWidth(),h/continuousSliderImage:getHeight())
 
-			local railX1  = sliderIndent
-			local railX2  = w - sliderIndent
-			local railW   = railX2 - railX1
-			local handleX = railX1 + railW * (slider:isVertical() and 1-slider:getNormalizedValue() or slider:getNormalizedValue())
-			local railY   = math.floor(.5*h)
+				Gui.setColor(1, 1, 1, opacity)
+				slider:useFont()
+				slider:drawValue(math.floor(w/2), math.floor(h/2), .5, .5)
 
-			local opacity       = slider:isActive() and 1 or .3
-			local isHighlighted = (slider:isActive() and slider:isHovered()) or slider:isMouseFocus()
-			local a             = (isHighlighted and 1 or .7) * opacity
+			else
+				if slider:isVertical() then
+					love.graphics.push()
+					love.graphics.translate(w, 0)
+					love.graphics.rotate(TAU/4)
+					w, h = h, w
+				end
 
-			-- Rail.
-			Gui.setColor(1, 1, 1, .7*a)
-			love.graphics.rectangle("fill", railX1, railY-1, railW, 2)
+				local railX1  = sliderIndent
+				local railX2  = w - sliderIndent
+				local railW   = railX2 - railX1
+				local handleX = railX1 + railW * (slider:isVertical() and 1-slider:getNormalizedValue() or slider:getNormalizedValue())
+				local railY   = math.floor(.5*h)
 
-			-- Helper markers.
-			Gui.setColor(1, 1, 1, .7*a)
-			love.graphics.rectangle("fill",            railX1                , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
-			love.graphics.rectangle("fill", math.floor(railX1+0.25*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
-			love.graphics.rectangle("fill", math.floor(railX1+0.50*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
-			love.graphics.rectangle("fill", math.floor(railX1+0.75*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
-			love.graphics.rectangle("fill",            railX2-1              , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+				local opacity       = slider:isActive() and 1 or .3
+				local isHighlighted = (slider:isActive() and slider:isHovered()) or slider:isMouseFocus()
+				local a             = (isHighlighted and 1 or .7) * opacity
 
-			-- Value handle.
-			Gui.setColor(1, 1, 1, a)
-			love.graphics.rectangle("fill", math.floor(handleX-.5*SLIDER_HANDLE_THICKNESS), railY-.5*SLIDER_WIDTH, SLIDER_HANDLE_THICKNESS, SLIDER_WIDTH)
+				-- Rail.
+				Gui.setColor(1, 1, 1, .7*a)
+				love.graphics.rectangle("fill", railX1, railY-1, railW, 2)
 
-			if slider:isVertical() then
-				love.graphics.pop()
-				w, h = h, w
+				-- Helper markers.
+				Gui.setColor(1, 1, 1, .7*a)
+				love.graphics.rectangle("fill",            railX1                , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+				love.graphics.rectangle("fill", math.floor(railX1+0.25*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+				love.graphics.rectangle("fill", math.floor(railX1+0.50*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+				love.graphics.rectangle("fill", math.floor(railX1+0.75*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+				love.graphics.rectangle("fill",            railX2-1              , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+
+				-- Value handle.
+				Gui.setColor(1, 1, 1, a)
+				love.graphics.rectangle("fill", math.floor(handleX-.5*SLIDER_HANDLE_THICKNESS), railY-.5*SLIDER_WIDTH, SLIDER_HANDLE_THICKNESS, SLIDER_WIDTH)
+
+				if slider:isVertical() then
+					love.graphics.pop()
+				end
 			end
 		end,
 

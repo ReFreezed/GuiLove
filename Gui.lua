@@ -108,7 +108,7 @@
 	isTriggeringOnMousepressed, setTriggerOnMousepressed
 	load
 	ok, back
-	updateLayout, scheduleLayoutUpdate, getLayoutUpdateTime
+	scheduleLayoutUpdate, updateLayoutNow, getLayoutUpdateTime
 
 
 
@@ -170,7 +170,7 @@
 	- scrollIntoView
 	- setScissor, unsetScissor
 	- showMenu
-	- updateLayout
+	- updateLayoutNow
 	- Event: beforedraw, afterdraw
 	- Event: close, closed
 	- Event: focused, blurred
@@ -269,7 +269,9 @@
 			- drawValue
 			- getMin, setMin, getMax, setMax
 			- getValue, getNormalizedValue, setValue, increase, decrease
-			- getValueFormat, setValueFormat
+			- getValueFormat, getResultingValueFormat, setValueFormat
+			- getValueText
+			- isContinuous, setContinuous
 			- isVertical, setVertical
 			- Event: change
 			- Event: valuechange
@@ -4972,6 +4974,7 @@ end
 
 -- element = gui:getHoveredElement( )
 function Gui.getHoveredElement(gui)
+	updateLayoutIfNeeded(gui)
 	return gui._hoveredElement
 end
 
@@ -5457,19 +5460,19 @@ end
 
 
 
--- gui:updateLayout( )
--- Force a layout update. (Should never be needed as it's done automatically.)
-function Gui.updateLayout(gui)
-	local root = gui._root
-	if root and not root._hidden then
-		updateLayout(root)
-	end
-end
-
 -- gui:scheduleLayoutUpdate( )
 -- Schedule a layout update. (Should never be needed as the layout is updated automatically.)
 function Gui.scheduleLayoutUpdate(gui)
 	gui._layoutNeedsUpdate = true
+end
+
+-- gui:updateLayoutNow( )
+-- Force a layout update. (Should never be needed as it's done automatically.)
+function Gui.updateLayoutNow(gui)
+	local root = gui._root
+	if root and not root._hidden then
+		updateLayout(root)
+	end
 end
 
 -- realTime = gui:getLayoutUpdateTime( )
@@ -5783,7 +5786,7 @@ Cs.element = newElementClass(true, "GuiElement", nil, {}, {
 	_style      = "",
 	_tags       = nil,
 
-	_mouseCursor = nil, -- cursor|systemCursorType|nil
+	_mouseCursor = nil, -- cursor | systemCursorType | nil
 	_sounds      = nil,
 
 	_tooltip            = "",
@@ -7771,10 +7774,10 @@ end
 
 
 
--- FINAL  element:updateLayout( )
+-- FINAL  element:updateLayoutNow( )
 -- Force a layout update. (Should never be needed as it's done automatically.)
--- Also see gui:updateLayout().
-function Cs.element.updateLayout(el)
+-- Also see gui:scheduleLayoutUpdate() and gui:updateLayoutNow().
+function Cs.element.updateLayoutNow(el)
 	updateLayout(el)
 end
 
@@ -8149,12 +8152,26 @@ end
 
 
 
--- bool = container:isScrollbarXHovered( )
--- bool = container:isScrollbarYHovered( )
-function Cs.container.isScrollbarXHovered(container)
-	local gui  = container._gui
-	local x, y = gui._mouseX, gui._mouseY
+-- -- bool = element:isHovered( [ ignoreMouseFocus=false ] )
+-- function Cs.element.isHovered(el, ignoreMouseFocus)
+-- 	local gui = el._gui
+-- 	updateLayoutIfNeeded(gui) -- Updates hovered element.
+-- 	return el == gui._hoveredElement and (ignoreMouseFocus or el == (gui._mouseFocus or el))
+-- end
+
+-- bool = container:isScrollbarXHovered( [ ignoreMouseFocus=false ] )
+-- bool = container:isScrollbarYHovered( [ ignoreMouseFocus=false ] )
+function Cs.container.isScrollbarXHovered(container, ignoreMouseFocus)
+	local gui = container._gui
+	local x   = gui._mouseX
+	local y   = gui._mouseY
 	if x ==  -999999 then  return false  end
+
+	if container ~= gui:getHoveredElement() then  return false  end
+
+	if not (ignoreMouseFocus or container == (gui._mouseFocus or container)) then
+		return false
+	end
 
 	local x1, y1 = container:getPositionOnScreen()
 	local x2, y2 = x1+container:getChildAreaWidth(), y1+container._layoutHeight
@@ -8162,10 +8179,17 @@ function Cs.container.isScrollbarXHovered(container)
 
 	return x >= x1 and x < x2 and y >= y1 and y < y2
 end
-function Cs.container.isScrollbarYHovered(container)
-	local gui  = container._gui
-	local x, y = gui._mouseX, gui._mouseY
+function Cs.container.isScrollbarYHovered(container, ignoreMouseFocus)
+	local gui = container._gui
+	local x   = gui._mouseX
+	local y   = gui._mouseY
 	if x ==  -999999 then  return false  end
+
+	if container ~= gui:getHoveredElement() then  return false  end
+
+	if not (ignoreMouseFocus or container == (gui._mouseFocus or container)) then
+		return false
+	end
 
 	local x1, y1 = container:getPositionOnScreen()
 	local x2, y2 = x1+container._layoutWidth, y1+container:getChildAreaHeight()
@@ -8174,12 +8198,19 @@ function Cs.container.isScrollbarYHovered(container)
 	return x >= x1 and x < x2 and y >= y1 and y < y2
 end
 
--- bool = container:isScrollbarXHandleHovered( )
--- bool = container:isScrollbarYHandleHovered( )
-function Cs.container.isScrollbarXHandleHovered(container)
-	local gui  = container._gui
-	local x, y = gui._mouseX, gui._mouseY
+-- bool = container:isScrollbarXHandleHovered( [ ignoreMouseFocus=false ] )
+-- bool = container:isScrollbarYHandleHovered( [ ignoreMouseFocus=false ] )
+function Cs.container.isScrollbarXHandleHovered(container, ignoreMouseFocus)
+	local gui = container._gui
+	local x   = gui._mouseX
+	local y   = gui._mouseY
 	if x ==  -999999 then  return false  end
+
+	if container ~= gui:getHoveredElement() then  return false  end
+
+	if not (ignoreMouseFocus or container == (gui._mouseFocus or container)) then
+		return false
+	end
 
 	local handlePos, handleLen = container:getScrollHandleX()
 	local x1, y1               = container:getPositionOnScreen()
@@ -8192,10 +8223,17 @@ function Cs.container.isScrollbarXHandleHovered(container)
 
 	return x >= x1 and x < x2 and y >= y1 and y < y2
 end
-function Cs.container.isScrollbarYHandleHovered(container)
-	local gui  = container._gui
-	local x, y = gui._mouseX, gui._mouseY
+function Cs.container.isScrollbarYHandleHovered(container, ignoreMouseFocus)
+	local gui = container._gui
+	local x   = gui._mouseX
+	local y   = gui._mouseY
 	if x ==  -999999 then  return false  end
+
+	if container ~= gui:getHoveredElement() then  return false  end
+
+	if not (ignoreMouseFocus or container == (gui._mouseFocus or container)) then
+		return false
+	end
 
 	local handlePos, handleLen = container:getScrollHandleY()
 	local x1, y1               = container:getPositionOnScreen()
@@ -10903,16 +10941,24 @@ Cs.slider = newElementClass(false, "GuiSlider", Cs.widget, {}, {
 	-- Parameters.
 	_value = 0.0,
 	_step  = 0.0, -- 0 means no step value.
-	_min   = 0,
-	_max   = 1,
+	_min   = 0.0,
+	_max   = 1.0,
 
-	_vertical   = false,
-	_continuous = false,
+	_vertical = false,
+
+	_continuous      = false,
+	_continuousSpeed = 0.01, -- Used if _continuous is set.
 
 	_valueFormat = "", -- Empty means automatic.
 	--
 
 	_savedValue = 0.0,
+
+	_continuousValue = 0.0,
+	_savedMouseX     = 0.0,
+	_savedMouseY     = 0.0,
+	_savedMouseRealX = 0,
+	_savedMouseRealY = 0,
 }, {
 	"change"     , -- function( sliderElement, event ) -- Triggered on blur and the value has changed since before focus.
 	"valuechange", -- function( sliderElement, event ) -- Triggered after every value change while focused.
@@ -10921,9 +10967,10 @@ Cs.slider = newElementClass(false, "GuiSlider", Cs.widget, {}, {
 function Cs.slider.init(slider, gui, elData, parent)
 	Cs.slider.super.init(slider, gui, elData, parent)
 
+	if elData.continuous ~= nil then slider._continuous = elData.continuous end if elData.continuousSpeed ~= nil then slider._continuousSpeed = elData.continuousSpeed end
 	if elData.value ~= nil then slider._value = elData.value end if elData.step ~= nil then slider._step = elData.step end if elData.min ~= nil then slider._min = elData.min end if elData.max ~= nil then slider._max = elData.max end
 	if elData.valueFormat ~= nil then slider._valueFormat = elData.valueFormat end
-	if elData.vertical ~= nil then slider._vertical = elData.vertical end if elData.continuous ~= nil then slider._continuous = elData.continuous end
+	if elData.vertical ~= nil then slider._vertical = elData.vertical end
 
 	local v = slider._value
 	if slider._step ~= 0 then
@@ -10937,7 +10984,8 @@ end
 -- INTERNAL REPLACE  slider:_calculateNaturalSize( )
 function Cs.slider._calculateNaturalSize(slider)
 	local sliderIndent = themeGet(slider._gui, "sliderIndentation")
-	local w, h         = themeGetSize(slider, "slider", 0, 0, sliderIndent)
+	local fontH        = slider:getResultingFont():getHeight()
+	local w, h         = themeGetSize(slider, "slider", 0, 0, sliderIndent, fontH)
 
 	slider._layoutWidth, slider._layoutHeight = applySizeLimits(slider, w, h)
 
@@ -10975,12 +11023,7 @@ function Cs.slider.drawValue(slider, x, y, ax, ay)
 	ax = ax or 0
 	ay = ay or 0
 
-	local valueFormat = slider._valueFormat
-	if valueFormat == "" then
-		valueFormat = (slider._step == 1) and "%d" or "%.2f"
-	end
-
-	local text = F(valueFormat, slider._value)
+	local text = slider:getValueText()
 	local font = love.graphics.getFont() -- Should be the same font as getResultingFont() returns, but whatever.
 
 	if ax ~= 0 then  x = x - round(ax*font:getWidth(text))  end
@@ -10999,7 +11042,17 @@ function Cs.slider._mousepressed(slider, mx, my, mbutton, pressCount)
 	slider._savedValue = slider._value
 	slider._gui:navigateTo(slider._gui._navigationTarget and slider or nil)
 
-	slider:_mousemoved(mx, my, 0, 0)
+	if slider._continuous then
+		slider._continuousValue = slider._value
+		slider._savedMouseX     = mx
+		slider._savedMouseY     = my
+
+		slider._savedMouseRealX, slider._savedMouseRealY = love.mouse.getPosition()
+		love.mouse.setRelativeMode(true)
+
+	else
+		slider:_mousemoved(mx, my, 0, 0)
+	end
 
 	return true, true
 end
@@ -11015,12 +11068,23 @@ function Cs.slider._mousemoved(slider, mx, my, dx, dy)
 	end
 
 	local sliderIndent = themeGet(slider._gui, "sliderIndentation")
+	local v
 
-	-- @Incomplete: _continuous
-	local t = (mx-x-sliderIndent) / (w-2*sliderIndent)
-	if slider._vertical then t = 1-t  end
+	if slider._continuous then
+		v = slider._continuousValue - dy * slider._continuousSpeed
 
-	local v = lerp(slider._min, slider._max, t)
+		local overshoot = slider._continuousSpeed * 50 -- @Hardcoded: May want a parameter for this.
+		v               = clamp(v, slider._min-overshoot, slider._max+overshoot)
+
+		slider._continuousValue = v
+
+	else
+		local t = (mx-x-sliderIndent) / (w-2*sliderIndent)
+		if slider._vertical then  t = 1-t  end
+
+		v = lerp(slider._min, slider._max, t)
+	end
+
 	if slider._step ~= 0 then
 		v = round(v / slider._step) * slider._step
 	end
@@ -11035,6 +11099,13 @@ end
 
 -- INTERNAL REPLACE  slider:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
 function Cs.slider._mousereleased(slider, mx, my, mbutton, pressCount)
+	if slider._continuous then
+		slider._gui:mousemoved( -999999,  -999999, 0, 0) -- Maybe @Temp? It improves the glitchy situation.
+		love.mouse.setRelativeMode(false) -- @Bug: Fix mouse position flicker. Also, freeze gui._mouseX/Y.
+		love.mouse.setPosition(slider._savedMouseRealX, slider._savedMouseRealY)
+		-- @Incomplete: updateHoveredElement?
+	end
+
 	if slider._value ~= slider._savedValue then
 		trigger(slider, "change")
 	end
@@ -11108,16 +11179,33 @@ end
 
 
 
--- valueFormat = slider:getValueFormat( )
+-- format = slider:getValueFormat( )
 function Cs.slider.getValueFormat(slider)
 	return slider._valueFormat
 end
 
--- slider:setValueFormat( valueFormat )
+-- format = slider:getResultingValueFormat( )
+function Cs.slider.getResultingValueFormat(slider)
+	if slider._valueFormat ~= "" then  return slider._valueFormat  end
+
+	return (slider._step > 1 and slider._step == math.floor(slider._step))
+	   and "%d"
+	   or  "%.2f"
+end
+
+-- slider:setValueFormat( format )
 -- An empty string means automatic format.
 function Cs.slider.setValueFormat(slider, valueFormat)
 	if type(valueFormat)~="string" then argerror(2,1,"valueFormat",valueFormat,"string") end
 	slider._valueFormat = valueFormat
+end
+
+
+
+-- text = slider:getValueText( )
+function Cs.slider.getValueText(slider)
+	-- @Incomplete: Special texts for specific user-defined values.
+	return F(slider:getResultingValueFormat(), slider._value)
 end
 
 
@@ -11136,6 +11224,29 @@ end
 
 
 
+-- REPLACE  cursor|nil = slider:getResultingMouseCursor( )
+function Cs.slider.getResultingMouseCursor(slider)
+	local cur = slider._mouseCursor or (slider._continuous and (slider._vertical and "sizens" or "sizewe") or nil)
+	if type(cur) ~= "string" then  return cur  end
+	return love.mouse.getSystemCursor(cur)
+end
+
+
+
+-- bool = slider:isContinuous( )
+function Cs.slider.isContinuous(slider)
+	return slider._continuous
+end
+
+-- slider:setContinuous( bool )
+function Cs.slider.setContinuous(slider, continuous)
+	if slider._continuous == continuous then  return  end
+	slider._continuous = continuous
+	scheduleLayoutUpdateIfDisplayed(slider)
+end
+
+
+
 --==============================================================
 --= Default theme ==============================================
 --==============================================================
@@ -11149,9 +11260,9 @@ defaultTheme = (function()
 
 	-- Settings.
 
-	local BUTTON_PADDING        = 3
-	local BUTTON_IMAGE_SPACING  = 3 -- Between text and image.
-	local BUTTON_TEXT_SPACING   = 6 -- Between the texts, if there are two.
+	local BUTTON_PADDING       = 3
+	local BUTTON_IMAGE_SPACING = 3 -- Between text and image.
+	local BUTTON_TEXT_SPACING  = 6 -- Between the texts, if there are two.
 
 	local INPUT_PADDING = 4
 
@@ -11161,16 +11272,18 @@ defaultTheme = (function()
 	local SLIDER_HANDLE_THICKNESS = 3
 	local SLIDER_MARKER_WIDTH     = 6
 
-	local NAV_EXTRA_SIZE        = 10 -- In each direction.
-	local NAV_SHRINK_DURATION   = .10
+	local CONTINUOUS_SLIDER_DEFAULT_WIDTH = 3 -- Relative to font size.
 
-	local SCROLLBAR_WIDTH       = 8
-	local SCROLLBAR_MIN_LENGTH  = 12
+	local NAV_EXTRA_SIZE      = 10 -- In each direction.
+	local NAV_SHRINK_DURATION = .10
 
-	local TEXT_PADDING          = 1 -- For text elements.
+	local SCROLLBAR_WIDTH      = 8
+	local SCROLLBAR_MIN_LENGTH = 12
 
-	local TOOLTIP_PADDING       = 3
-	local TOOLTIP_FADE_IN_TIME  = .15
+	local TEXT_PADDING = 1 -- For text elements.
+
+	local TOOLTIP_PADDING      = 3
+	local TOOLTIP_FADE_IN_TIME = .15
 
 
 
@@ -11206,6 +11319,18 @@ defaultTheme = (function()
 		"  FFFF  ",
 	}
 	local navigationQuads = Gui.create9SliceQuads(navigationImage, 3, 3)
+
+	local continuousSliderImage = Gui.newMonochromeImage{
+		"FF",
+		"66",
+		"22",
+		"00",
+		"00",
+		"22",
+		"66",
+		"FF",
+	}
+	continuousSliderImage:setFilter("linear", "linear")
 
 
 
@@ -11315,13 +11440,19 @@ defaultTheme = (function()
 			end,
 
 			-- Slider element.
-			-- size.slider( sliderElement, zeroWidth, zeroHeight, sliderIndentation )
-			["slider"] = function(slider, w, h, sliderIndent)
-				w = SLIDER_DEFAULT_LENGTH + 2*sliderIndent
-				h = SLIDER_WIDTH + 2*SLIDER_PADDING
+			-- size.slider( sliderElement, zeroWidth, zeroHeight, sliderIndentation, fontHeight )
+			["slider"] = function(slider, w, h, sliderIndent, fontH)
+				if slider:isContinuous() then
+					w = CONTINUOUS_SLIDER_DEFAULT_WIDTH*fontH + 2*SLIDER_PADDING
+					h = fontH + 2*SLIDER_PADDING
 
-				if slider:isVertical() then
-					w, h = h, w
+				else
+					w = SLIDER_DEFAULT_LENGTH + 2*sliderIndent
+					h = SLIDER_WIDTH + 2*SLIDER_PADDING
+
+					if slider:isVertical() then
+						w, h = h, w
+					end
 				end
 
 				return w, h
@@ -11559,44 +11690,57 @@ defaultTheme = (function()
 			-- Slider element.
 			-- draw.slider( inputElement, elementWidth, elementHeight, sliderIndentation )
 			["slider"] = function(slider, w, h, sliderIndent)
-				-- @Incomplete: _continuous
+				if slider:isContinuous() then
+					local opacity       = slider:isActive() and 1 or .3
+					local isHighlighted = (slider:isActive() and slider:isHovered()) or slider:isMouseFocus()
+					local a             = (isHighlighted and 1 or .7) * opacity
 
-				if slider:isVertical() then
-					love.graphics.push()
-					love.graphics.translate(w, 0)
-					love.graphics.rotate(TAU/4)
-					w, h = h, w
-				end
+					Gui.setColor(1, 1, 1, .6*a)
+					love.graphics.rectangle("fill", 0, 0,  2, h)
+					love.graphics.rectangle("fill", w, 0, -2, h)
+					love.graphics.draw(continuousSliderImage, 0,0, 0, w/continuousSliderImage:getWidth(),h/continuousSliderImage:getHeight())
 
-				local railX1  = sliderIndent
-				local railX2  = w - sliderIndent
-				local railW   = railX2 - railX1
-				local handleX = railX1 + railW * (slider:isVertical() and 1-slider:getNormalizedValue() or slider:getNormalizedValue())
-				local railY   = math.floor(.5*h)
+					Gui.setColor(1, 1, 1, opacity)
+					slider:useFont()
+					slider:drawValue(math.floor(w/2), math.floor(h/2), .5, .5)
 
-				local opacity       = slider:isActive() and 1 or .3
-				local isHighlighted = (slider:isActive() and slider:isHovered()) or slider:isMouseFocus()
-				local a             = (isHighlighted and 1 or .7) * opacity
+				else
+					if slider:isVertical() then
+						love.graphics.push()
+						love.graphics.translate(w, 0)
+						love.graphics.rotate(TAU/4)
+						w, h = h, w
+					end
 
-				-- Rail.
-				Gui.setColor(1, 1, 1, .7*a)
-				love.graphics.rectangle("fill", railX1, railY-1, railW, 2)
+					local railX1  = sliderIndent
+					local railX2  = w - sliderIndent
+					local railW   = railX2 - railX1
+					local handleX = railX1 + railW * (slider:isVertical() and 1-slider:getNormalizedValue() or slider:getNormalizedValue())
+					local railY   = math.floor(.5*h)
 
-				-- Helper markers.
-				Gui.setColor(1, 1, 1, .7*a)
-				love.graphics.rectangle("fill",            railX1                , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
-				love.graphics.rectangle("fill", math.floor(railX1+0.25*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
-				love.graphics.rectangle("fill", math.floor(railX1+0.50*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
-				love.graphics.rectangle("fill", math.floor(railX1+0.75*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
-				love.graphics.rectangle("fill",            railX2-1              , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+					local opacity       = slider:isActive() and 1 or .3
+					local isHighlighted = (slider:isActive() and slider:isHovered()) or slider:isMouseFocus()
+					local a             = (isHighlighted and 1 or .7) * opacity
 
-				-- Value handle.
-				Gui.setColor(1, 1, 1, a)
-				love.graphics.rectangle("fill", math.floor(handleX-.5*SLIDER_HANDLE_THICKNESS), railY-.5*SLIDER_WIDTH, SLIDER_HANDLE_THICKNESS, SLIDER_WIDTH)
+					-- Rail.
+					Gui.setColor(1, 1, 1, .7*a)
+					love.graphics.rectangle("fill", railX1, railY-1, railW, 2)
 
-				if slider:isVertical() then
-					love.graphics.pop()
-					w, h = h, w
+					-- Helper markers.
+					Gui.setColor(1, 1, 1, .7*a)
+					love.graphics.rectangle("fill",            railX1                , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+					love.graphics.rectangle("fill", math.floor(railX1+0.25*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+					love.graphics.rectangle("fill", math.floor(railX1+0.50*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+					love.graphics.rectangle("fill", math.floor(railX1+0.75*(railW-1)), railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+					love.graphics.rectangle("fill",            railX2-1              , railY-.5*SLIDER_MARKER_WIDTH, 1, SLIDER_MARKER_WIDTH)
+
+					-- Value handle.
+					Gui.setColor(1, 1, 1, a)
+					love.graphics.rectangle("fill", math.floor(handleX-.5*SLIDER_HANDLE_THICKNESS), railY-.5*SLIDER_WIDTH, SLIDER_HANDLE_THICKNESS, SLIDER_WIDTH)
+
+					if slider:isVertical() then
+						love.graphics.pop()
+					end
 				end
 			end,
 

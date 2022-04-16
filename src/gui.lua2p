@@ -108,7 +108,7 @@
 	isTriggeringOnMousepressed, setTriggerOnMousepressed
 	load
 	ok, back
-	updateLayout, scheduleLayoutUpdate, getLayoutUpdateTime
+	scheduleLayoutUpdate, updateLayoutNow, getLayoutUpdateTime
 
 
 
@@ -170,7 +170,7 @@
 	- scrollIntoView
 	- setScissor, unsetScissor
 	- showMenu
-	- updateLayout
+	- updateLayoutNow
 	- Event: beforedraw, afterdraw
 	- Event: close, closed
 	- Event: focused, blurred
@@ -269,7 +269,9 @@
 			- drawValue
 			- getMin, setMin, getMax, setMax
 			- getValue, getNormalizedValue, setValue, increase, decrease
-			- getValueFormat, setValueFormat
+			- getValueFormat, getResultingValueFormat, setValueFormat
+			- getValueText
+			- isContinuous, setContinuous
 			- isVertical, setVertical
 			- Event: change
 			- Event: valuechange
@@ -2485,6 +2487,7 @@ end
 
 -- element = gui:getHoveredElement( )
 function Gui.getHoveredElement(gui)
+	updateLayoutIfNeeded(gui)
 	return gui._hoveredElement
 end
 
@@ -2969,19 +2972,19 @@ end
 
 
 
--- gui:updateLayout( )
--- Force a layout update. (Should never be needed as it's done automatically.)
-function Gui.updateLayout(gui)
-	local root = gui._root
-	if root and not root._hidden then
-		updateLayout(root)
-	end
-end
-
 -- gui:scheduleLayoutUpdate( )
 -- Schedule a layout update. (Should never be needed as the layout is updated automatically.)
 function Gui.scheduleLayoutUpdate(gui)
 	gui._layoutNeedsUpdate = true
+end
+
+-- gui:updateLayoutNow( )
+-- Force a layout update. (Should never be needed as it's done automatically.)
+function Gui.updateLayoutNow(gui)
+	local root = gui._root
+	if root and not root._hidden then
+		updateLayout(root)
+	end
 end
 
 -- realTime = gui:getLayoutUpdateTime( )
@@ -3294,7 +3297,7 @@ Cs.element = newElementClass(true, "GuiElement", nil, {}, {
 	_style      = "",
 	_tags       = nil,
 
-	_mouseCursor = nil, -- cursor|systemCursorType|nil
+	_mouseCursor = nil, -- cursor | systemCursorType | nil
 	_sounds      = nil,
 
 	_tooltip            = "",
@@ -5276,10 +5279,10 @@ end
 
 
 
--- FINAL  element:updateLayout( )
+-- FINAL  element:updateLayoutNow( )
 -- Force a layout update. (Should never be needed as it's done automatically.)
--- Also see gui:updateLayout().
-function Cs.element.updateLayout(el)
+-- Also see gui:scheduleLayoutUpdate() and gui:updateLayoutNow().
+function Cs.element.updateLayoutNow(el)
 	updateLayout(el)
 end
 
@@ -5654,12 +5657,26 @@ end
 
 
 
--- bool = container:isScrollbarXHovered( )
--- bool = container:isScrollbarYHovered( )
-function Cs.container.isScrollbarXHovered(container)
-	local gui  = container._gui
-	local x, y = gui._mouseX, gui._mouseY
+-- -- bool = element:isHovered( [ ignoreMouseFocus=false ] )
+-- function Cs.element.isHovered(el, ignoreMouseFocus)
+-- 	local gui = el._gui
+-- 	updateLayoutIfNeeded(gui) -- Updates hovered element.
+-- 	return el == gui._hoveredElement and (ignoreMouseFocus or el == (gui._mouseFocus or el))
+-- end
+
+-- bool = container:isScrollbarXHovered( [ ignoreMouseFocus=false ] )
+-- bool = container:isScrollbarYHovered( [ ignoreMouseFocus=false ] )
+function Cs.container.isScrollbarXHovered(container, ignoreMouseFocus)
+	local gui = container._gui
+	local x   = gui._mouseX
+	local y   = gui._mouseY
 	if x == !(MOUSE_POS_UNKNOWN) then  return false  end
+
+	if container ~= gui:getHoveredElement() then  return false  end
+
+	if not (ignoreMouseFocus or container == (gui._mouseFocus or container)) then
+		return false
+	end
 
 	local x1, y1 = container:getPositionOnScreen()
 	local x2, y2 = x1+container:getChildAreaWidth(), y1+container._layoutHeight
@@ -5667,10 +5684,17 @@ function Cs.container.isScrollbarXHovered(container)
 
 	return x >= x1 and x < x2 and y >= y1 and y < y2
 end
-function Cs.container.isScrollbarYHovered(container)
-	local gui  = container._gui
-	local x, y = gui._mouseX, gui._mouseY
+function Cs.container.isScrollbarYHovered(container, ignoreMouseFocus)
+	local gui = container._gui
+	local x   = gui._mouseX
+	local y   = gui._mouseY
 	if x == !(MOUSE_POS_UNKNOWN) then  return false  end
+
+	if container ~= gui:getHoveredElement() then  return false  end
+
+	if not (ignoreMouseFocus or container == (gui._mouseFocus or container)) then
+		return false
+	end
 
 	local x1, y1 = container:getPositionOnScreen()
 	local x2, y2 = x1+container._layoutWidth, y1+container:getChildAreaHeight()
@@ -5679,12 +5703,19 @@ function Cs.container.isScrollbarYHovered(container)
 	return x >= x1 and x < x2 and y >= y1 and y < y2
 end
 
--- bool = container:isScrollbarXHandleHovered( )
--- bool = container:isScrollbarYHandleHovered( )
-function Cs.container.isScrollbarXHandleHovered(container)
-	local gui  = container._gui
-	local x, y = gui._mouseX, gui._mouseY
+-- bool = container:isScrollbarXHandleHovered( [ ignoreMouseFocus=false ] )
+-- bool = container:isScrollbarYHandleHovered( [ ignoreMouseFocus=false ] )
+function Cs.container.isScrollbarXHandleHovered(container, ignoreMouseFocus)
+	local gui = container._gui
+	local x   = gui._mouseX
+	local y   = gui._mouseY
 	if x == !(MOUSE_POS_UNKNOWN) then  return false  end
+
+	if container ~= gui:getHoveredElement() then  return false  end
+
+	if not (ignoreMouseFocus or container == (gui._mouseFocus or container)) then
+		return false
+	end
 
 	local handlePos, handleLen = container:getScrollHandleX()
 	local x1, y1               = container:getPositionOnScreen()
@@ -5697,10 +5728,17 @@ function Cs.container.isScrollbarXHandleHovered(container)
 
 	return x >= x1 and x < x2 and y >= y1 and y < y2
 end
-function Cs.container.isScrollbarYHandleHovered(container)
-	local gui  = container._gui
-	local x, y = gui._mouseX, gui._mouseY
+function Cs.container.isScrollbarYHandleHovered(container, ignoreMouseFocus)
+	local gui = container._gui
+	local x   = gui._mouseX
+	local y   = gui._mouseY
 	if x == !(MOUSE_POS_UNKNOWN) then  return false  end
+
+	if container ~= gui:getHoveredElement() then  return false  end
+
+	if not (ignoreMouseFocus or container == (gui._mouseFocus or container)) then
+		return false
+	end
 
 	local handlePos, handleLen = container:getScrollHandleY()
 	local x1, y1               = container:getPositionOnScreen()
@@ -8139,16 +8177,24 @@ Cs.slider = newElementClass(false, "GuiSlider", Cs.widget, {}, {
 	-- Parameters.
 	_value = 0.0,
 	_step  = 0.0, -- 0 means no step value.
-	_min   = 0,
-	_max   = 1,
+	_min   = 0.0,
+	_max   = 1.0,
 
-	_vertical   = false,
-	_continuous = false,
+	_vertical = false,
+
+	_continuous      = false,
+	_continuousSpeed = 0.01, -- Used if _continuous is set.
 
 	_valueFormat = "", -- Empty means automatic.
 	--
 
 	_savedValue = 0.0,
+
+	_continuousValue = 0.0,
+	_savedMouseX     = 0.0,
+	_savedMouseY     = 0.0,
+	_savedMouseRealX = 0,
+	_savedMouseRealY = 0,
 }, {
 	"change"     , -- function( sliderElement, event ) -- Triggered on blur and the value has changed since before focus.
 	"valuechange", -- function( sliderElement, event ) -- Triggered after every value change while focused.
@@ -8157,9 +8203,10 @@ Cs.slider = newElementClass(false, "GuiSlider", Cs.widget, {}, {
 function Cs.slider.init(slider, gui, elData, parent)
 	Cs.slider.super.init(slider, gui, elData, parent)
 
+	@@retrieve(slider, elData, _continuous,_continuousSpeed)
 	@@retrieve(slider, elData, _value,_step,_min,_max)
 	@@retrieve(slider, elData, _valueFormat)
-	@@retrieve(slider, elData, _vertical,_continuous)
+	@@retrieve(slider, elData, _vertical)
 
 	local v = slider._value
 	if slider._step ~= 0 then
@@ -8173,7 +8220,8 @@ end
 -- INTERNAL REPLACE  slider:_calculateNaturalSize( )
 function Cs.slider._calculateNaturalSize(slider)
 	local sliderIndent = themeGet(slider._gui, "sliderIndentation")
-	local w, h         = themeGetSize(slider, "slider", 0, 0, sliderIndent)
+	local fontH        = slider:getResultingFont():getHeight()
+	local w, h         = themeGetSize(slider, "slider", 0, 0, sliderIndent, fontH)
 
 	slider._layoutWidth, slider._layoutHeight = applySizeLimits(slider, w, h)
 
@@ -8211,12 +8259,7 @@ function Cs.slider.drawValue(slider, x, y, ax, ay)
 	ax = ax or 0
 	ay = ay or 0
 
-	local valueFormat = slider._valueFormat
-	if valueFormat == "" then
-		valueFormat = (slider._step == 1) and "%d" or "%.2f"
-	end
-
-	local text = F(valueFormat, slider._value)
+	local text = slider:getValueText()
 	local font = $LG.getFont() -- Should be the same font as getResultingFont() returns, but whatever.
 
 	if ax ~= 0 then  x = x - round(ax*font:getWidth(text))  end
@@ -8235,7 +8278,17 @@ function Cs.slider._mousepressed(slider, mx, my, mbutton, pressCount)
 	slider._savedValue = slider._value
 	slider._gui:navigateTo(slider._gui._navigationTarget and slider or nil)
 
-	slider:_mousemoved(mx, my, 0, 0)
+	if slider._continuous then
+		slider._continuousValue = slider._value
+		slider._savedMouseX     = mx
+		slider._savedMouseY     = my
+
+		slider._savedMouseRealX, slider._savedMouseRealY = love.mouse.getPosition()
+		love.mouse.setRelativeMode(true)
+
+	else
+		slider:_mousemoved(mx, my, 0, 0)
+	end
 
 	return true, true
 end
@@ -8251,12 +8304,23 @@ function Cs.slider._mousemoved(slider, mx, my, dx, dy)
 	end
 
 	local sliderIndent = themeGet(slider._gui, "sliderIndentation")
+	local v
 
-	-- @Incomplete: _continuous
-	local t = (mx-x-sliderIndent) / (w-2*sliderIndent)
-	if slider._vertical then t = 1-t  end
+	if slider._continuous then
+		v = slider._continuousValue - dy * slider._continuousSpeed
 
-	local v = lerp(slider._min, slider._max, t)
+		local overshoot = slider._continuousSpeed * 50 -- @Hardcoded: May want a parameter for this.
+		v               = clamp(v, slider._min-overshoot, slider._max+overshoot)
+
+		slider._continuousValue = v
+
+	else
+		local t = (mx-x-sliderIndent) / (w-2*sliderIndent)
+		if slider._vertical then  t = 1-t  end
+
+		v = lerp(slider._min, slider._max, t)
+	end
+
 	if slider._step ~= 0 then
 		v = round(v / slider._step) * slider._step
 	end
@@ -8271,6 +8335,13 @@ end
 
 -- INTERNAL REPLACE  slider:_mousereleased( mouseX, mouseY, mouseButton, pressCount )
 function Cs.slider._mousereleased(slider, mx, my, mbutton, pressCount)
+	if slider._continuous then
+		slider._gui:mousemoved(!(MOUSE_POS_UNKNOWN), !(MOUSE_POS_UNKNOWN), 0, 0) -- Maybe @Temp? It improves the glitchy situation.
+		love.mouse.setRelativeMode(false) -- @Bug: Fix mouse position flicker. Also, freeze gui._mouseX/Y.
+		love.mouse.setPosition(slider._savedMouseRealX, slider._savedMouseRealY)
+		-- @Incomplete: updateHoveredElement?
+	end
+
 	if slider._value ~= slider._savedValue then
 		trigger(slider, "change")
 	end
@@ -8344,16 +8415,33 @@ end
 
 
 
--- valueFormat = slider:getValueFormat( )
+-- format = slider:getValueFormat( )
 function Cs.slider.getValueFormat(slider)
 	return slider._valueFormat
 end
 
--- slider:setValueFormat( valueFormat )
+-- format = slider:getResultingValueFormat( )
+function Cs.slider.getResultingValueFormat(slider)
+	if slider._valueFormat ~= "" then  return slider._valueFormat  end
+
+	return (slider._step > 1 and slider._step == math.floor(slider._step))
+	   and "%d"
+	   or  "%.2f"
+end
+
+-- slider:setValueFormat( format )
 -- An empty string means automatic format.
 function Cs.slider.setValueFormat(slider, valueFormat)
 	!ARGS"2 valueFormat:string"
 	slider._valueFormat = valueFormat
+end
+
+
+
+-- text = slider:getValueText( )
+function Cs.slider.getValueText(slider)
+	-- @Incomplete: Special texts for specific user-defined values.
+	return F(slider:getResultingValueFormat(), slider._value)
 end
 
 
@@ -8367,6 +8455,29 @@ end
 function Cs.slider.setVertical(slider, vertical)
 	if slider._vertical == vertical then  return  end
 	slider._vertical = vertical
+	scheduleLayoutUpdateIfDisplayed(slider)
+end
+
+
+
+-- REPLACE  cursor|nil = slider:getResultingMouseCursor( )
+function Cs.slider.getResultingMouseCursor(slider)
+	local cur = slider._mouseCursor or (slider._continuous and (slider._vertical and "sizens" or "sizewe") or nil)
+	if type(cur) ~= "string" then  return cur  end
+	return $LM.getSystemCursor(cur)
+end
+
+
+
+-- bool = slider:isContinuous( )
+function Cs.slider.isContinuous(slider)
+	return slider._continuous
+end
+
+-- slider:setContinuous( bool )
+function Cs.slider.setContinuous(slider, continuous)
+	if slider._continuous == continuous then  return  end
+	slider._continuous = continuous
 	scheduleLayoutUpdateIfDisplayed(slider)
 end
 
