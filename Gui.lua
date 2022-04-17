@@ -98,7 +98,7 @@
 	getTextPreprocessor, setTextPreprocessor, reprocessTexts
 	getTheme, setTheme
 	getTime, getTimeSinceNavigation
-	getTooltipDelay, setTooltipDelay
+	getTooltipDelay, setTooltipDelay, getTooltipDuration, setTooltipDuration
 	isBusy, isKeyboardBusy, isMouseBusy
 	isCullingActive, setCullingActive
 	isIgnoringKeyboardInput
@@ -2913,10 +2913,12 @@ local Gui = newClass("Gui", {
 	_scrollSpeedY     = 3.5,
 	_scrollSmoothness = 60,
 
-	_time        = 0.0,
-	_tooltipTime = 0.0,
+	_time           = 0.0,
+	_tooltipTimer   = 0.0,
+	_tooltipElement = nil,
 
-	_tooltipDelay = 0.15,
+	_tooltipDelay    = 0.15,
+	_tooltipDuration = 10,
 
 	_theme  = nil,
 	_styles = nil,
@@ -3704,24 +3706,32 @@ end
 
 
 
-local function updateHoveredElement(gui)
-	local el = (gui._mouseX ~=  -999999) and gui:getElementAt(gui._mouseX, gui._mouseY, false) or nil
-	if gui._hoveredElement == el then  return  end
+local function updateTooltip(gui, el)
+	if el and el._tooltip == "" then
+		el = nil
+	end
 
-	local oldEl         = gui._hoveredElement
-	gui._hoveredElement = el
-
-	if not (el and oldEl and el._tooltip ~= "" and oldEl._tooltip ~= "" and gui._tooltipTime >= gui._tooltipDelay) then
-		-- @UX: Don't reset tooltip time instantly - add a delay.
-		gui._tooltipTime = 0
+	if el ~= gui._tooltipElement then
+		if not (el and gui._tooltipElement and gui._tooltipTimer >= gui._tooltipDelay) then
+			-- @UX: Don't reset tooltip time instantly - add a delay.
+			gui._tooltipTimer = 0
+		end
+		gui._tooltipElement = el
 	end
 end
 
--- Removes current navigation target if it isn't a valid target anymore.
-local function validateNavigationTarget(gui)
-	local nav = gui._navigationTarget
-	if nav and not gui:canNavigateTo(nav) then
+local function updateHoveredElement(gui)
+	gui._hoveredElement = (gui._mouseX ~=  -999999) and gui:getElementAt(gui._mouseX, gui._mouseY, false) or nil
+	updateTooltip(gui, gui._hoveredElement)
+end
+
+-- Removes current navigation target if it isn't a valid target anymore. Same with the tooltip element.
+local function validateVariousCurrentElements(gui)
+	if gui._navigationTarget and not gui:canNavigateTo(gui._navigationTarget) then
 		gui:navigateTo(nil)
+	end
+	if gui._tooltipElement and not gui._tooltipElement:exists() then -- @Speed: We may be able to skip this if gui:navigateTo() is called here above because it probably calls updateTooltip().
+		updateTooltip(gui, nil)
 	end
 end
 
@@ -4349,7 +4359,7 @@ end
 function Gui.update(gui, dt)
 	local time               = gui._time + dt
 	gui._time                = time
-	gui._tooltipTime         = gui._tooltipTime + dt
+	gui._tooltipTimer        = gui._tooltipTimer + dt
 	gui._timeSinceNavigation = gui._timeSinceNavigation + dt
 
 	local allAnims = gui._allAnimations
@@ -4425,65 +4435,67 @@ end
 
 -- gui:draw( )
 function Gui.draw(gui)
-	if gui._root and not gui._root._hidden then
-		updateLayoutIfNeeded(gui)
+	if not gui._root or gui._root._hidden then  return  end
 
-		--
-		-- Prepare navigation target. @Speed
-		--
-		local childToDrawNavTargetAfter = gui._navigationTarget
+	updateLayoutIfNeeded(gui)
 
-		if childToDrawNavTargetAfter then  while childToDrawNavTargetAfter._parent do
-			local parent = childToDrawNavTargetAfter._parent
+	--
+	-- Prepare navigation target. @Speed
+	--
+	local childToDrawNavTargetAfter = gui._navigationTarget
 
-			-- Draw at the current floating element. (All children of non-bar containers are floating.)
-			if not parent:is(Cs.bar) then
-				break
+	if childToDrawNavTargetAfter then  while childToDrawNavTargetAfter._parent do
+		local parent = childToDrawNavTargetAfter._parent
 
-			else
-				-- Draw before the next floating sibling if there are any. Hopefully the user
-				-- has placed all significant floating elements high up in the tree and not
-				-- inside non-floating wrappers!
-				for i = childToDrawNavTargetAfter:getIndex()+1, #parent do
-					if parent[i]._floating then
-						childToDrawNavTargetAfter = parent[i-1]
-						break
-					end
-				end
+		-- Draw at the current floating element. (All children of non-bar containers are floating.)
+		if not parent:is(Cs.bar) then
+			break
 
-				-- Confine to scrollable area.
-				if parent:canScrollAny() then
-					childToDrawNavTargetAfter = parent[#parent]
+		else
+			-- Draw before the next floating sibling if there are any. Hopefully the user
+			-- has placed all significant floating elements high up in the tree and not
+			-- inside non-floating wrappers!
+			for i = childToDrawNavTargetAfter:getIndex()+1, #parent do
+				if parent[i]._floating then
+					childToDrawNavTargetAfter = parent[i-1]
 					break
 				end
 			end
 
-			childToDrawNavTargetAfter = parent
-		end end
-
-		--
-		-- Draw stuff.
-		--
-		local cullX1, cullY1, cullX2, cullY2
-		if gui._culling then
-			local rootX, rootY, rootW, rootH = gui._root:getLayout()
-			cullX1 = rootX
-			cullY1 = rootY
-			cullX2 = rootX + rootW
-			cullY2 = rootY + rootH
-		else
-			cullX1 = -1/0
-			cullY1 = -1/0
-			cullX2 = 1/0
-			cullY2 = 1/0
+			-- Confine to scrollable area.
+			if parent:canScrollAny() then
+				childToDrawNavTargetAfter = parent[#parent]
+				break
+			end
 		end
 
-		gui._root:_draw(cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
+		childToDrawNavTargetAfter = parent
+	end end
 
-		if gui._hoveredElement and not gui._mouseFocus then
-			gui._hoveredElement:_drawTooltip()
+	--
+	-- Draw stuff.
+	--
+	local cullX1, cullY1, cullX2, cullY2
+	if gui._culling then
+		local rootX, rootY, rootW, rootH = gui._root:getLayout()
+		cullX1 = rootX
+		cullY1 = rootY
+		cullX2 = rootX + rootW
+		cullY2 = rootY + rootH
+	else
+		cullX1 = -1/0
+		cullY1 = -1/0
+		cullX2 = 1/0
+		cullY2 = 1/0
+	end
+
+	gui._root:_draw(cullX1, cullY1, cullX2, cullY2, childToDrawNavTargetAfter)
+
+	if gui._tooltipElement then
+		if gui._mouseFocus then
+			gui._tooltipElement = nil
 		else
-			gui._tooltipTime = 0 -- @Cleanup: We currently reset this in two places.
+			gui._tooltipElement:_drawTooltip()
 		end
 	end
 end
@@ -4987,6 +4999,9 @@ do
 		gui._navigationTarget    = widget
 		gui._timeSinceNavigation = 0
 
+		updateTooltip(gui, widget)
+		gui._tooltipTimer = 0 -- Always reset when navigating.
+
 		if widget then
 			widget:scrollIntoView(false)
 			if gui._navigateSoundSuppressionLevel == 0 then
@@ -5304,15 +5319,24 @@ end
 
 
 
--- delay = gui:getTooltipDelay( )
+-- delay    = gui:getTooltipDelay( )
+-- duration = gui:getTooltipDuration( )
 function Gui.getTooltipDelay(gui)
 	return gui._tooltipDelay
 end
+function Gui.getTooltipDuration(gui)
+	return gui._tooltipDuration
+end
 
 -- gui:setTooltipDelay( delay )
+-- gui:setTooltipDuration( duration )
 function Gui.setTooltipDelay(gui, delay)
 	if type(delay)~="number" then argerror(2,1,"delay",delay,"number") end
 	gui._tooltipDelay = delay
+end
+function Gui.setTooltipDuration(gui, duration)
+	if type(duration)~="number" then argerror(2,1,"duration",duration,"number") end
+	gui._tooltipDuration = duration
 end
 
 
@@ -5429,6 +5453,7 @@ end
 -- handled = gui:ok( )
 -- Trigger 'ok' action.
 function Gui.ok(gui)
+	updateTooltip(gui, nil)
 	local nav = gui._navigationTarget
 	if nav and nav._active then  return nav:_ok()  end
 	return false
@@ -5437,6 +5462,8 @@ end
 -- handled = gui:back( )
 -- Trigger 'back' action.
 function Gui.back(gui)
+	updateTooltip(gui, nil)
+
 	local root = gui._root
 	if not root or root._hidden then  return false  end
 
@@ -6034,7 +6061,10 @@ function Cs.element._drawTooltip(el)
 	local gui  = el._gui
 	local text = el._tooltip
 
-	if text == "" or gui._tooltipTime < gui._tooltipDelay then  return  end
+	if text == "" then  return  end
+
+	if gui._tooltipTimer < gui._tooltipDelay                      then  return  end
+	if gui._tooltipTimer > gui._tooltipDelay+gui._tooltipDuration then  return  end
 
 	local root = gui._root
 	local font = el:getResultingTooltipFont()
@@ -6050,7 +6080,13 @@ function Cs.element._drawTooltip(el)
 		y = math.max(y-h-el._layoutHeight, 0)
 	end
 
-	themeRenderOnScreen(el, "tooltip", x, y, w, h, text, textW, textH, gui._tooltipTime-gui._tooltipDelay)
+	themeRenderOnScreen(
+		el, "tooltip",
+		x, y, w, h,
+		text, textW, textH,
+		gui._tooltipTimer-gui._tooltipDelay,
+		gui._tooltipDelay+gui._tooltipDuration-gui._tooltipTimer
+	)
 end
 
 
@@ -7313,7 +7349,7 @@ function Cs.element.setHidden(el, hidden)
 	local gui          = el._gui
 
 	if wasDisplayed or isDisplayed then
-		if wasDisplayed then  validateNavigationTarget(gui)  end
+		if wasDisplayed then  validateVariousCurrentElements(gui)  end
 
 		gui._layoutNeedsUpdate = true
 
@@ -8583,7 +8619,7 @@ function Cs.container.insert(container, childData, i)
 		end
 	end
 
-	validateNavigationTarget(container._gui) -- Is this needed during insertions? @Cleanup
+	validateVariousCurrentElements(container._gui) -- This is needed in case we get new capturing elements.
 	scheduleLayoutUpdateIfDisplayed(child)
 
 	return child
@@ -8608,7 +8644,7 @@ function Cs.container.removeAt(container, i)
 	child._parent = nil
 	table.remove(container, i)
 
-	validateNavigationTarget(container._gui)
+	validateVariousCurrentElements(container._gui)
 	scheduleLayoutUpdateIfDisplayed(container)
 end
 
@@ -11282,8 +11318,8 @@ defaultTheme = (function()
 
 	local TEXT_PADDING = 1 -- For text elements.
 
-	local TOOLTIP_PADDING      = 3
-	local TOOLTIP_FADE_IN_TIME = .15
+	local TOOLTIP_PADDING       = 3
+	local TOOLTIP_FADE_DURATION = .15
 
 
 
@@ -11789,9 +11825,10 @@ defaultTheme = (function()
 			end,
 
 			-- Tooltip.
-			-- draw.tooltip( element, tooltipWidth, tooltipHeight, text, textWidth, textHeight, timeVisible )
-			["tooltip"] = function(el, w, h, text, textW, textH, timeVisible)
-				local opacity = math.min(timeVisible/TOOLTIP_FADE_IN_TIME, 1)
+			-- draw.tooltip( element, tooltipWidth, tooltipHeight, text, textWidth, textHeight, timeVisible, timeUntilInvisible )
+			["tooltip"] = function(el, w, h, text, textW, textH, timeVisible, timeUntilInvisible)
+				local opacity = math.min(timeVisible, timeUntilInvisible) / TOOLTIP_FADE_DURATION
+				opacity       = math.min(opacity, 1)
 
 				-- Background.
 				Gui.setColor(1, 1, 1, opacity)
@@ -11801,7 +11838,8 @@ defaultTheme = (function()
 				love.graphics.rectangle("line", .5, .5, w-1, h-1)
 
 				-- Text.
-				local x, y = TOOLTIP_PADDING, TOOLTIP_PADDING
+				local x = TOOLTIP_PADDING
+				local y = TOOLTIP_PADDING
 				el:useTooltipFont()
 				Gui.setColor(0, 0, 0, opacity)
 				el:drawTooltip(x, y)

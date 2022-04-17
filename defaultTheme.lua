@@ -61,8 +61,8 @@ local SCROLLBAR_MIN_LENGTH = 12
 
 local TEXT_PADDING = 1 -- For text elements.
 
-local TOOLTIP_PADDING      = 3
-local TOOLTIP_FADE_IN_TIME = .15
+local TOOLTIP_PADDING       = 3
+local TOOLTIP_FADE_DURATION = .15
 
 
 
@@ -568,9 +568,10 @@ return {
 		end,
 
 		-- Tooltip.
-		-- draw.tooltip( element, tooltipWidth, tooltipHeight, text, textWidth, textHeight, timeVisible )
-		["tooltip"] = function(el, w, h, text, textW, textH, timeVisible)
-			local opacity = math.min(timeVisible/TOOLTIP_FADE_IN_TIME, 1)
+		-- draw.tooltip( element, tooltipWidth, tooltipHeight, text, textWidth, textHeight, timeVisible, timeUntilInvisible )
+		["tooltip"] = function(el, w, h, text, textW, textH, timeVisible, timeUntilInvisible)
+			local opacity = math.min(timeVisible, timeUntilInvisible) / TOOLTIP_FADE_DURATION
+			opacity       = math.min(opacity, 1)
 
 			-- Background.
 			Gui.setColor(1, 1, 1, opacity)
@@ -580,7 +581,8 @@ return {
 			love.graphics.rectangle("line", .5, .5, w-1, h-1)
 
 			-- Text.
-			local x, y = TOOLTIP_PADDING, TOOLTIP_PADDING
+			local x = TOOLTIP_PADDING
+			local y = TOOLTIP_PADDING
 			el:useTooltipFont()
 			Gui.setColor(0, 0, 0, opacity)
 			el:drawTooltip(x, y)
