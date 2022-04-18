@@ -141,7 +141,7 @@
 	- getParent, getAllParents, hasParent, getParentWithId, hasParentWithId, parents, parentsr, lineageUp
 	- getPathDescription
 	- getPosition, setPosition, getX, setX, getY, setY
-	- getPositionOnScreen, getXOnScreen, getYOnScreen, getLayoutOnScreen
+	- getPositionOnScreen, getXOnScreen, getYOnScreen, getLayoutOnScreen, getCenterPositionOnScreen
 	- getRelativeDimensions, getRelativeWidth, getRelativeHeight, setRelativeDimensions, setRelativeWidth, setRelativeHeight
 	- getResultingTooltipFont, useTooltipFont
 	- getRoot, getNavigationRoot
@@ -709,11 +709,19 @@ end
 
 
 
--- index = indexOf( array, value )
--- index = indexOf( container, element )
+-- index|nil = indexOf( array, value )
+-- index|nil = indexOf( container, element )
 local function indexOf(arr, v)
-	for i, item in ipairs(arr) do
-		if item == v then  return i  end
+	for i = 1, #arr do
+		if arr[i] == v then  return i  end
+	end
+	return nil
+end
+
+-- index|nil = lastIndexOf( array, value )
+local function lastIndexOf(arr, v)
+	for i = #arr, 1, -1 do
+		if arr[i] == v then  return i  end
 	end
 	return nil
 end
@@ -1261,6 +1269,8 @@ end
 
 
 
+local getTimerTime = nil
+
 -- didUpdate = updateLayout( element )
 local function updateLayout(el)
 	-- Guard against accidental recursion (specifically the 'layout' event
@@ -1281,8 +1291,8 @@ local function updateLayout(el)
 	end
 	gui._isUpdatingLayout = true
 
-	local getTime = (love.timer and love.timer.getTime) or (pcall(require, "socket") and require"socket".gettime) or os.clock
-	local time    = getTime()
+	getTimerTime = getTimerTime or (love.timer and love.timer.getTime) or (pcall(require, "socket") and require"socket".gettime) or os.clock
+	local time   = getTimerTime()
 
 	root:_calculateNaturalSize()
 
@@ -1296,7 +1306,7 @@ local function updateLayout(el)
 	root._layoutHeight = root._height
 	root:_expandAndPositionChildren()
 
-	gui._layoutUpdateTime  = getTime() - time -- We don't include the time the layout event takes.
+	gui._layoutUpdateTime  = getTimerTime() - time -- We don't include the time the layout event takes.
 	gui._layoutNeedsUpdate = false
 
 	root:visitVisible(@@LAMBDA(triggerIncludingAnimations, function(innerEl)
@@ -2675,7 +2685,8 @@ end
 -- x, y, width, height = converter( x, y, width, height )
 --
 -- If the graphics transform is changed outside the GUI system then a scissor
--- coordinate converter is needed for scissoring to work properly.
+-- coordinate converter is needed for scissoring to work properly (for inputs
+-- and scrollable containers).
 --
 function Gui.setScissorCoordsConverter(gui, converter)
 	gui._scissorCoordsConverter = converter
@@ -3798,39 +3809,114 @@ end
 
 
 do
-	!local MAX_ANGLE_DIFF = TAU/4
+	local function countScrollables(parents, toIndex)
+		local count = 0
+		for i = 1, toIndex do
+			if parents[i]:canScrollAny() then  count = count + 1  end
+		end
+		return count
+	end
 
-	local function _getClosestInDirection(navRoot, class, fromX,fromY, angle, ignoreCapture, elToIgnore)
+	local function getScrollableJumps(el, otherElParents, abortAtJumps)
+		local jumps = 0
+
+		while true do
+			el = el._parent
+			if not el then  break  end
+
+			local i = indexOf(otherElParents, el)
+			if i then
+				jumps = jumps + countScrollables(otherElParents, i-1)
+				break
+			end
+
+			if el:canScrollAny() then
+				jumps = jumps + 1
+				if jumps == abortAtJumps then  return jumps  end
+			end
+		end
+
+		return jumps
+	end
+
+	-- element|nil = _getClosestInDirection( elements, class, fromX,fromY, angle, ignoreCapture, elementToIgnore|nil )
+	local function _getClosestInDirection(elements, class, fromX,fromY, angle, ignoreCapture, elToIgnore)
 		fromX = round(fromX)
 		fromY = round(fromY)
 
-		local closestEl      = nil
-		local closestDistSqr = 1/0
-		local closestAngDiff = 1/0
+		local elParents = @@STATIC{}
+		@@EMPTY(elParents)
 
-		for _, el in ipairs(navRoot:collectVisible(@@STATIC{})) do
-			if el ~= elToIgnore and el:is(class) then
-				local x, y = el:getPositionOnScreen()
-				x          = math.min(math.max(fromX, x+.01), x+el._layoutWidth -.01)
-				y          = math.min(math.max(fromY, y+.01), y+el._layoutHeight-.01)
+		if elToIgnore then
+			local parent = elToIgnore
+			while true do
+				parent = parent._parent
+				if not parent then
+					break
+				else
+					table.insert(elParents, parent)
+				end
+			end
+		end
 
-				local dx      = x - fromX
-				local dy      = y - fromY
-				local distSqr = dx*dx + dy*dy
+		local closestEl                 = nil
+		local closestDistSq             = 1/0
+		local closestDistSqForJumpCount = 1/0
+		local closestAngDiff            = 1/0
+		local closestScrollableJumps    = 1/0
 
-				if distSqr <= closestDistSqr then
-					local angDiff = math.atan2(dy, dx) - angle
-					angDiff       = math.abs(math.atan2(math.sin(angDiff), math.cos(angDiff))) -- Normalize.
+		local min   = math.min
+		local max   = math.max
+		local sin   = math.sin
+		local cos   = math.cos
+		local atan2 = math.atan2
+		local abs   = math.abs
 
-					if angDiff < !(MAX_ANGLE_DIFF) and (distSqr < closestDistSqr or (distSqr == closestDistSqr and angDiff < closestAngDiff)) then
-						closestEl      = el
-						closestDistSqr = distSqr
+		-- print("_getClosestInDirection")
+
+		-- @Speed!!!
+		for _, otherEl in ipairs(elements) do
+			if otherEl ~= elToIgnore and otherEl:is(class) then
+				local x, y = otherEl:getPositionOnScreen()
+				local x1   = x + .01
+				local y1   = y + .01
+				local x2   = x - .01 + otherEl._layoutWidth
+				local y2   = y - .01 + otherEl._layoutHeight
+				x          = clamp(fromX, x1, x2) -- @Incomplete: Handle overlapping elements.
+				y          = clamp(fromY, y1, y2)
+
+				local dx = x - fromX
+				local dy = y - fromY
+
+				!local MAX_ANGLE_DIFF = TAU/8
+
+				local angDiff = atan2(dy, dx) - angle
+				angDiff       = abs(atan2(sin(angDiff), cos(angDiff))) -- Normalize. @Speed
+
+				if angDiff < !(MAX_ANGLE_DIFF) then
+					local jumps  = elToIgnore and getScrollableJumps(otherEl, elParents, closestScrollableJumps+1) or 0
+					local distSq = dx*dx + dy*dy
+
+					-- @Incomplete: This fails jumping from one scrollable sibling to another
+					-- if there are valid targets outside scrollables in farther siblings.
+
+					if jumps < closestScrollableJumps then
+						-- print("jumps", jumps, "angDiff", round(math.deg(angDiff)), otherEl:getPathDescription())
+						closestEl              = otherEl
+						closestDistSq          = distSq
+						closestAngDiff         = angDiff
+						closestScrollableJumps = jumps
+
+					elseif jumps == closestScrollableJumps and distSq < closestDistSq then
+						-- print("jumps", "-"  , "angDiff", round(math.deg(angDiff)), otherEl:getPathDescription())
+						closestEl      = otherEl
+						closestDistSq  = distSq
 						closestAngDiff = angDiff
 					end
 				end
 			end
 
-			if not ignoreCapture and (el._captureInput or el._captureGuiInput) then
+			if not ignoreCapture and (otherEl._captureInput or otherEl._captureGuiInput) then
 				break
 			end
 		end
@@ -3841,25 +3927,32 @@ do
 	-- otherElement|nil = element:getClosestInDirection( angle [, elementType="widget", ignoreInputCaptureState=false, ignoreConfinement=false ] )
 	function Cs.element.getClosestInDirection(el, angle, elType, ignoreCapture, ignoreConfinement)
 		!ARGS"2 angle:number ? elType:string ignoreCapture,ignoreConfinement:boolean"
+		-- local time = love.timer.getTime()
 
 		local class = elType and requireElementClass(elType, 2) or Cs.widget
 
 		updateLayoutIfNeeded(el._gui)
 
-		local navRoot = ignoreConfinement and el._gui._root or el:getNavigationRoot()
+		-- @Robustness @Speed: The way we do things here is not great!
+		-- @Robustness @Speed: The way we do things here is not great!
+		-- @Robustness @Speed: The way we do things here is not great!
 
-		local centerX, centerY = el:getLayoutCenterPosition() -- @Cleanup: Use getPositionOnScreen().
+		local navRoot  = ignoreConfinement and el._gui._root or el:getNavigationRoot()
+		local elements = navRoot:collectVisible(@@STATIC{})
 
-		local fromX     = centerX + el._layoutOffsetX + .495*el._layoutWidth *math.cos(angle)
-		local fromY     = centerY + el._layoutOffsetY + .495*el._layoutHeight*math.sin(angle)
-		local closestEl = _getClosestInDirection(navRoot, class, fromX,fromY, angle, ignoreCapture, el)
+		local centerX, centerY = el:getCenterPositionOnScreen()
+
+		local fromX     = centerX + .495*el._layoutWidth *math.cos(angle)
+		local fromY     = centerY + .495*el._layoutHeight*math.sin(angle)
+		local closestEl = _getClosestInDirection(elements, class, fromX,fromY, angle, ignoreCapture, el)
 
 		if not closestEl and not ignoreConfinement and navRoot._confineNavigation then
-			fromX     = centerX + el._layoutOffsetX - 10000*math.cos(angle)
-			fromY     = centerY + el._layoutOffsetY - 10000*math.sin(angle)
-			closestEl = _getClosestInDirection(navRoot, class, fromX,fromY, angle, ignoreCapture, nil)
+			fromX     = centerX - 10000*math.cos(angle)
+			fromY     = centerY - 10000*math.sin(angle)
+			closestEl = _getClosestInDirection(elements, class, fromX,fromY, angle, ignoreCapture, nil)
 		end
 
+		-- print("time", (love.timer.getTime()-time)*1000)
 		return closestEl
 	end
 end
@@ -4479,7 +4572,7 @@ local parts = {}
 
 -- description = element:getPathDescription( )
 function Cs.element.getPathDescription(el)
-	for i = 1, #parts do  parts[i] = nil  end
+	@@EMPTY(parts)
 
 	while true do
 		-- Note that we construct the description in reverse.
@@ -4572,6 +4665,14 @@ function Cs.element.getLayoutOnScreen(el, ignoreSmoothScrolling)
 	if    ignoreSmoothScrolling
 	then  return el._layoutX+el._layoutImmediateOffsetX, el._layoutY+el._layoutImmediateOffsetY, el._layoutWidth, el._layoutHeight
 	else  return el._layoutX+el._layoutOffsetX         , el._layoutY+el._layoutOffsetY         , el._layoutWidth, el._layoutHeight  end
+end
+
+-- x, y = element:getCenterPositionOnScreen( [ ignoreSmoothScrolling=false ] )
+function Cs.element.getCenterPositionOnScreen(el, ignoreSmoothScrolling)
+	updateLayoutIfNeeded(el._gui)
+	if    ignoreSmoothScrolling
+	then  return el._layoutX+.5*el._layoutWidth+el._layoutImmediateOffsetX, el._layoutY+.5*el._layoutHeight+el._layoutImmediateOffsetY
+	else  return el._layoutX+.5*el._layoutWidth+el._layoutOffsetX         , el._layoutY+.5*el._layoutHeight+el._layoutOffsetY           end
 end
 
 
@@ -6516,11 +6617,11 @@ do
 	function Cs.container.collectVisible(container, x, y, elements)
 		if y then
 			elements = elements or {}
-			for i = 1, #elements do  elements[i] = nil  end
+			@@EMPTY(elements)
 			_collectVisibleAt(container, x, y, themeGet(container._gui, "scrollbarWidth"), elements)
 		else
 			elements = x or {}
-			for i = 1, #elements do  elements[i] = nil  end
+			@@EMPTY(elements)
 			_collectVisible(container, elements)
 		end
 		return elements
@@ -6530,11 +6631,11 @@ do
 	-- INTERNAL  elements = container:_collectVisibleUntilInputCapture( x, y, array )
 	function Cs.container._collectVisibleUntilInputCapture(container, x, y, elements)
 		if y then
-			for i = 1, #elements do  elements[i] = nil  end
+			@@EMPTY(elements)
 			_collectVisibleUntilInputCaptureAt(container, x, y, themeGet(container._gui, "scrollbarWidth"), elements)
 		else
 			elements = x
-			for i = 1, #elements do  elements[i] = nil  end
+			@@EMPTY(elements)
 			_collectVisibleUntilInputCapture(container, elements)
 		end
 		return elements

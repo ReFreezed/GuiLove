@@ -76,6 +76,11 @@ function pp.metaEnvironment.LAMBDA(...)
 	return call
 end
 
+-- @@EMPTY( array )
+function pp.metaEnvironment.EMPTY(arrIdent)
+	return "for i = 1, #"..arrIdent.." do  "..arrIdent.."[i] = nil  end"
+end
+
 pp.processFile{
 	pathIn   = "src/gui.lua2p",
 	pathOut  = "Gui.lua",
