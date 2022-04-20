@@ -245,7 +245,6 @@
 			button
 			- Includes: imageInclude
 			- drawText2, drawAlignedText2
-			- getArrow
 			- getText2, getUnprocessedText2, setText2
 			- isPressable, setPressable
 			- isToggled, setToggled
@@ -7554,8 +7553,6 @@ Cs.button = newElementClass(false, "GuiButton", Cs.widget, {"imageInclude"}, {
 
 	_toggledSprite   = nil,
 	_untoggledSprite = nil,
-
-	_arrow = nil, -- @Cleanup: We're not using this internally. Should it be removed in favor of element.data?
 	--
 
 	_isPressed = false,
@@ -7573,7 +7570,6 @@ function Cs.button.init(button, gui, elData, parent)
 	Cs.button.super.init(button, gui, elData, parent)
 	initImageInclude(button, elData)
 
-	@@retrieve(button, elData, _arrow)
 	@@retrieve(button, elData, _canToggle)
 	@@retrieve(button, elData, _close)
 	@@retrieve(button, elData, _imagePadding)
@@ -7632,13 +7628,6 @@ function Cs.button._draw(button, cullX1, cullY1, cullX2, cullY2, childToDrawNavT
 	)
 
 	triggerIncludingAnimations(button, "afterdraw", x, y, w, h)
-end
-
-
-
--- arrow|nil = button:getArrow( )
-function Cs.button.getArrow(button)
-	return button._arrow
 end
 
 

@@ -69,45 +69,40 @@ local TOOLTIP_FADE_DURATION = .15
 -- Images.
 
 local buttonBackgroundImage = Gui.newMonochromeImage{
-	" FFFF ",
-	"FFFFFF",
-	"FFFFFF",
-	"FFFFFF",
-	"FFFFFF",
-	" FFFF ",
+	"3cffffc3",
+	"cffffffc",
+	"ffffffff",
+	"ffffffff",
+	"ffffffff",
+	"ffffffff",
+	"cffffffc",
+	"3cffffc3",
 }
-local buttonBackgroundQuads = Gui.create9SliceQuads(buttonBackgroundImage, 2, 2)
-
-local buttonArrowImage = Gui.newMonochromeImage{
-	"F  ",
-	"FF ",
-	"FFF",
-	"FF ",
-	"F  ",
-}
-local buttonArrowLength = buttonArrowImage:getWidth()
+local buttonBackgroundQuads = Gui.create9SliceQuads(buttonBackgroundImage, 3, 3)
 
 local navigationImage = Gui.newMonochromeImage{
-	"  FFFF  ",
-	" F2222F ",
-	"F222222F",
-	"F222222F",
-	"F222222F",
-	"F222222F",
-	" F2222F ",
-	"  FFFF  ",
+	" 4cffffc4 ",
+	"4e822228e4",
+	"c82222228c",
+	"f22222222f",
+	"f22222222f",
+	"f22222222f",
+	"f22222222f",
+	"c82222228c",
+	"4e822228e4",
+	" 4cffffc4 ",
 }
-local navigationQuads = Gui.create9SliceQuads(navigationImage, 3, 3)
+local navigationQuads = Gui.create9SliceQuads(navigationImage, 4, 4)
 
 local continuousSliderImage = Gui.newMonochromeImage{
-	"FF",
+	"ff",
 	"66",
 	"22",
 	"00",
 	"00",
 	"22",
 	"66",
-	"FF",
+	"ff",
 }
 continuousSliderImage:setFilter("linear", "linear")
 
@@ -170,10 +165,9 @@ return {
 		-- size.button( buttonElement, text1Width, text2Width, textHeight, imageWidth, imageHeight )
 		["button"] = function(button, text1W, text2W, textH, imageW, imageH)
 			--
-			-- Buttons generally have 3 main states: only image, only text, or both image and text.
-			-- The text can include two texts - a main and a secondary. Buttons can also have
-			-- an arrow pointing in any axis-aligned direction. In this theme all these parameters
-			-- affects the size and looks differently.
+			-- Buttons generally have 3 main states: only image, only text, or both image
+			-- and text. The text can include two texts - a main and a secondary. In this
+			-- theme all these parameters affects the size and looks differently.
 			--
 			local textW = text1W + (text2W > 0 and BUTTON_TEXT_SPACING+text2W or 0)
 			local w, h
@@ -196,16 +190,6 @@ return {
 
 			w = w + 2*BUTTON_PADDING
 			h = h + 2*BUTTON_PADDING
-
-			local arrow = button:getArrow()
-
-			if arrow == "left" or arrow == "right" then
-				w = w + buttonArrowLength
-			elseif arrow == "up" or arrow == "down" then
-				h = h + buttonArrowLength
-			else
-				-- No arrow.
-			end
 
 			return w, h
 		end,
@@ -294,30 +278,11 @@ return {
 		-- Button element.
 		-- draw.button( buttonElement, elementWidth, elementHeight, text1Width, text2Width, textHeight, imageWidth )
 		["button"] = function(button, w, h, text1W, text2W, textH, imageW, imageH)
-			-- Exclude any arrow from our position and dimensions.
-			-- We'll draw the arrow outside these new bounds.
-			local arrow = button:getArrow()
-			local x, y  = 0, 0
-
-			if     arrow == "right" then
-				w = w-buttonArrowLength
-			elseif arrow == "down"  then
-				h = h-buttonArrowLength
-			elseif arrow == "left"  then
-				w = w-buttonArrowLength
-				x = x+buttonArrowLength
-			elseif arrow == "up"    then
-				h = h-buttonArrowLength
-				y = y+buttonArrowLength
-			else
-				-- No arrow
-			end
-
 			local align = button:getAlign()
 
-			local midX  = x + math.floor(w/2)
-			local midY  = y + math.floor(h/2)
-			local textY = y + math.floor((h-textH)/2)
+			local midX  = math.floor(w/2)
+			local midY  = math.floor(h/2)
+			local textY = math.floor((h-textH)/2)
 
 			local opacity = button:isActive() and 1 or .3
 
@@ -334,23 +299,9 @@ return {
 			local a = .8 * opacity
 
 			Gui.setColor(r, g, b, a)
-			Gui.draw9SliceScaled(x+1, y+1, w-2, h-2, buttonBackgroundImage, unpack(buttonBackgroundQuads))
+			Gui.draw9SliceScaled(1, 1, w-2, h-2, buttonBackgroundImage, unpack(buttonBackgroundQuads))
 
-			-- Arrow.
-			if arrow and button:isToggled() then
-				local image  = buttonArrowImage
-				local arrLen = buttonArrowLength
-
-				Gui.setColor(1, 1, 1)
-
-				if     arrow == "right" then  love.graphics.draw(image, x+(w-1),                    y+math.floor((h-arrLen)/2), 0*TAU/4)
-				elseif arrow == "down"  then  love.graphics.draw(image, x+math.floor((w+arrLen)/2), y+(h-1),                    1*TAU/4)
-				elseif arrow == "left"  then  love.graphics.draw(image, x+(1),                      y+math.floor((h+arrLen)/2), 2*TAU/4)
-				elseif arrow == "up"    then  love.graphics.draw(image, x+math.floor((w-arrLen)/2), y+(1),                      3*TAU/4)
-				end
-			end
-
-			button:setScissor(x+2, y+2, w-2*2, h-2*2) -- Make sure the contents does not render outside the element.
+			button:setScissor(2, 2, w-2*2, h-2*2) -- Make sure the contents does not render outside the element.
 
 			-- Only image.
 			-- @Incomplete: Support 'align' for no-text image buttons.
@@ -368,14 +319,14 @@ return {
 				local text1X, text2X
 
 				if align == "left" then
-					text1X      = x + BUTTON_PADDING
-					text2X      = math.max(x+w-BUTTON_PADDING-text2W, text1X+text1W+BUTTON_TEXT_SPACING)
+					text1X      = BUTTON_PADDING
+					text2X      = math.max(w-BUTTON_PADDING-text2W, text1X+text1W+BUTTON_TEXT_SPACING)
 				elseif align == "right" then
-					text1X      = math.max(x+w-BUTTON_PADDING-text1W, x+BUTTON_PADDING)
-					text2X      = math.min(x+BUTTON_PADDING, text1X-BUTTON_TEXT_SPACING-text2W)
+					text1X      = math.max(w-BUTTON_PADDING-text1W, BUTTON_PADDING)
+					text2X      = math.min(BUTTON_PADDING, text1X-BUTTON_TEXT_SPACING-text2W)
 				elseif align == "center" then
 					local textW = text1W+(text2W > 0 and BUTTON_TEXT_SPACING+text2W or 0)
-					text1X      = math.max(midX-math.floor(textW/2), x+BUTTON_PADDING)
+					text1X      = math.max(midX-math.floor(textW/2), BUTTON_PADDING)
 					text2X      = text1X + text1W + BUTTON_TEXT_SPACING
 				end
 
@@ -395,14 +346,14 @@ return {
 			else
 				if button:hasImageBackgroundColor() then
 					button:useImageBackgroundColor(opacity)
-					love.graphics.rectangle("fill", x+BUTTON_PADDING, math.floor(midY-imageH/2), imageW, imageH)
+					love.graphics.rectangle("fill", BUTTON_PADDING, math.floor(midY-imageH/2), imageW, imageH)
 				end
 
-				local text1X = x   + BUTTON_PADDING + imageW + BUTTON_IMAGE_SPACING
-				local text2X = x+w - BUTTON_PADDING - text2W
+				local text1X =     BUTTON_PADDING + imageW + BUTTON_IMAGE_SPACING
+				local text2X = w - BUTTON_PADDING - text2W
 
 				button:useImageColor(opacity)
-				button:drawImage(x+BUTTON_PADDING, math.floor(midY-imageH/2))
+				button:drawImage(BUTTON_PADDING, math.floor(midY-imageH/2))
 
 				button:useFont()
 				Gui.setColor(1, 1, 1, .6*opacity)
