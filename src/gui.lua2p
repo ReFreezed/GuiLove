@@ -3876,16 +3876,20 @@ do
 		-- @Speed!!!
 		for _, otherEl in ipairs(elements) do
 			if otherEl ~= elToIgnore and otherEl:is(class) then
-				local x, y = otherEl:getPositionOnScreen()
-				local x1   = x + .01
-				local y1   = y + .01
-				local x2   = x - .01 + otherEl._layoutWidth
-				local y2   = y - .01 + otherEl._layoutHeight
-				x          = clamp(fromX, x1, x2) -- @Incomplete: Handle overlapping elements.
-				y          = clamp(fromY, y1, y2)
+				local x1, y1 = otherEl:getPositionOnScreen()
+				local x2     = x1 + otherEl._layoutWidth
+				local y2     = y1 + otherEl._layoutHeight
+				local dx, dy
 
-				local dx = x - fromX
-				local dy = y - fromY
+				if fromX < x1+.01 or fromY < y1+.01 or fromX > x2-.01 or fromY > y2-.01 or not elToIgnore then
+					dx = clamp(fromX, x1+.01, x2-.01) - fromX
+					dy = clamp(fromY, y1+.01, y2-.01) - fromY
+
+				else
+					dx = .000001 * (.5*(x1+x2) - (elToIgnore:getXOnScreen()+.5*elToIgnore._layoutWidth ))
+					dy = .000001 * (.5*(y1+y2) - (elToIgnore:getYOnScreen()+.5*elToIgnore._layoutHeight))
+					-- print(dx/.000001, dy/.000001, math.sqrt(dx*dx+dy*dy), getScrollableJumps(otherEl, elParents, 1/0), otherEl:getPathDescription())
+				end
 
 				!local MAX_ANGLE_DIFF = TAU/8
 
@@ -3900,14 +3904,14 @@ do
 					-- if there are valid targets outside scrollables in farther siblings.
 
 					if jumps < closestScrollableJumps then
-						-- print("jumps", jumps, "angDiff", round(math.deg(angDiff)), otherEl:getPathDescription())
+						-- printf("jumps=%d\tdist=%.6f\tangDiff=%d\t%s", jumps, math.sqrt(distSq), round(math.deg(angDiff)), otherEl:getPathDescription())
 						closestEl              = otherEl
 						closestDistSq          = distSq
 						closestAngDiff         = angDiff
 						closestScrollableJumps = jumps
 
 					elseif jumps == closestScrollableJumps and distSq < closestDistSq then
-						-- print("jumps", "-"  , "angDiff", round(math.deg(angDiff)), otherEl:getPathDescription())
+						-- printf("jumps=%s\tdist=%.6f\tangDiff=%d\t%s", "^"  , math.sqrt(distSq), round(math.deg(angDiff)), otherEl:getPathDescription())
 						closestEl      = otherEl
 						closestDistSq  = distSq
 						closestAngDiff = angDiff
