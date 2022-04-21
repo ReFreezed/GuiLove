@@ -297,7 +297,7 @@
 	create9SliceQuads
 	draw9SliceScaled, draw9SliceRepeated
 	getDefaultFont
-	lerp, lerpColor
+	lerp, lerpColor, damp, remap
 	newMonochromeImage, newImageUsingPalette
 	parseTargetAndEvent
 	round
@@ -4309,11 +4309,23 @@ function _M.lerpColor(r1,g1,b1,a1, r2,g2,b2,a2, t)
 	end
 end
 
+-- value = Gui.damp( currentValue, targetValue, lambda, deltaTime )
+-- Make a value decelerate / move towards another value over an infinite amount of time.
+-- Higher lambda values means the movement takes longer.
+-- lambda=0 means no interpolation (i.e. reach target immediately).
+-- Example: newX = Gui.damp(lastX, targetX, 100, dt)
+_M.damp = damp
+
+-- value = Gui.remap( value, fromLow,fromHigh, toLow,toHigh )
+-- Remap a value from one range to another.
+function _M.remap(v, from1,from2, to1,to2)
+	return lerp(to1, to2, (v-from1)/(from2-from1))
+end
+
 
 
 -- Gui.setColor( red, green, blue [, alpha=1 ] )
--- Set the current color in LÖVE. Color component values are within
--- the range of 0 to 1 (even in LÖVE versions prior to 11.0).
+-- Set the current color in LÖVE. Color component values are within the range of 0 to 1 (even in LÖVE versions prior to 11.0).
 _M.setColor = setColor
 
 
