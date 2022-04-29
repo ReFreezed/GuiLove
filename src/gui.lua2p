@@ -247,10 +247,11 @@
 			- drawText2, drawAlignedText2
 			- getText2, getUnprocessedText2, setText2
 			- isPressable, setPressable
+			- isRadio, getRadio, setRadio
 			- isToggled, setToggled
 			- press, isPressed
 			- Event: press
-			- Event: toggle
+			- Event: toggle, toggleon, toggleoff
 
 			input
 			- drawValue, drawPlaceholder, drawValueOrPlaceholder, drawSelections
@@ -1516,20 +1517,17 @@ end
 
 
 local function updateContainerNaturalSize(container, contentW, contentH)
-	local w = container._width -- May be negative, which means dynamic (i.e. hasDynamic*() should return true).
-	local h = container._height
+	container._contentWidth  = contentW
+	container._contentHeight = contentH
 
-	container._contentWidth  = container:hasFixedWidth () and w-container:getInnerSpaceX() or contentW
-	container._contentHeight = container:hasFixedHeight() and h-container:getInnerSpaceY() or contentH
+	local w = container:hasFixedWidth () and container._width  or contentW+container:getInnerSpaceX()
+	local h = container:hasFixedHeight() and container._height or contentH+container:getInnerSpaceY()
 
-	if container:hasDynamicWidth() then
-		w = math.max(container._contentWidth+container:getInnerSpaceX(), container._minWidth)
-		if container._maxWidth >= 0 then  w = math.min(w, container._maxWidth)  end
-	end
-	if container:hasDynamicHeight() then
-		h = math.max(container._contentHeight+container:getInnerSpaceY(), container._minHeight)
-		if container._maxHeight >= 0 then  h = math.min(h, container._maxHeight)  end
-	end
+	w = math.max(w, container._minWidth )
+	h = math.max(h, container._minHeight)
+
+	if container._maxWidth  >= 0 then  w = math.min(w, container._maxWidth )  end
+	if container._maxHeight >= 0 then  h = math.min(h, container._maxHeight)  end
 
 	container._layoutWidth  = w
 	container._layoutHeight = h
@@ -1769,8 +1767,8 @@ end
 --
 -- image     = Gui.newImageUsingPalette( pixelRows, palette )
 -- pixelRows = { pixelRow1, ... }
--- pixelRow: String with single-character palette indices. Invalid indices count as transparent pixels.
--- palette   = { ["index"]=color... }
+-- pixelRow: String with single-character palette indices. Invalid indices count as transparent white pixels.
+-- palette   = { ["index"]=color, ... }
 -- color     = { red, green, blue [, alpha=1 ] }
 --
 -- Example:
@@ -6077,17 +6075,28 @@ function Cs.container.getVisibleChildCount(container)
 	return count
 end
 
--- visibleChild = container:setVisibleChild( id )
+-- visibleChild = container:setVisibleChild( id|index )
 -- If multiple children have the given ID then the last one is returned.
--- @Cleanup: Rename to setVisibleChildById()? Maybe more functions should be changed too.
-function Cs.container.setVisibleChild(container, id)
+-- @Cleanup: Split into setVisibleChildById() and setVisibleChildByIndex()? Maybe more functions should be changed too.
+function Cs.container.setVisibleChild(container, idOrIndex)
 	local visibleChild = nil
-	for _, child in ipairs(container) do
-		if child._id == id then
-			child:show()
-			visibleChild = child
-		else
-			child:hide()
+	if type(idOrIndex) == "number" then
+		for i, child in ipairs(container) do
+			if i == idOrIndex then
+				child:show()
+				visibleChild = child
+			else
+				child:hide()
+			end
+		end
+	else
+		for _, child in ipairs(container) do
+			if child._id == idOrIndex then
+				child:show()
+				visibleChild = child
+			else
+				child:hide()
+			end
 		end
 	end
 	return visibleChild
@@ -6425,12 +6434,24 @@ function Cs.container.getToggledChild(container, deep)
 end
 
 -- button|nil = container:setToggledChild( id [, includeGrandchildren=false ] )
+-- button|nil = container:setToggledChild( index )
 -- If multiple children have the given ID then the last one is returned.
-function Cs.container.setToggledChild(container, id, deep)
+function Cs.container.setToggledChild(container, idOrIndex, deep)
 	local toggledChild = nil
-	if deep then
+	if type(idOrIndex) == "number" then
+		for i, child in ipairs(container) do
+			if child:is(Cs.button) then
+				if i == idOrIndex then
+					child:setToggled(true)
+					toggledChild = child
+				else
+					child:setToggled(false)
+				end
+			end
+		end
+	elseif deep then
 		for button in container:traverseType"button" do
-			if button._id == id then
+			if button._id == idOrIndex then
 				button:setToggled(true)
 				toggledChild = button
 			else
@@ -6440,7 +6461,7 @@ function Cs.container.setToggledChild(container, id, deep)
 	else
 		for _, child in ipairs(container) do
 			if child:is(Cs.button) then
-				if child._id == id then
+				if child._id == idOrIndex then
 					child:setToggled(true)
 					toggledChild = child
 				else
@@ -6821,7 +6842,7 @@ end
 	local canScrollPerp = bar:canScroll$XYPERP()
 	local expandPerp    = bar._expandPerpendicular and (bar._layout$WHPERP - bar:getInnerSpace$XYPERP()) or nil
 
-	if canScrollPerp then
+	if canScrollPerp and expandPerp then
 		expandPerp = math.max(expandPerp, bar._content$WHPERP)
 	end
 
@@ -6929,18 +6950,23 @@ end
 		end
 	end
 
+	local maxPerp = base$XYPERP
+
 	for _, child in ipairs(bar) do
 		if child._hidden then
 			-- void
 		elseif child._floating then
 			expandAndPositionFloatingElement(child, innerWidth, innerHeight)
+			-- Should we update maxPerp here? If so then we should update $advance too appropriately.
 		else
 			child:_expandAndPositionChildren()
+			maxPerp = math.max(maxPerp, child._layout$XYPERP+child._layout$WHPERP)
 		end
 	end
 
 	-- Make sure scrolling uses the final expanded content size.
-	bar._content$WH = $advance
+	bar._content$WH     = $advance
+	bar._content$WHPERP = maxPerp - base$XYPERP
 
 	updateScroll(bar)
 !end
@@ -7578,8 +7604,10 @@ Cs.button = newElementClass(false, "GuiButton", Cs.widget, {"imageInclude"}, {
 
 	_unprocessedText2 = "",
 }, {
-	"press" , -- function( buttonElement, event )
-	"toggle", -- function( buttonElement, event )
+	"press"    , -- function( buttonElement, event )
+	"toggle"   , -- function( buttonElement, event )
+	"toggleon" , -- function( buttonElement, event )
+	"toggleoff", -- function( buttonElement, event )
 })
 
 function Cs.button.init(button, gui, elData, parent)
@@ -7744,7 +7772,26 @@ function Cs.button.setToggled(button, toggled)
 		button:setSprite(button._untoggledSprite)
 	end
 
+	trigger(button, (toggled and "toggleon" or "toggleoff"))
 	trigger(button, "toggle")
+end
+
+
+
+-- bool = button:isRadio( )
+function Cs.button.isRadio(button)
+	return button._radio ~= ""
+end
+
+-- radioName = button:getRadio( )
+function Cs.button.getRadio(button)
+	return button._radio
+end
+
+-- button:setRadio( radioName )
+-- An empty name disables radio.
+function Cs.button.setRadio(button, radioName)
+	button._radio = radioName
 end
 
 
@@ -7810,10 +7857,11 @@ function Cs.button.press(button, ignoreActiveState)
 
 	-- Press/toggle the button.
 	local preparedSound = button._canToggle and prepareSound(button, "toggle") or prepareSound(button, "press") -- "toggle" falls back to "press".
+	local toggled       = button._toggled
 
 	if button._canToggle then
 		if button._radio ~= "" then
-			if button._toggled then  return true  end -- Assume this is the only toggled button in the radio group.
+			if toggled then  return true  end -- Assume this is the only toggled button in the radio group.
 
 			for otherButton in button:getRoot():traverseType"button" do
 				if otherButton == button then
@@ -7825,7 +7873,7 @@ function Cs.button.press(button, ignoreActiveState)
 			end
 		end
 
-		local toggled   = not button._toggled
+		toggled         = not toggled
 		button._toggled = toggled -- We need to toggle before the press event in case the callback uses the value.
 
 		if toggled and button._toggledSprite then
@@ -7838,7 +7886,10 @@ function Cs.button.press(button, ignoreActiveState)
 	button._gui._ignoreKeyboardInputThisFrame = true
 
 	trigger(button, "press")
-	if button._canToggle then  trigger(button, "toggle")  end
+	if button._canToggle then
+		trigger(button, (toggled and "toggleon" or "toggleoff"))
+		trigger(button, "toggle")
+	end
 
 	button:triggerBubbling("pressed", button)
 

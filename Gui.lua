@@ -247,10 +247,11 @@
 			- drawText2, drawAlignedText2
 			- getText2, getUnprocessedText2, setText2
 			- isPressable, setPressable
+			- isRadio, getRadio, setRadio
 			- isToggled, setToggled
 			- press, isPressed
 			- Event: press
-			- Event: toggle
+			- Event: toggle, toggleon, toggleoff
 
 			input
 			- drawValue, drawPlaceholder, drawValueOrPlaceholder, drawSelections
@@ -321,86 +322,146 @@ end
 local newClass   = (function()
 	--[[============================================================
 	--=
-	--=  Simple class library
+	--=  BarelyOOP - simple, bare bones, optimized class library
+	--=  - Written by Marcus 'ReFreezed' Thunström
+	--=  - CC0 License (https://creativecommons.org/publicdomain/zero/1.0/)
 	--=
 	--==============================================================
 
 		classLib = require("class")
 
-		myClass  = classLib( className, baseTable ) -- Create a new class.
-		subClass = myClass:extend( className, baseTable ) -- Create a subclass.
+		myClass  = classLib( className, [ includes, ] baseTable ) -- Create a new class.
+		subclass = myClass:extend( className, [ includes, ] baseTable ) -- Create a subclass.
 
-		subClass.super -- Access the parent class.
+		subclass.super -- Access the parent class.
 
-		instance = myClass(...) -- Create a new instance (which calls myClass:init(...)).
+		instance = myClass(...) -- Create a new instance (which calls myClass.init(instance, ...)).
 		bool     = instance:is( class ) -- Check if the instance inherits a class.
 
 		instance.class -- Access the instance's class.
 
+		string = tostring( class|instance )
+
+		Notes:
+		- Subclasses are completely detached from their parent (members are copied over when extending).
+		- Because of the above, static class members ought to be constant as changes are not propagated to derived classes.
+		- Subclasses have to manually call the parent's init function, if that's desired.
+
+	----------------------------------------------------------------
+
+		--
+		-- Example #1: Base and derived button class.
+		--
+		local Button = classLib("Button", {
+			text     = "Default text.",
+			position = nil,
+		})
+		function Button:init()
+			self.position = {x=0, y=0}
+		end
+		function Button:printText()
+			print(self.text)
+		end
+
+		local CoolButton = Button:extend("CoolButton", {
+			coolness = 0,
+		})
+		function CoolButton:init(coolness)
+			CoolButton.super.init(self)
+			self.position.y = 300
+			self.coolness   = coolness
+		end
+
+		local button1 = Button()
+		button1.text  = "Foo!"
+
+		local button2      = Button()
+		button2.text       = "Bar?"
+		button2.position.x = 80
+
+		local button3 = CoolButton(9001)
+		button3:printText()
+
+		--
+		-- Example #2: Includes.
+		--
+		local Text = classLib("Text", {
+			text = "",
+		})
+		function Text:setText(text)
+			self.text = text
+		end
+
+		local Image = classLib("Image", {
+			filePath = "",
+		})
+
+		local TextAndImage = classLib("TextAndImage", {Text,Image}, {
+			spacing = 5,
+		})
+
+		local header = TextAndImage()
+		header:setText("Foo!")
+
 	--============================================================]]
 
 	local setmetatable = setmetatable
-	local tostring     = tostring
-	local match        = string.match
-	local gsub         = string.gsub
-	local F            = string.format
+	local format       = string.format
+	local dummyTable   = {}
+	local zeroX        = tostring(dummyTable):match"0x" or "" -- For __tostring(). LuaJIT uses 0x address prefix, PUC-Lua does not.
 
 	local classMt = {
 		__call = function(class, ...)
-			local instance = {--[[ class=class, __id="" ]]} -- The ID is generated when needed.
-
+			local instance = {--[[ class=class, __id="" ]]} -- The ID is generated when needed in __tostring().
 			setmetatable(instance, class)
 			instance:init(...)
-
 			return instance
 		end,
 
 		__tostring = function(class)
-			return F("class: %s", class.__name)
+			return format("class(%s): %s%s", class.__name, zeroX, class.__classid)
 		end,
 	}
 
-	-- class = newClass( name, classTable )
-	local function newClass(name, class)
-		-- Instances use their class as metatable.
-		class.__index = class
-		class.__name  = name
-		class.class   = class
+	local function getId(t)
+		local id = tostring(t)
+		return (zeroX ~= "") and id:match"0x(%x+)" or id:gsub("^table: ", "")
+	end
+
+	local function copyMissingMembers(class, members)
+		for k, v in pairs(members) do
+			if class[k] == nil then  class[k] = v  end
+		end
+	end
+
+	local function newClass(parentClass, name, includes, class)
+		if not class then
+			includes, class = nil, includes
+		end
+
+		class.__index   = class        -- Instances use their class as metatable.
+		class.__name    = name         -- For __tostring().
+		class.__classid = getId(class) -- For __tostring().
+		class.class     = class        -- So instance.class works.
+		class.super     = parentClass
+
+		if parentClass then
+			copyMissingMembers(class, parentClass) -- Subclasses do NOT use parent classes as metatables - we just copy everything over.
+		end
+		for _, t in ipairs(includes or dummyTable) do
+			copyMissingMembers(class, t)
+		end
+
 		return setmetatable(class, classMt)
 	end
 
-	local BaseClass = newClass("Class", {
-		__tostring = function(instance)
-			if not instance.__id then
-				local class = getmetatable(instance)
-				setmetatable(instance, nil)
+	local BaseClass = newClass(nil, "Class", {
+		init   = function()end, -- It's safe for any class to call the parent's init().
+		extend = newClass,
 
-				local id      = tostring(instance)
-				instance.__id = match(id, "0x(%x+)") or gsub(id, "^table: ", "")
-
-				setmetatable(instance, class)
-			end
-
-			return F("%s: 0x%s", instance.class.__name, instance.__id)
-		end,
-
-		-- subClass = class:extend( name, subClassTable )
-		extend = function(class, name, subClass)
-			-- Subclasses do NOT use superclasses as metatables - we just copy everything over.
-			for k, v in pairs(class) do
-				if subClass[k] == nil then  subClass[k] = v  end
-			end
-
-			subClass.super = class
-
-			return newClass(name, subClass)
-		end,
-
-		-- bool = instance:is( class )
 		is = function(instance, class)
 			local currentClass = instance.class
 
-			-- Look through the whole inheritance.
 			while currentClass do
 				if currentClass == class then  return true  end
 				currentClass = currentClass.super
@@ -409,12 +470,23 @@ local newClass   = (function()
 			return false
 		end,
 
-		init = function()end,
+		__tostring = function(instance)
+			if not instance.__id then
+				local setMt = debug and debug.setmetatable or setmetatable
+				local class = instance.class
+				setMt(instance, nil) -- We prefer debug.setmetatable() over setmetatable() in case class.__metatable is set.
+				instance.__id = getId(instance)
+				setMt(instance, class)
+			end
+			return format("%s: %s%s", instance.__name, zeroX, instance.__id)
+		end,
 	})
 
-	return function(...)
-		return BaseClass:extend(...)
-	end
+	return setmetatable({_VERSION="0.1.0", base=BaseClass}, {
+		__call = function(_M, name, includes, subclass)
+			return BaseClass:extend(name, includes, subclass)
+		end,
+	})
 
        end)()
 local InputField = (function()
@@ -3991,20 +4063,17 @@ end
 
 
 local function updateContainerNaturalSize(container, contentW, contentH)
-	local w = container._width -- May be negative, which means dynamic (i.e. hasDynamic*() should return true).
-	local h = container._height
+	container._contentWidth  = contentW
+	container._contentHeight = contentH
 
-	container._contentWidth  = container:hasFixedWidth () and w-container:getInnerSpaceX() or contentW
-	container._contentHeight = container:hasFixedHeight() and h-container:getInnerSpaceY() or contentH
+	local w = container:hasFixedWidth () and container._width  or contentW+container:getInnerSpaceX()
+	local h = container:hasFixedHeight() and container._height or contentH+container:getInnerSpaceY()
 
-	if container:hasDynamicWidth() then
-		w = math.max(container._contentWidth+container:getInnerSpaceX(), container._minWidth)
-		if container._maxWidth >= 0 then  w = math.min(w, container._maxWidth)  end
-	end
-	if container:hasDynamicHeight() then
-		h = math.max(container._contentHeight+container:getInnerSpaceY(), container._minHeight)
-		if container._maxHeight >= 0 then  h = math.min(h, container._maxHeight)  end
-	end
+	w = math.max(w, container._minWidth )
+	h = math.max(h, container._minHeight)
+
+	if container._maxWidth  >= 0 then  w = math.min(w, container._maxWidth )  end
+	if container._maxHeight >= 0 then  h = math.min(h, container._maxHeight)  end
 
 	container._layoutWidth  = w
 	container._layoutHeight = h
@@ -4244,8 +4313,8 @@ end
 --
 -- image     = Gui.newImageUsingPalette( pixelRows, palette )
 -- pixelRows = { pixelRow1, ... }
--- pixelRow: String with single-character palette indices. Invalid indices count as transparent pixels.
--- palette   = { ["index"]=color... }
+-- pixelRow: String with single-character palette indices. Invalid indices count as transparent white pixels.
+-- palette   = { ["index"]=color, ... }
 -- color     = { red, green, blue [, alpha=1 ] }
 --
 -- Example:
@@ -8573,17 +8642,28 @@ function Cs.container.getVisibleChildCount(container)
 	return count
 end
 
--- visibleChild = container:setVisibleChild( id )
+-- visibleChild = container:setVisibleChild( id|index )
 -- If multiple children have the given ID then the last one is returned.
--- @Cleanup: Rename to setVisibleChildById()? Maybe more functions should be changed too.
-function Cs.container.setVisibleChild(container, id)
+-- @Cleanup: Split into setVisibleChildById() and setVisibleChildByIndex()? Maybe more functions should be changed too.
+function Cs.container.setVisibleChild(container, idOrIndex)
 	local visibleChild = nil
-	for _, child in ipairs(container) do
-		if child._id == id then
-			child:show()
-			visibleChild = child
-		else
-			child:hide()
+	if type(idOrIndex) == "number" then
+		for i, child in ipairs(container) do
+			if i == idOrIndex then
+				child:show()
+				visibleChild = child
+			else
+				child:hide()
+			end
+		end
+	else
+		for _, child in ipairs(container) do
+			if child._id == idOrIndex then
+				child:show()
+				visibleChild = child
+			else
+				child:hide()
+			end
 		end
 	end
 	return visibleChild
@@ -8922,12 +9002,24 @@ function Cs.container.getToggledChild(container, deep)
 end
 
 -- button|nil = container:setToggledChild( id [, includeGrandchildren=false ] )
+-- button|nil = container:setToggledChild( index )
 -- If multiple children have the given ID then the last one is returned.
-function Cs.container.setToggledChild(container, id, deep)
+function Cs.container.setToggledChild(container, idOrIndex, deep)
 	local toggledChild = nil
-	if deep then
+	if type(idOrIndex) == "number" then
+		for i, child in ipairs(container) do
+			if child:is(Cs.button) then
+				if i == idOrIndex then
+					child:setToggled(true)
+					toggledChild = child
+				else
+					child:setToggled(false)
+				end
+			end
+		end
+	elseif deep then
 		for button in container:traverseType"button" do
-			if button._id == id then
+			if button._id == idOrIndex then
 				button:setToggled(true)
 				toggledChild = button
 			else
@@ -8937,7 +9029,7 @@ function Cs.container.setToggledChild(container, id, deep)
 	else
 		for _, child in ipairs(container) do
 			if child:is(Cs.button) then
-				if child._id == id then
+				if child._id == idOrIndex then
 					child:setToggled(true)
 					toggledChild = child
 				else
@@ -9441,7 +9533,7 @@ function Cs.hbar._expandAndPositionChildren(bar)
 	local canScrollPerp = bar:canScrollY()
 	local expandPerp    = bar._expandPerpendicular and (bar._layoutHeight - bar:getInnerSpaceY()) or nil
 
-	if canScrollPerp then
+	if canScrollPerp and expandPerp then
 		expandPerp = math.max(expandPerp, bar._contentHeight)
 	end
 
@@ -9549,18 +9641,23 @@ function Cs.hbar._expandAndPositionChildren(bar)
 		end
 	end
 
+	local maxPerp = baseY
+
 	for _, child in ipairs(bar) do
 		if child._hidden then
 			-- void
 		elseif child._floating then
 			expandAndPositionFloatingElement(child, innerWidth, innerHeight)
+			-- Should we update maxPerp here? If so then we should update $advance too appropriately.
 		else
 			child:_expandAndPositionChildren()
+			maxPerp = math.max(maxPerp, child._layoutY+child._layoutHeight)
 		end
 	end
 
 	-- Make sure scrolling uses the final expanded content size.
-	bar._contentWidth = x
+	bar._contentWidth     = x
+	bar._contentHeight = maxPerp - baseY
 
 	updateScroll(bar)
 
@@ -9592,7 +9689,7 @@ function Cs.vbar._expandAndPositionChildren(bar)
 	local canScrollPerp = bar:canScrollX()
 	local expandPerp    = bar._expandPerpendicular and (bar._layoutWidth - bar:getInnerSpaceX()) or nil
 
-	if canScrollPerp then
+	if canScrollPerp and expandPerp then
 		expandPerp = math.max(expandPerp, bar._contentWidth)
 	end
 
@@ -9700,18 +9797,23 @@ function Cs.vbar._expandAndPositionChildren(bar)
 		end
 	end
 
+	local maxPerp = baseX
+
 	for _, child in ipairs(bar) do
 		if child._hidden then
 			-- void
 		elseif child._floating then
 			expandAndPositionFloatingElement(child, innerWidth, innerHeight)
+			-- Should we update maxPerp here? If so then we should update $advance too appropriately.
 		else
 			child:_expandAndPositionChildren()
+			maxPerp = math.max(maxPerp, child._layoutX+child._layoutWidth)
 		end
 	end
 
 	-- Make sure scrolling uses the final expanded content size.
-	bar._contentHeight = y
+	bar._contentHeight     = y
+	bar._contentWidth = maxPerp - baseX
 
 	updateScroll(bar)
 
@@ -10342,8 +10444,10 @@ Cs.button = newElementClass(false, "GuiButton", Cs.widget, {"imageInclude"}, {
 
 	_unprocessedText2 = "",
 }, {
-	"press" , -- function( buttonElement, event )
-	"toggle", -- function( buttonElement, event )
+	"press"    , -- function( buttonElement, event )
+	"toggle"   , -- function( buttonElement, event )
+	"toggleon" , -- function( buttonElement, event )
+	"toggleoff", -- function( buttonElement, event )
 })
 
 function Cs.button.init(button, gui, elData, parent)
@@ -10508,7 +10612,26 @@ function Cs.button.setToggled(button, toggled)
 		button:setSprite(button._untoggledSprite)
 	end
 
+	trigger(button, (toggled and "toggleon" or "toggleoff"))
 	trigger(button, "toggle")
+end
+
+
+
+-- bool = button:isRadio( )
+function Cs.button.isRadio(button)
+	return button._radio ~= ""
+end
+
+-- radioName = button:getRadio( )
+function Cs.button.getRadio(button)
+	return button._radio
+end
+
+-- button:setRadio( radioName )
+-- An empty name disables radio.
+function Cs.button.setRadio(button, radioName)
+	button._radio = radioName
 end
 
 
@@ -10574,10 +10697,11 @@ function Cs.button.press(button, ignoreActiveState)
 
 	-- Press/toggle the button.
 	local preparedSound = button._canToggle and prepareSound(button, "toggle") or prepareSound(button, "press") -- "toggle" falls back to "press".
+	local toggled       = button._toggled
 
 	if button._canToggle then
 		if button._radio ~= "" then
-			if button._toggled then  return true  end -- Assume this is the only toggled button in the radio group.
+			if toggled then  return true  end -- Assume this is the only toggled button in the radio group.
 
 			for otherButton in button:getRoot():traverseType"button" do
 				if otherButton == button then
@@ -10589,7 +10713,7 @@ function Cs.button.press(button, ignoreActiveState)
 			end
 		end
 
-		local toggled   = not button._toggled
+		toggled         = not toggled
 		button._toggled = toggled -- We need to toggle before the press event in case the callback uses the value.
 
 		if toggled and button._toggledSprite then
@@ -10602,7 +10726,10 @@ function Cs.button.press(button, ignoreActiveState)
 	button._gui._ignoreKeyboardInputThisFrame = true
 
 	trigger(button, "press")
-	if button._canToggle then  trigger(button, "toggle")  end
+	if button._canToggle then
+		trigger(button, (toggled and "toggleon" or "toggleoff"))
+		trigger(button, "toggle")
+	end
 
 	button:triggerBubbling("pressed", button)
 
